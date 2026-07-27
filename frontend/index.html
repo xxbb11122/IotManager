@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IoT Manager — 设备仪表盘</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>📡</text></svg>">
+</head>
+<body>
+
+<!-- Top Bar -->
+<div class="topbar">
+  <div style="display:flex;align-items:center;">
+    <span class="dot"></span>
+    <h1>IoT Manager</h1>
+  </div>
+  <div class="topbar-right">
+    <span id="clock">—</span>
+    <span class="live-badge"><span class="ring"></span> LIVE</span>
+  </div>
+</div>
+
+<!-- Main Layout -->
+<div class="main">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-title">设备状态</div>
+      <div class="sidebar-item active" data-filter="all">全部设备 <span class="count" id="cnt-all">0</span></div>
+      <div class="sidebar-item" data-filter="ONLINE">在线 <span class="count" id="cnt-online" style="color:var(--green)">0</span></div>
+      <div class="sidebar-item" data-filter="WARNING">告警 <span class="count" id="cnt-warning" style="color:var(--amber)">0</span></div>
+      <div class="sidebar-item" data-filter="OFFLINE">离线 <span class="count" id="cnt-offline" style="color:var(--red)">0</span></div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-title">设备类型</div>
+      <div class="sidebar-item" data-filter-type="SENSOR">传感器 <span class="count" id="cnt-sensor">0</span></div>
+      <div class="sidebar-item" data-filter-type="GATEWAY">网关 <span class="count" id="cnt-gateway">0</span></div>
+      <div class="sidebar-item" data-filter-type="ACTUATOR">执行器 <span class="count" id="cnt-actuator">0</span></div>
+      <div class="sidebar-item" data-filter-type="CAMERA">摄像头 <span class="count" id="cnt-camera">0</span></div>
+    </div>
+  </aside>
+
+  <!-- Content -->
+  <main class="content">
+
+    <!-- Stats Row -->
+    <div class="stats-row">
+      <div class="stat-card total"><div><div class="stat-num" id="stat-total">0</div><div class="stat-label">设备总数</div></div><div class="stat-icon">📡</div></div>
+      <div class="stat-card online"><div><div class="stat-num" id="stat-online">0</div><div class="stat-label">在线</div></div><div class="stat-icon">🟢</div></div>
+      <div class="stat-card warning"><div><div class="stat-num" id="stat-warning">0</div><div class="stat-label">告警</div></div><div class="stat-icon">⚠️</div></div>
+      <div class="stat-card offline"><div><div class="stat-num" id="stat-offline">0</div><div class="stat-label">离线</div></div><div class="stat-icon">🔴</div></div>
+    </div>
+
+    <!-- Charts -->
+    <div class="charts-row">
+      <div class="panel">
+        <div class="panel-header"><h2>CPU 使用率分布</h2></div>
+        <div class="panel-body chart-box"><canvas id="chart-cpu"></canvas></div>
+      </div>
+      <div class="panel">
+        <div class="panel-header"><h2>设备在线趋势</h2></div>
+        <div class="panel-body chart-box"><canvas id="chart-trend"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Device Table -->
+    <div class="panel">
+      <div class="panel-header">
+        <h2>设备列表</h2>
+        <input type="text" class="search-box" id="device-search" placeholder="搜索设备名称或ID...">
+      </div>
+      <div class="panel-body" style="overflow-x:auto;">
+        <table class="tbl">
+          <thead><tr>
+            <th>设备名称</th><th>ID</th><th>类型</th><th>协议</th><th>状态</th><th>温度</th><th>CPU</th><th>信号</th><th>最后在线</th>
+          </tr></thead>
+          <tbody id="device-tbody"></tbody>
+        </table>
+        <div class="empty" id="device-empty" style="display:none;">没有匹配的设备</div>
+      </div>
+    </div>
+
+    <!-- Alerts -->
+    <div class="panel">
+      <div class="panel-header"><h2>活跃告警</h2></div>
+      <div class="panel-body" id="alerts-container">
+        <div class="empty">加载中...</div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IoT Manager — 管理控制台</title>
+</head>
+<body>
+
+<!-- Top Bar -->
+<div class="topbar">
+  <h1>⚙️ 管理控制台</h1>
+  <div class="topbar-right">
+    <span id="clock">—</span>
+    <a href="http://localhost:5173" target="_blank">仪表盘 ↗</a>
+    <a href="http://localhost:8080/h2-console" target="_blank">H2 ↗</a>
+  </div>
+</div>
+
+<!-- Main Layout -->
+<div class="main">
+
+  <!-- Navigation -->
+  <nav class="nav-panel">
+    <div class="nav-item active" data-page="dashboard">📊 概览</div>
+    <div class="nav-item" data-page="devices">📡 设备管理</div>
+    <div class="nav-item" data-page="register">➕ 注册设备</div>
+    <div class="nav-item" data-page="alerts">🔔 告警中心</div>
+  </nav>
+
+  <!-- Content -->
+  <main class="content">
+
+    <!-- ═══════ Dashboard ═══════ -->
+    <section class="page active" id="page-dashboard">
+      <div class="stats-grid">
+        <div class="stat-box"><div class="num" id="d-total">0</div><div class="lbl">设备总数</div></div>
+        <div class="stat-box"><div class="num" id="d-online">0</div><div class="lbl">在线</div></div>
+        <div class="stat-box"><div class="num" id="d-warning">0</div><div class="lbl">告警</div></div>
+        <div class="stat-box"><div class="num" id="d-offline">0</div><div class="lbl">离线 / 维护</div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-header"><h2>设备类型分布</h2></div>
+        <div class="panel-body" style="height:240px;"><canvas id="chart-types"></canvas></div>
+      </div>
+      <div class="panel">
+        <div class="panel-header"><h2>系统信息</h2></div>
+        <div class="panel-body" style="padding:1.5rem;">
+          <div class="info-grid">
+            <div><span class="info-lbl">后端版本</span><br>1.0.0</div>
+            <div><span class="info-lbl">数据库</span><br>H2 Embedded</div>
+            <div><span class="info-lbl">WebSocket</span><br>/ws/devices</div>
+            <div><span class="info-lbl">H2 Console</span><br>/h2-console</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════ Devices ═══════ -->
+    <section class="page" id="page-devices">
+      <div class="panel">
+        <div class="panel-header">
+          <h2>设备列表</h2>
+          <input type="text" id="dev-search" placeholder="搜索..." class="search-input">
+        </div>
+        <div class="panel-body" style="overflow-x:auto;">
+          <table class="tbl">
+            <thead><tr>
+              <th>名称</th><th>ID</th><th>类型</th><th>状态</th><th>位置</th><th>操作</th>
+            </tr></thead>
+            <tbody id="dev-table-body">
+              <tr><td colspan="6"><div class="empty">加载中...</div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════ Register / Edit ═══════ -->
+    <section class="page" id="page-register">
+      <div class="panel">
+        <div class="panel-header"><h2 id="form-title">注册新设备</h2></div>
+        <div class="panel-body" style="padding:1.5rem;">
+          <form id="device-form">
+            <input type="hidden" id="edit-id">
+            <div class="form-grid">
+              <div class="form-group"><label>设备名称 *</label><input type="text" id="f-name" required placeholder="温湿度传感器 #1"></div>
+              <div class="form-group"><label>设备类型 *</label><select id="f-type"><option>SENSOR</option><option>GATEWAY</option><option>ACTUATOR</option><option>CAMERA</option></select></div>
+              <div class="form-group"><label>通信协议</label><select id="f-protocol"><option>MQTT</option><option>CoAP</option><option>HTTP</option><option>Modbus</option></select></div>
+              <div class="form-group"><label>安装位置</label><input type="text" id="f-location" placeholder="A栋-1F"></div>
+              <div class="form-group"><label>固件版本</label><input type="text" id="f-firmware" placeholder="v1.2.3"></div>
+              <div class="form-group"><label>初始状态</label><select id="f-status"><option value="ONLINE">ONLINE</option><option value="OFFLINE">OFFLINE</option><option value="MAINTENANCE">MAINTENANCE</option></select></div>
+            </div>
+            <div class="btn-row">
+              <button type="submit" class="btn btn-primary">💾 保存</button>
+              <button type="button" class="btn btn-ghost" id="btn-cancel">取消</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════ Alerts ═══════ -->
+    <section class="page" id="page-alerts">
+      <div class="panel">
+        <div class="panel-header"><h2>最近告警记录</h2></div>
+        <div class="panel-body" id="alerts-list" style="padding:0.5rem 0;">
+          <div class="empty">加载中...</div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
