@@ -76,6 +76,7 @@ const icons = {
 
 const DEFAULT_CONTEXT = {
   organizationName: '演示组织',
+  organizationCode: 'demo-org',
   siteName: '演示站点',
   siteCode: 'demo-site',
   spacePath: '/operations/field'
@@ -102,7 +103,7 @@ let activeUi = null;
  * Converts a device view into the screen-level capability decision.  It stays
  * DOM-free so client tests can verify that unknown BLE profiles remain safe.
  */
-export function deviceScreenState(device = {}) {
+export function deviceScreenState(device = {}, runtime = {}) {
   const connection = getPrimaryConnection(device);
   const capabilities = normalizeCapabilities(
     capabilityList(device.capabilities ?? connection.capabilities ?? connection.profileCapabilities ?? [])
@@ -113,6 +114,15 @@ export function deviceScreenState(device = {}) {
   const transport = normalizeTransport(connection.transport ?? device.transport);
   const profileId = connection.profileId ?? connection.profile ?? device.profileId ?? null;
   const unknownBleProfile = transport === 'BLE_DIRECT' && !profileId;
+
+  if (runtime.stale === true && runtime.accessRoute !== 'BLE_LOCAL') {
+    return {
+      showControls: false,
+      controls: controlCapabilities,
+      unknownBleProfile: false,
+      notice: '当前显示缓存状态，请等待平台同步后再控制。'
+    };
+  }
 
   if (unknownBleProfile && controlCapabilities.length === 0) {
     return {
@@ -200,6 +210,11 @@ class ClientUi {
         spacePath: DEFAULT_CONTEXT.spacePath
       },
       commandValues: {},
+      endpointDraft: {
+        accessRoute: this.model.runtime?.accessRoute ?? 'SITE_API',
+        apiBaseUrl: this.model.endpointProfile?.apiBaseUrl ?? '',
+        wsUrl: this.model.endpointProfile?.wsUrl ?? ''
+      },
       busyActions: new Set(),
       transientError: null
     };
@@ -282,10 +297,16 @@ class ClientUi {
     brand.append(copy);
     header.append(brand);
 
+    const actions = element('div', 'header-actions');
+    actions.append(actionButton('连接设置', 'open-connection-settings', {
+      className: 'button button--quiet button--small',
+      iconName: 'Link'
+    }));
     const health = connectionHealth(this.model.connectionHealth);
-    const status = statusChip(health.label, health.tone, health.icon === 'RefreshCw');
+    const status = statusChip(accessRouteLabel(this.model.runtime.accessRoute), health.tone, health.icon === 'RefreshCw');
     status.classList.add('header-status');
-    header.append(status);
+    actions.append(status);
+    header.append(actions);
     return header;
   }
 
@@ -337,6 +358,9 @@ class ClientUi {
       case 'activity':
         screen.append(this.buildActivityScreen());
         break;
+      case 'connections':
+        screen.append(this.buildConnectionSettingsScreen());
+        break;
       case 'devices':
       default:
         screen.append(this.buildDeviceListScreen());
@@ -352,6 +376,11 @@ class ClientUi {
       iconName: 'Plus'
     })));
     fragment.append(this.buildContextRow());
+
+    if (this.model.runtime.stale && this.model.runtime.accessRoute !== 'BLE_LOCAL') {
+      const lastSync = this.model.runtime.lastSyncedAt ? `，最后同步 ${formatDate(this.model.runtime.lastSyncedAt)}` : '';
+      fragment.append(this.buildNotice(`缓存状态${lastSync}。平台恢复同步前设备控制保持只读。`, 'warning', null, '离线快照'));
+    }
 
     const health = connectionHealth(this.model.connectionHealth);
     if (health.tone === 'warning' || health.tone === 'danger') {
@@ -507,6 +536,12 @@ class ClientUi {
         disabled: availability === false || this.isBusy('request-ble')
       }));
     }
+    if (ble.errorCode === 'BLE_PERMISSION_DENIED') {
+      surface.append(actionButton('前往应用设置', 'open-app-settings', { className: 'button button--secondary button--full' }));
+    }
+    if (ble.errorCode === 'BLE_DISABLED') {
+      surface.append(actionButton('打开蓝牙设置', 'open-bluetooth-settings', { className: 'button button--secondary button--full' }));
+    }
     fragment.append(surface);
 
     if (candidate) {
@@ -641,6 +676,28 @@ class ClientUi {
     return wrapper;
   }
 
+  buildConnectionSettingsScreen() {
+    const fragment = document.createDocumentFragment();
+    fragment.append(screenHeading('连接设置', '切换现场或互联网平台连接。', backButton('devices')));
+    const surface = element('section', 'surface surface--padded');
+    const modes = element('div', 'segmented-control', { role: 'group', ariaLabel: '平台连接方式' });
+    for (const [route, label] of [['SITE_API', '现场 LAN'], ['CLOUD_API', '互联网远程']]) {
+      modes.append(actionButton(label, 'choose-endpoint-route', {
+        className: `segment${this.local.endpointDraft.accessRoute === route ? ' segment--active' : ''}`,
+        data: { route }
+      }));
+    }
+    surface.append(modes);
+    surface.append(this.textField('API 地址', 'endpoint-api-url', this.local.endpointDraft.apiBaseUrl, '例如：http://10.0.0.8:8080/api', 'endpointApiUrl'));
+    surface.append(this.textField('WebSocket 地址', 'endpoint-ws-url', this.local.endpointDraft.wsUrl, '例如：ws://10.0.0.8:8080/ws/devices', 'endpointWsUrl'));
+    surface.append(actionButton(this.isBusy('switch-endpoint') ? '切换中…' : '保存并切换', 'save-endpoint', {
+      className: 'button button--primary',
+      disabled: this.isBusy('switch-endpoint')
+    }));
+    fragment.append(surface);
+    return fragment;
+  }
+
   buildDetailScreen() {
     const device = this.getActiveDevice();
     if (!device) return this.buildMissingDetail();
@@ -659,7 +716,7 @@ class ClientUi {
     header.append(statusChip(online ? '在线' : connectionStateLabel(connection.status), online ? 'success' : 'warning'));
     fragment.append(header);
 
-    const screenState = deviceScreenState(device);
+    const screenState = deviceScreenState(device, this.model.runtime);
     if (screenState.unknownBleProfile) {
       fragment.append(this.buildNotice(screenState.notice, 'warning', null, '安全控制已关闭'));
     }
@@ -708,7 +765,8 @@ class ClientUi {
     const top = element('div', 'connection-summary__top');
     const route = element('div', 'connection-summary__route');
     route.append(icon(connectionIcon(connection.transport), 17));
-    route.append(textNode(connectionLabel(connection.transport)));
+    const routeValue = device.localOnly ? 'BLE_LOCAL' : this.model.runtime.accessRoute;
+    route.append(textNode(`${accessRouteLabel(routeValue)} / ${deviceTransportLabel(connection.transport)}`));
     top.append(route);
     const normalized = normalizeConnectionStatus(connection.status ?? device.status);
     top.append(statusChip(connectionStateLabel(normalized), connectionTone(normalized)));
@@ -1066,6 +1124,34 @@ class ClientUi {
       case 'reconnect-realtime':
         this.invoke('reconnectRealtime', {}, { busy: 'reconnect-realtime' });
         break;
+      case 'open-connection-settings':
+        this.local.endpointDraft = {
+          accessRoute: this.model.runtime.accessRoute ?? 'SITE_API',
+          apiBaseUrl: this.model.endpointProfile?.apiBaseUrl ?? '',
+          wsUrl: this.model.endpointProfile?.wsUrl ?? ''
+        };
+        this.local.screen = 'connections';
+        this.render(this.model);
+        break;
+      case 'choose-endpoint-route':
+        this.local.endpointDraft.accessRoute = target.dataset.route;
+        this.render(this.model);
+        break;
+      case 'save-endpoint':
+        this.invoke('switchEndpoint', {
+          id: this.local.endpointDraft.accessRoute === 'SITE_API' ? 'site' : 'cloud',
+          accessRoute: this.local.endpointDraft.accessRoute,
+          apiBaseUrl: this.local.endpointDraft.apiBaseUrl,
+          wsUrl: this.local.endpointDraft.wsUrl,
+          organizationCode: this.model.context.organizationCode
+        }, { busy: 'switch-endpoint' });
+        break;
+      case 'open-app-settings':
+        this.invoke('openBleAppSettings');
+        break;
+      case 'open-bluetooth-settings':
+        this.invoke('openBluetoothSettings');
+        break;
       case 'dismiss-error':
         this.local.transientError = null;
         this.invoke('dismissError');
@@ -1084,6 +1170,8 @@ class ClientUi {
       this.local.claim[field] = target.value;
       return;
     }
+    if (field === 'endpointApiUrl') this.local.endpointDraft.apiBaseUrl = target.value;
+    if (field === 'endpointWsUrl') this.local.endpointDraft.wsUrl = target.value;
     if (field === 'level') {
       const key = `level:${target.dataset.deviceId}`;
       this.local.commandValues[key] = clampNumber(target.value, 0, 100);
@@ -1192,6 +1280,7 @@ function normalizeViewModel(viewModel) {
   const contextSource = plainObject(source.context ?? source.organizationContext ?? {});
   const context = {
     organizationName: String(contextSource.organizationName ?? contextSource.organization?.name ?? source.organizationName ?? DEFAULT_CONTEXT.organizationName),
+    organizationCode: String(contextSource.organizationCode ?? contextSource.organization?.code ?? source.organizationCode ?? DEFAULT_CONTEXT.organizationCode),
     siteName: String(contextSource.siteName ?? contextSource.site?.name ?? source.siteName ?? DEFAULT_CONTEXT.siteName),
     siteCode: String(contextSource.siteCode ?? contextSource.site?.code ?? source.siteCode ?? DEFAULT_CONTEXT.siteCode),
     spaceName: String(contextSource.spaceName ?? contextSource.space?.name ?? source.spaceName ?? '现场空间'),
@@ -1207,6 +1296,8 @@ function normalizeViewModel(viewModel) {
     activeDeviceId: source.activeDeviceId ?? source.currentDeviceId ?? source.currentDevice?.id ?? null,
     activeConnection: source.activeConnection ?? source.connection ?? null,
     connectionHealth: source.connectionHealth ?? source.realtime?.health ?? source.wsHealth ?? null,
+    runtime: plainObject(source.runtime),
+    endpointProfile: plainObject(source.endpointProfile),
     commands: objectValues(commandsById),
     activitiesByDeviceId: plainObject(activitiesByDeviceId),
     activities: arrayOf(source.activities ?? source.activity),
@@ -1450,6 +1541,14 @@ function connectionLabel(value) {
   return transport;
 }
 
+function accessRouteLabel(value) {
+  return ({ BLE_LOCAL: 'BLE 本地', SITE_API: '现场 LAN', CLOUD_API: '互联网远程' })[value] ?? '连接未配置';
+}
+
+function deviceTransportLabel(value) {
+  return ({ BLE_DIRECT: 'BLE 直连', LAN_AGENT: '局域网代理' })[normalizeTransport(value)] ?? '设备链路未知';
+}
+
 function connectionIcon(value) {
   return normalizeTransport(value) === 'BLE_DIRECT' ? 'Bluetooth' : normalizeTransport(value) === 'LAN_AGENT' ? 'Network' : 'RadioTower';
 }
@@ -1537,17 +1636,18 @@ function normalizeCommandStatus(value) {
   const raw = String(value ?? '').toUpperCase();
   if (['PENDING', 'QUEUED'].includes(raw)) return 'PENDING';
   if (['SENT', 'DISPATCHED'].includes(raw)) return 'SENT';
+  if (raw === 'UNCONFIRMED') return 'UNCONFIRMED';
   if (['ACKNOWLEDGED', 'ACK', 'SUCCEEDED', 'SUCCESS'].includes(raw)) return 'ACKNOWLEDGED';
   if (['FAILED', 'TIMEOUT', 'REJECTED', 'ERROR'].includes(raw)) return 'FAILED';
   return raw || 'PENDING';
 }
 
 function commandStatusLabel(value) {
-  return ({ PENDING: '待发送', SENT: '已发送', ACKNOWLEDGED: '已确认', FAILED: '失败' })[normalizeCommandStatus(value)] ?? '待发送';
+  return ({ PENDING: '待发送', SENT: '已发送', UNCONFIRMED: '已发送，设备未提供确认', ACKNOWLEDGED: '已确认', FAILED: '失败' })[normalizeCommandStatus(value)] ?? '待发送';
 }
 
 function commandTone(value) {
-  return ({ PENDING: 'warning', SENT: 'info', ACKNOWLEDGED: 'success', FAILED: 'danger' })[normalizeCommandStatus(value)] ?? 'info';
+  return ({ PENDING: 'warning', SENT: 'info', UNCONFIRMED: 'warning', ACKNOWLEDGED: 'success', FAILED: 'danger' })[normalizeCommandStatus(value)] ?? 'info';
 }
 
 function commandLabel(command) {

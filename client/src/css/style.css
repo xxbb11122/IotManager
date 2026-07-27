@@ -128,8 +128,21 @@ select:focus-visible {
 }
 
 .header-status {
-  margin-left: auto;
   min-width: 0;
+}
+
+.header-actions {
+  min-width: 0;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.header-actions .button {
+  min-height: 34px;
+  padding: 0 10px;
 }
 
 .workspace {
@@ -597,6 +610,34 @@ select:focus-visible {
 .form-grid {
   display: grid;
   gap: 14px;
+}
+
+.segmented-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 16px;
+  background: var(--surface-muted);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.segment {
+  min-height: 38px;
+  padding: 0 10px;
+  color: var(--ink-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.segment--active {
+  color: var(--ink);
+  background: var(--surface);
+  border-color: var(--line-strong);
 }
 
 .field {
@@ -1129,6 +1170,13 @@ select:focus-visible {
   .state-comparison { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
   .form-actions { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .toast-region { right: 24px; bottom: 24px; left: auto; width: min(380px, calc(100vw - 48px)); }
+}
+
+@media (max-width: 559px) {
+  .app-brand p,
+  .header-status {
+    display: none;
+  }
 }
 
 @media (min-width: 820px) {

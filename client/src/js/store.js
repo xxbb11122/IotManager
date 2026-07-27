@@ -61,6 +61,13 @@ function normalizeState(candidate = {}) {
     commandsById: isRecord(source.commandsById) ? copyValue(source.commandsById) : {},
     activitiesByDeviceId: normalizeCollectionByDevice(source.activitiesByDeviceId),
     alertsByDeviceId: normalizeCollectionByDevice(source.alertsByDeviceId),
+    runtime: {
+      accessRoute: null,
+      endpointId: null,
+      stale: true,
+      lastSyncedAt: null,
+      ...(isRecord(source.runtime) ? copyValue(source.runtime) : {})
+    },
     connectionHealth: {
       ...DEFAULT_CONNECTION_HEALTH,
       ...(isRecord(source.connectionHealth) ? copyValue(source.connectionHealth) : {})
@@ -291,6 +298,14 @@ export function createClientStore(initialState = {}) {
     });
   }
 
+  function setRuntimeContext(patch = {}) {
+    const next = publish({
+      ...currentState,
+      runtime: { ...currentState.runtime, ...copyValue(patch) }
+    });
+    return next.runtime;
+  }
+
   function upsertCommand(command) {
     if (!isRecord(command) || !command.commandId) {
       return null;
@@ -420,6 +435,7 @@ export function createClientStore(initialState = {}) {
     setActiveDevice,
     setActiveConnection,
     setConnectionHealth,
+    setRuntimeContext,
     upsertCommand,
     addActivity,
     upsertAlert,
