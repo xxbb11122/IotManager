@@ -57,3 +57,41 @@ test('BLE adapter opens a real picker shell and keeps unknown profiles read-only
   adapter.disconnect();
   assert.equal(events.at(-1).payload.status, 'DISCONNECTED');
 });
+
+test('BLE write without profile confirmation remains unconfirmed', async () => {
+  const characteristic = {
+    async writeValueWithResponse() {}
+  };
+  const server = {
+    async getPrimaryServices() {
+      return [{ uuid: '6e400001-b5a3-f393-e0a9-e50e24dcca9e' }];
+    },
+    async getPrimaryService() {
+      return {
+        async getCharacteristic() { return characteristic; }
+      };
+    }
+  };
+  const device = {
+    id: 'known-switch',
+    name: 'Known switch',
+    gatt: {
+      connected: false,
+      async connect() {
+        this.connected = true;
+        return server;
+      }
+    },
+    addEventListener() {}
+  };
+  const adapter = new BleAdapter({
+    bluetooth: { async requestDevice() { return device; } }
+  });
+
+  await adapter.requestCandidate();
+  await adapter.connect();
+  const result = await adapter.sendCommand({ type: 'set_power', parameters: { on: true } });
+
+  assert.equal(result.status, 'UNCONFIRMED');
+  assert.deepEqual(result.reportedState, {});
+});

@@ -23,6 +23,7 @@ test('known profile maps a power command to its declared GATT characteristic', (
   assert.equal(operation.characteristicUuid, '6e400002-b5a3-f393-e0a9-e50e24dcca9e');
   assert.deepEqual(Array.from(operation.value), [1]);
   assert.equal(operation.withResponse, true);
+  assert.deepEqual(operation.confirmation, { type: 'none' });
 });
 
 test('registry matches a profile only when its service UUID is discovered', () => {
@@ -33,4 +34,24 @@ test('registry matches a profile only when its service UUID is discovered', () =
     'iot-demo-switch-v1'
   );
   assert.equal(registry.matchDiscoveredServices(['battery_service']), null);
+});
+
+test('registry rejects an invalid confirmation contract', () => {
+  const registry = new BleProfileRegistry([{
+    id: 'invalid-confirmation',
+    serviceUuids: ['service-1'],
+    commands: {
+      set_power: () => ({
+        serviceUuid: 'service-1',
+        characteristicUuid: 'characteristic-1',
+        value: new Uint8Array([1]),
+        confirmation: { type: 'guess' }
+      })
+    }
+  }]);
+
+  assert.throws(
+    () => registry.encodeCommand('invalid-confirmation', { type: 'set_power' }),
+    /invalid confirmation type/i
+  );
 });

@@ -64,5 +64,5 @@ export function transitionCommand(device = {}, command = {}) {
 }
 
 export function isTerminalCommandStatus(status) {
-  return status === 'ACKNOWLEDGED' || status === 'FAILED';
+  return status === 'ACKNOWLEDGED' || status === 'UNCONFIRMED' || status === 'FAILED';
 }
