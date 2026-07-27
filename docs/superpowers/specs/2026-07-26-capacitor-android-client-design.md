@@ -306,7 +306,7 @@ The implementation plan should pin mutually compatible package versions in `clie
 - `@capacitor-community/bluetooth-le` 8.2.x, which requires Capacitor 8.
 - Existing Node.js 24 satisfies the Capacitor 8 CLI requirement of Node.js 22 or later.
 
-Before generating the Android project, the implementation must configure the supported JDK and install the Android SDK platform, build tools, platform tools, and command-line tools required by the pinned Capacitor Android project. The current machine has JDK 17 and a partial Android SDK, but its default Java is Java 8 and the required SDK build components are not yet configured.
+Before generating the Android project, the implementation must configure JDK 21 or newer and install the Android SDK platform, build tools, platform tools, and command-line tools required by the pinned Capacitor Android project. Capacitor 8.4.2 compiles with Java 21 source compatibility; this project was verified with JDK 23 for Android while retaining JDK 17 for the Spring Boot backend.
 
 ## Test Strategy
 

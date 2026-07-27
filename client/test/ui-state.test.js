@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { deviceScreenState } from '../src/js/ui.js';
+import * as ui from '../src/js/ui.js';
+
+const { deviceScreenState } = ui;
+
+test('BLE selection instructions match the active client runtime', () => {
+  assert.equal(ui.bleSelectionDescription?.(true), '手机客户端会扫描并列出附近的蓝牙设备。');
+  assert.equal(ui.bleSelectionDescription?.(false), '选择操作将打开浏览器提供的蓝牙设备窗口。');
+});
 
 test('unknown BLE profile has metadata but no command controls', () => {
   const screen = deviceScreenState({

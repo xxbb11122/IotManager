@@ -166,6 +166,12 @@ export function createClientUi(root = document.getElementById('app'), handlers =
 
 export const mountUi = createClientUi;
 
+export function bleSelectionDescription(native = false) {
+  return native
+    ? '手机客户端会扫描并列出附近的蓝牙设备。'
+    : '选择操作将打开浏览器提供的蓝牙设备窗口。';
+}
+
 /**
  * Convenience exports for a minimal main.js integration:
  * const ui = createClientUi(document.querySelector('#app'), handlers);
@@ -460,7 +466,12 @@ class ClientUi {
     fragment.append(screenHeading('添加设备', '选择设备可用的连接路径。', backButton('devices')));
 
     const choiceGrid = element('div', 'path-grid');
-    choiceGrid.append(this.buildPathChoice('ble', '蓝牙直连', '使用当前浏览器选择并连接附近的 BLE 设备。', 'Bluetooth'));
+    choiceGrid.append(this.buildPathChoice(
+      'ble',
+      '蓝牙直连',
+      this.model.ble.native ? '使用手机客户端扫描并连接附近的 BLE 设备。' : '使用当前浏览器选择并连接附近的 BLE 设备。',
+      'Bluetooth'
+    ));
     choiceGrid.append(this.buildPathChoice('lan', '局域网模拟发现', '从演示站点获取候选设备并认领到空间。', 'Network'));
     fragment.append(choiceGrid);
 
@@ -492,7 +503,11 @@ class ClientUi {
 
   buildBleScreen() {
     const fragment = document.createDocumentFragment();
-    fragment.append(screenHeading('蓝牙直连', '从浏览器发起附近设备选择。', backButton('add')));
+    fragment.append(screenHeading(
+      '蓝牙直连',
+      this.model.ble.native ? '使用手机客户端扫描附近设备。' : '从浏览器发起附近设备选择。',
+      backButton('add')
+    ));
 
     const ble = this.model.ble;
     const availability = ble.availability ?? ble.supported ?? ble.available;
@@ -506,7 +521,7 @@ class ClientUi {
     }
 
     const surface = element('section', 'surface surface--padded');
-    surface.append(surfaceHeading('设备选择', '选择操作将打开浏览器提供的蓝牙设备窗口。'));
+    surface.append(surfaceHeading('设备选择', bleSelectionDescription(this.model.ble.native)));
     const candidate = ble.candidate ?? ble.device ?? this.model.activeConnection?.candidate ?? null;
     const connection = ble.connection ?? this.model.activeConnection ?? {};
 
@@ -528,9 +543,14 @@ class ClientUi {
         disabled: connected || availability === false || this.isBusy('connect-ble')
       }));
     } else {
-      const prompt = element('div', 'empty-inline', { text: '尚未选择蓝牙设备。蓝牙设备选择必须由此按钮的直接点击触发。' });
+      const prompt = element('div', 'empty-inline', {
+        text: this.model.ble.native
+          ? '尚未发现蓝牙设备。扫描结果会显示在此处。'
+          : '尚未选择蓝牙设备。蓝牙设备选择必须由此按钮的直接点击触发。'
+      });
       surface.append(prompt);
-      surface.append(actionButton(this.isBusy('request-ble') ? '正在打开选择器…' : '选择附近设备', 'request-ble', {
+      const requestLabel = this.model.ble.native ? '扫描附近设备' : '选择附近设备';
+      surface.append(actionButton(this.isBusy('request-ble') ? '正在扫描…' : requestLabel, 'request-ble', {
         className: 'button button--primary button--full',
         iconName: 'BluetoothSearching',
         disabled: availability === false || this.isBusy('request-ble')

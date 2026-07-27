@@ -143,6 +143,7 @@ function setLoading(key, value) {
 }
 
 function describeError(error) {
+  if (error?.message === 'Failed to fetch') return '平台连接失败，请在连接设置中检查 API 地址。';
   return error?.message || '操作未完成，请检查服务连接后重试。';
 }
 
