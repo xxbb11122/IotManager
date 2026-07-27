@@ -18,7 +18,7 @@ test('unknown BLE connection becomes a browser-local read-only device', () => {
       status: 'CONNECTED',
       capabilities: { known: false, controls: [], readOnly: ['generic_information'] }
     },
-    { siteCode: 'demo-site', spacePath: '/operations/field' }
+    { organizationCode: 'demo-org', siteCode: 'demo-site', spacePath: '/operations/field' }
   );
 
   assert.equal(device.id, 'ble:ble-browser-id');
@@ -26,6 +26,12 @@ test('unknown BLE connection becomes a browser-local read-only device', () => {
   assert.equal(device.localOnly, true);
   assert.deepEqual(device.capabilities, []);
   assert.equal(device.connections[0].identityScope, 'browser_local');
+  assert.equal(device.organizationCode, undefined);
+  assert.deepEqual(device.pendingOrganizationContext, {
+    organizationCode: 'demo-org',
+    siteCode: 'demo-site',
+    spacePath: '/operations/field'
+  });
 });
 
 test('platform refresh keeps browser-local BLE sessions while replacing platform devices', () => {

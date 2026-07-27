@@ -65,9 +65,11 @@ export function createLocalBleDevice(candidate = {}, connection = {}, context = 
     name: candidate.name ?? connection.name ?? 'Unnamed BLE device',
     type: candidate.type ?? 'BLE_DEVICE',
     status: normalizedConnection.status === 'CONNECTED' ? 'ONLINE' : 'OFFLINE',
-    organizationCode: context.organizationCode ?? null,
-    siteCode: context.siteCode ?? null,
-    spacePath: context.spacePath ?? null,
+    pendingOrganizationContext: {
+      organizationCode: context.organizationCode ?? null,
+      siteCode: context.siteCode ?? null,
+      spacePath: context.spacePath ?? null
+    },
     reportedState: asObject(connection.reportedState),
     desiredState: asObject(connection.desiredState ?? connection.reportedState),
     connections: [normalizedConnection],
