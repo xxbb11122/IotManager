@@ -4,3 +4,7 @@ backend/data/
 backend/target/
 .idea/
 .superpowers/
+.worktrees/
+client/android/.gradle/
+client/android/local.properties
+client/android/**/build/
