@@ -55,6 +55,9 @@ test('mobile client exposes devices, activity, add, and connection settings with
   await expect(page.getByRole('heading', { name: '连接设置' })).toBeVisible();
   await expect(page.getByRole('button', { name: '现场 LAN' })).toBeVisible();
   await expect(page.getByRole('button', { name: '互联网远程' })).toBeVisible();
+  await page.getByRole('button', { name: '测试连接' }).click();
+  await expect(page.getByText(/连接成功/)).toBeVisible();
+  await expect(page.getByText(/当前没有设备/)).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
   expect(overflow).toBe(false);
   expect(runtimeErrors).toEqual([]);

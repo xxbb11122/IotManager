@@ -10,6 +10,7 @@ import { NativeBleAdapter } from './js/adapters/native-ble-adapter.js';
 import { attachAppLifecycle } from './js/platform/app-lifecycle.js';
 import { CacheRepository } from './js/platform/cache-repository.js';
 import { createCommandDispatcher } from './js/platform/command-dispatcher.js';
+import { friendlyEndpointError, probeEndpoint } from './js/platform/endpoint-probe.js';
 import { createPlatformAdapter } from './js/platform/platform-adapter-factory.js';
 import { ACCESS_ROUTES, RuntimeConfigRepository } from './js/platform/runtime-config.js';
 import { store } from './js/store.js';
@@ -74,6 +75,12 @@ const ui = createClientUi(document.getElementById('app'), {
   retryCommand,
   reconnectRealtime,
   switchEndpoint: activateEndpoint,
+  testEndpoint: (draft) => probeEndpoint({
+    accessRoute: draft?.accessRoute,
+    apiBaseUrl: draft?.apiBaseUrl,
+    wsUrl: draft?.wsUrl,
+    organizationCode: clientState.context.organizationCode
+  }),
   openBleAppSettings: () => ble.openAppSettings?.(),
   openBluetoothSettings: () => ble.openBluetoothSettings?.(),
   dismissError: () => setClientState({ error: null })
@@ -144,6 +151,7 @@ function setLoading(key, value) {
 
 function describeError(error) {
   if (error?.message === 'Failed to fetch') return '平台连接失败，请在连接设置中检查 API 地址。';
+  if (error?.name === 'TypeError') return friendlyEndpointError(error);
   return error?.message || '操作未完成，请检查服务连接后重试。';
 }
 
@@ -176,7 +184,7 @@ async function activateEndpoint(profile) {
   endpointProfile = await runtimeConfigRepository.save(profile);
   platformSession = createPlatformAdapter({ endpointProfile });
   platform = platformSession.adapter;
-  clientState = { ...clientState, endpointProfile };
+  clientState = { ...clientState, endpointProfile, lanCandidates: [] };
   bindPlatformEvents(platform);
   store.setRuntimeContext({
     accessRoute: endpointProfile.accessRoute,

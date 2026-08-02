@@ -127,6 +127,22 @@ WebSocket: ws://10.0.2.2:8080/ws/devices
 
 For a physical phone or PDA, replace `10.0.2.2` with the backend computer's reachable LAN address. `localhost` on Android refers to Android itself, not the development computer.
 
+### 互联网远程 (cloud endpoint)
+
+Choose **互联网远程** in **连接设置** to operate platform devices through an internet-accessible Spring Boot backend:
+
+```text
+API:       https://your-server.example/api
+WebSocket: wss://your-server.example/ws/devices
+```
+
+Use **测试连接** before saving: it validates the URL format and probes the device list endpoint, reporting a device count or a readable failure reason. The app only switches endpoints after the probe passes.
+
+- Production/cloud endpoints must use HTTPS and WSS. Release builds do not permit cleartext HTTP/WS, so an unencrypted internet endpoint cannot be activated in release.
+- Debug builds may use plain HTTP/WS for controlled on-site development against a reachable LAN address.
+- After switching, the app refreshes platform state before enabling controls. If the remote endpoint is unreachable, the previous cache stays read-only with a stale indicator; commands are never queued or replayed.
+- The demo organization context (`demo-org` / `demo-site` / `/operations/field`) applies to the remote backend, so the cloud instance must have the same demo seed data to run the simulated LAN discovery flow.
+
 Plain HTTP, WS, and WebView mixed content are enabled only when the Android package is debuggable, for controlled local development. Release builds do not inherit those exceptions and will require production HTTPS/WSS configuration in the later security milestone.
 
 ### Runtime behavior

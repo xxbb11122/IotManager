@@ -215,6 +215,7 @@ class ClientUi {
         siteCode: DEFAULT_CONTEXT.siteCode,
         spacePath: DEFAULT_CONTEXT.spacePath
       },
+      endpointTest: null,
       commandValues: {},
       endpointDraft: {
         accessRoute: this.model.runtime?.accessRoute ?? 'SITE_API',
@@ -710,6 +711,18 @@ class ClientUi {
     surface.append(modes);
     surface.append(this.textField('API 地址', 'endpoint-api-url', this.local.endpointDraft.apiBaseUrl, '例如：http://10.0.0.8:8080/api', 'endpointApiUrl'));
     surface.append(this.textField('WebSocket 地址', 'endpoint-ws-url', this.local.endpointDraft.wsUrl, '例如：ws://10.0.0.8:8080/ws/devices', 'endpointWsUrl'));
+    surface.append(actionButton(this.isBusy('test-endpoint') ? '测试中…' : '测试连接', 'test-endpoint', {
+      className: 'button button--secondary',
+      disabled: this.isBusy('test-endpoint') || this.isBusy('switch-endpoint')
+    }));
+    if (this.local.endpointTest) {
+      surface.append(this.buildNotice(
+        this.local.endpointTest.message,
+        this.local.endpointTest.ok ? 'success' : 'danger',
+        null,
+        this.local.endpointTest.ok ? '连接正常' : '连接失败'
+      ));
+    }
     surface.append(actionButton(this.isBusy('switch-endpoint') ? '切换中…' : '保存并切换', 'save-endpoint', {
       className: 'button button--primary',
       disabled: this.isBusy('switch-endpoint')
@@ -1150,12 +1163,25 @@ class ClientUi {
           apiBaseUrl: this.model.endpointProfile?.apiBaseUrl ?? '',
           wsUrl: this.model.endpointProfile?.wsUrl ?? ''
         };
+        this.local.endpointTest = null;
         this.local.screen = 'connections';
         this.render(this.model);
         break;
       case 'choose-endpoint-route':
         this.local.endpointDraft.accessRoute = target.dataset.route;
         this.render(this.model);
+        break;
+      case 'test-endpoint':
+        this.invoke('testEndpoint', {
+          accessRoute: this.local.endpointDraft.accessRoute,
+          apiBaseUrl: this.local.endpointDraft.apiBaseUrl,
+          wsUrl: this.local.endpointDraft.wsUrl
+        }, {
+          busy: 'test-endpoint',
+          onResolved: (result) => {
+            this.local.endpointTest = result;
+          }
+        });
         break;
       case 'save-endpoint':
         this.invoke('switchEndpoint', {
