@@ -1,0 +1,5 @@
+{$DOMAIN} {
+	# Caddy terminates TLS automatically (Let's Encrypt) and forwards both
+	# HTTPS and WSS upgrades to the Spring Boot backend.
+	reverse_proxy backend:8080
+}
