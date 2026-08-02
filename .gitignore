@@ -2,6 +2,8 @@
 **/dist/
 backend/data/
 backend/target/
+backend/*.log
+backend/*.err.log
 .idea/
 .superpowers/
 .worktrees/
