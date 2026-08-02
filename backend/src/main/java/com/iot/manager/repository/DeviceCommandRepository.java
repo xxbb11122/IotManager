@@ -27,6 +27,8 @@ public interface DeviceCommandRepository extends JpaRepository<DeviceCommand, Lo
 
     List<DeviceCommand> findByDeviceIdOrderByRequestedAtDesc(Long deviceId);
 
+    void deleteByDeviceId(Long deviceId);
+
     List<DeviceCommand> findByStatus(String status);
 
     @Query("""

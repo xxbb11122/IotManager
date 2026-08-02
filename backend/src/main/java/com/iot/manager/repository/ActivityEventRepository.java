@@ -10,4 +10,6 @@ import java.util.List;
 public interface ActivityEventRepository extends JpaRepository<ActivityEvent, Long> {
 
     List<ActivityEvent> findByDeviceIdOrderByOccurredAtDesc(Long deviceId);
+
+    void deleteByDeviceId(Long deviceId);
 }

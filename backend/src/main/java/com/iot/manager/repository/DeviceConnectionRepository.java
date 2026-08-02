@@ -14,6 +14,8 @@ public interface DeviceConnectionRepository extends JpaRepository<DeviceConnecti
 
     List<DeviceConnection> findByDeviceId(Long deviceId);
 
+    void deleteByDeviceId(Long deviceId);
+
     @Query("select connection from DeviceConnection connection where connection.device.id in :deviceIds")
     List<DeviceConnection> findByDeviceIdIn(@Param("deviceIds") Collection<Long> deviceIds);
 }

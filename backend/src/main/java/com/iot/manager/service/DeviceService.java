@@ -9,6 +9,8 @@ import com.iot.manager.entity.Device;
 import com.iot.manager.entity.Space;
 import com.iot.manager.repository.ActivityEventRepository;
 import com.iot.manager.repository.AlertRepository;
+import com.iot.manager.repository.DeviceCommandRepository;
+import com.iot.manager.repository.DeviceConnectionRepository;
 import com.iot.manager.repository.DeviceRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
@@ -30,6 +32,8 @@ public class DeviceService {
     private final DeviceRepository deviceRepo;
     private final AlertRepository alertRepo;
     private final ActivityEventRepository activityEventRepo;
+    private final DeviceCommandRepository deviceCommandRepo;
+    private final DeviceConnectionRepository connectionRepo;
     private final BootstrapService bootstrapService;
     private final DeviceMapper deviceMapper;
 
@@ -158,7 +162,15 @@ public class DeviceService {
 
     @Transactional
     public void delete(Long id) {
-        deviceRepo.deleteById(id);
+        Device device = deviceRepo.findById(id)
+                .orElseThrow(() -> new NoSuchElementException("Device not found"));
+        // Children must be removed before the device: commands, alerts,
+        // activity history and connections all reference the device row.
+        deviceCommandRepo.deleteByDeviceId(id);
+        alertRepo.deleteByDeviceId(id);
+        activityEventRepo.deleteByDeviceId(id);
+        connectionRepo.deleteByDeviceId(id);
+        deviceRepo.delete(device);
     }
 
     public Map<String, Object> getDashboardStats() {

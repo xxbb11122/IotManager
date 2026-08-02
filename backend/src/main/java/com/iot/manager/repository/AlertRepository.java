@@ -22,4 +22,8 @@ public interface AlertRepository extends JpaRepository<Alert, Long> {
     );
 
     List<Alert> findTop20ByOrderByCreatedAtDesc();
+
+    List<Alert> findByDevice_Id(Long deviceId);
+
+    void deleteByDeviceId(Long deviceId);
 }
