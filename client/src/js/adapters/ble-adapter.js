@@ -36,7 +36,8 @@ export class BleAdapter extends ConnectionAdapter {
   constructor({
     bluetooth = defaultBluetooth(),
     registry = defaultBleProfileRegistry,
-    secureContext = browserSecureContext()
+    secureContext = browserSecureContext(),
+    confirmationTimeoutMs = 5000
   } = {}) {
     super();
     if (!(registry instanceof BleProfileRegistry) && typeof registry?.encodeCommand !== 'function') {
@@ -51,6 +52,7 @@ export class BleAdapter extends ConnectionAdapter {
     this.server = null;
     this.profile = null;
     this.activeConnection = null;
+    this.confirmationTimeoutMs = confirmationTimeoutMs;
     this.disconnectListener = () => this.handleDisconnect();
   }
 
@@ -130,28 +132,130 @@ export class BleAdapter extends ConnectionAdapter {
     }
     // encodeCommand rejects unknown profiles and unsupported commands.
     const operation = this.registry.encodeCommand(this.profile?.id ?? null, command);
-    const service = await this.server.getPrimaryService(operation.serviceUuid);
-    const characteristic = await service.getCharacteristic(operation.characteristicUuid);
-
-    if (operation.withResponse && typeof characteristic.writeValueWithResponse === 'function') {
-      await characteristic.writeValueWithResponse(operation.value);
-    } else if (!operation.withResponse && typeof characteristic.writeValueWithoutResponse === 'function') {
-      await characteristic.writeValueWithoutResponse(operation.value);
-    } else if (typeof characteristic.writeValue === 'function') {
-      await characteristic.writeValue(operation.value);
-    } else {
-      throw new Error('BLE characteristic does not support writes');
+    const notification = operation.confirmation?.type === 'notification'
+      ? await this.startNotificationConfirmation(command, operation.confirmation)
+      : null;
+    try {
+      const service = await this.server.getPrimaryService(operation.serviceUuid);
+      const characteristic = await service.getCharacteristic(operation.characteristicUuid);
+      const withResponse = operation.withResponse !== false;
+      if (withResponse && typeof characteristic.writeValueWithResponse === 'function') {
+        await characteristic.writeValueWithResponse(operation.value);
+      } else if (!withResponse && typeof characteristic.writeValueWithoutResponse === 'function') {
+        await characteristic.writeValueWithoutResponse(operation.value);
+      } else if (typeof characteristic.writeValue === 'function') {
+        await characteristic.writeValue(operation.value);
+      } else {
+        throw new Error('BLE characteristic does not support writes');
+      }
+    } catch (error) {
+      await notification?.cancel();
+      throw error;
     }
 
-    const result = {
-      commandId: command?.commandId ?? null,
-      deviceId: this.activeConnection?.id ?? null,
-      type: command?.type,
-      status: operation.confirmation?.type === 'none' ? 'UNCONFIRMED' : 'SENT',
-      reportedState: this.activeConnection?.reportedState ?? {}
-    };
+    let result;
+    if (operation.confirmation?.type === 'none') {
+      result = {
+        commandId: command?.commandId ?? null,
+        deviceId: this.activeConnection?.id ?? null,
+        type: command?.type,
+        status: 'UNCONFIRMED',
+        reportedState: this.activeConnection?.reportedState ?? {}
+      };
+    } else if (operation.confirmation?.type === 'read') {
+      const confirmationService = await this.server.getPrimaryService(operation.confirmation.serviceUuid);
+      const confirmationCharacteristic = await confirmationService.getCharacteristic(operation.confirmation.characteristicUuid);
+      const reportedState = operation.confirmation.decode(await confirmationCharacteristic.readValue());
+      this.activeConnection = { ...this.activeConnection, reportedState };
+      result = {
+        commandId: command?.commandId ?? null,
+        deviceId: this.activeConnection?.id ?? null,
+        type: command?.type,
+        status: 'ACKNOWLEDGED',
+        reportedState
+      };
+    } else {
+      result = await notification.result;
+    }
     this.emit('command_update', result);
     return result;
+  }
+
+  async startNotificationConfirmation(command, confirmation) {
+    const service = await this.server.getPrimaryService(confirmation.serviceUuid);
+    const characteristic = await service.getCharacteristic(confirmation.characteristicUuid);
+    const deviceId = this.activeConnection?.id ?? this.device?.id ?? null;
+    let settled = false;
+    let timer = null;
+    let resolveResult;
+    let rejectResult;
+    const result = new Promise((resolve, reject) => {
+      resolveResult = resolve;
+      rejectResult = reject;
+    });
+    result.catch(() => {});
+    const cleanup = async () => {
+      characteristic.removeEventListener?.('characteristicvaluechanged', onNotification);
+      try {
+        await characteristic.stopNotifications?.();
+      } catch {
+        // The command outcome is already fixed when notification cleanup fails.
+      }
+    };
+    const finish = async (next, error = null) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      await cleanup();
+      if (error) rejectResult(error);
+      else resolveResult(next);
+    };
+    const onNotification = (event) => {
+      try {
+        const value = event?.target?.value ?? event?.value ?? event;
+        const reportedState = confirmation.decode(value);
+        if (reportedState == null) return;
+        this.activeConnection = { ...this.activeConnection, reportedState };
+        void finish({
+          commandId: command?.commandId ?? null,
+          deviceId,
+          type: command?.type,
+          status: 'ACKNOWLEDGED',
+          reportedState
+        });
+      } catch (error) {
+        void finish(null, error);
+      }
+    };
+
+    characteristic.addEventListener?.('characteristicvaluechanged', onNotification);
+    try {
+      await characteristic.startNotifications();
+    } catch (error) {
+      characteristic.removeEventListener?.('characteristicvaluechanged', onNotification);
+      throw error;
+    }
+    if (settled) {
+      await cleanup();
+      return { result, cancel: async () => {} };
+    }
+    timer = setTimeout(() => {
+      void finish({
+        commandId: command?.commandId ?? null,
+        deviceId,
+        type: command?.type,
+        status: 'UNCONFIRMED',
+        reportedState: this.activeConnection?.reportedState ?? {},
+        confirmationTimedOut: true
+      });
+    }, this.confirmationTimeoutMs);
+
+    return {
+      result,
+      cancel: async () => {
+        await finish(null, new Error('BLE command was not written'));
+      }
+    };
   }
 
   subscribe(listener) {

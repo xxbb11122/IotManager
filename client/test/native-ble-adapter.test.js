@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { NativeBleAdapter } from '../src/js/adapters/native-ble-adapter.js';
+import { crc8 } from '../src/js/adapters/ble-profile-registry.js';
 
-test('native BLE scans, connects, and leaves write-only commands unconfirmed', async () => {
+test('native BLE scans, connects, and confirms matching reference switch responses', async () => {
   const calls = [];
+  let onNotification;
   const plugin = {
     async initialize() { calls.push('initialize'); },
     async isEnabled() { return true; },
@@ -12,7 +14,15 @@ test('native BLE scans, connects, and leaves write-only commands unconfirmed', a
     async connect(id) { calls.push(['connect', id]); },
     async getServices() { return [{ uuid: '6e400001-b5a3-f393-e0a9-e50e24dcca9e' }]; },
     async getConnectedDevices() { return [{ deviceId: 'ble-1', name: 'Switch' }]; },
-    async write(id) { calls.push(['write', id]); },
+    async startNotifications(_id, _service, _characteristic, callback) { calls.push('subscribe'); onNotification = callback; },
+    async stopNotifications() { calls.push('stop'); },
+    async write(id, _service, _characteristic, value) {
+      calls.push(['write', id]);
+      const command = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+      const response = new Uint8Array([0x5a, 1, 1, 0, ...command.slice(4, 8), 1, 0]);
+      response[9] = crc8(response.subarray(0, 9));
+      onNotification(new DataView(response.buffer));
+    },
     async disconnect() {}
   };
   const adapter = new NativeBleAdapter({ bleClient: plugin });
@@ -22,8 +32,8 @@ test('native BLE scans, connects, and leaves write-only commands unconfirmed', a
   await adapter.connect(candidates[0]);
   assert.equal(await adapter.verifyConnection(), true);
   const command = await adapter.sendCommand({ commandId: 'ble-command-1', type: 'set_power', parameters: { on: true } });
-  assert.equal(command.status, 'UNCONFIRMED');
-  assert.deepEqual(command.reportedState, {});
+  assert.equal(command.status, 'ACKNOWLEDGED');
+  assert.deepEqual(command.reportedState, { power: true });
 });
 
 test('native BLE exposes permission and disabled-Bluetooth failures', async () => {
@@ -61,8 +71,9 @@ test('profile read-back is the only source of acknowledged reported state', asyn
   assert.deepEqual(result.reportedState, { power: true });
 });
 
-test('notification timeout fails without changing reported state', async () => {
+test('notification confirmation subscribes before write and times out as unconfirmed', async () => {
   let stopped = false;
+  const calls = [];
   const registry = {
     matchDiscoveredServices: () => ({ id: 'notify' }), getCapabilities: () => ({ known: true, controls: [] }),
     encodeCommand: () => ({
@@ -71,11 +82,37 @@ test('notification timeout fails without changing reported state', async () => {
     })
   };
   const plugin = {
-    async connect() {}, async getServices() { return [{ uuid: 'service' }]; }, async write() {},
-    async startNotifications() {}, async stopNotifications() { stopped = true; }, async disconnect() {}
+    async connect() {}, async getServices() { return [{ uuid: 'service' }]; }, async write() { calls.push('write'); },
+    async startNotifications() { calls.push('subscribe'); }, async stopNotifications() { stopped = true; }, async disconnect() {}
   };
   const adapter = new NativeBleAdapter({ bleClient: plugin, registry, confirmationTimeoutMs: 1 });
   await adapter.connect({ deviceId: 'ble-3' });
-  await assert.rejects(() => adapter.sendCommand({ commandId: 'c3', type: 'set_power', parameters: { on: true } }), /timed out/);
+  const result = await adapter.sendCommand({ commandId: 'c3', type: 'set_power', parameters: { on: true } });
+  assert.equal(result.status, 'UNCONFIRMED');
+  assert.equal(result.confirmationTimedOut, true);
+  assert.deepEqual(calls, ['subscribe', 'write']);
   assert.equal(stopped, true);
+});
+
+test('native BLE scan keeps a stable de-duplicated candidate list', async () => {
+  let onResult;
+  const plugin = {
+    async initialize() {}, async isEnabled() { return true; },
+    async requestLEScan(_options, callback) { onResult = callback; },
+    async stopLEScan() {}, async disconnect() {}
+  };
+  const adapter = new NativeBleAdapter({ bleClient: plugin });
+  const snapshots = [];
+  await adapter.scan((_candidate, candidates) => snapshots.push(candidates));
+  onResult({ device: { deviceId: 'ble-1', name: 'First name' }, rssi: -75 });
+  const firstSeenAt = adapter.getCandidates()[0].firstSeenAt;
+  onResult({ device: { deviceId: 'ble-1', name: 'Updated name' }, rssi: -42 });
+  onResult({ device: { deviceId: 'ble-2', name: 'Second device' }, rssi: -50 });
+
+  assert.equal(adapter.getCandidates().length, 2);
+  assert.equal(adapter.getCandidates()[0].deviceId, 'ble-1');
+  assert.equal(adapter.getCandidates()[0].name, 'Updated name');
+  assert.equal(adapter.getCandidates()[0].rssi, -42);
+  assert.equal(adapter.getCandidates()[0].firstSeenAt, firstSeenAt);
+  assert.equal(snapshots.at(-1).length, 2);
 });

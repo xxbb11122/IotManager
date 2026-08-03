@@ -35,6 +35,11 @@ import {
   Workflow,
   X
 } from 'lucide';
+import {
+  capabilityValue,
+  isControllableCapability,
+  resolveDeviceCapabilities
+} from './device-capabilities.js';
 
 const icons = {
   Activity,
@@ -82,21 +87,6 @@ const DEFAULT_CONTEXT = {
   spacePath: '/operations/field'
 };
 
-const CAPABILITY_ALIASES = {
-  power: 'power',
-  switch: 'power',
-  on_off: 'power',
-  set_power: 'power',
-  level: 'level',
-  brightness: 'level',
-  dimmer: 'level',
-  set_level: 'level',
-  mode: 'mode',
-  set_mode: 'mode',
-  read_only_telemetry: 'read_only_telemetry',
-  generic_information: 'generic_information'
-};
-
 let activeUi = null;
 
 /**
@@ -105,20 +95,17 @@ let activeUi = null;
  */
 export function deviceScreenState(device = {}, runtime = {}) {
   const connection = getPrimaryConnection(device);
-  const capabilities = normalizeCapabilities(
-    capabilityList(device.capabilities ?? connection.capabilities ?? connection.profileCapabilities ?? [])
-  );
-  const controlCapabilities = capabilities.filter((capability) => (
-    capability.id === 'power' || capability.id === 'level' || capability.id === 'mode'
-  ));
+  const capabilities = resolveDeviceCapabilities(device, connection);
+  const controlCapabilities = capabilities.controls.filter(isControllableCapability);
   const transport = normalizeTransport(connection.transport ?? device.transport);
-  const profileId = connection.profileId ?? connection.profile ?? device.profileId ?? null;
-  const unknownBleProfile = transport === 'BLE_DIRECT' && !profileId;
+  const profileId = capabilities.profileId ?? connection.profileId ?? connection.profile ?? device.profileId ?? null;
+  const unknownBleProfile = transport === 'BLE_DIRECT' && (capabilities.known === false || !profileId);
 
   if (runtime.stale === true && runtime.accessRoute !== 'BLE_LOCAL') {
     return {
       showControls: false,
       controls: controlCapabilities,
+      capabilities,
       unknownBleProfile: false,
       notice: '当前显示缓存状态，请等待平台同步后再控制。'
     };
@@ -128,6 +115,7 @@ export function deviceScreenState(device = {}, runtime = {}) {
     return {
       showControls: false,
       controls: [],
+      capabilities,
       unknownBleProfile: true,
       notice: '该蓝牙设备已连接，但暂无可用控制能力。'
     };
@@ -137,6 +125,7 @@ export function deviceScreenState(device = {}, runtime = {}) {
     return {
       showControls: false,
       controls: [],
+      capabilities,
       unknownBleProfile: false,
       notice: '设备尚未提供可用控制能力。'
     };
@@ -145,6 +134,7 @@ export function deviceScreenState(device = {}, runtime = {}) {
   return {
     showControls: true,
     controls: controlCapabilities,
+    capabilities,
     unknownBleProfile: false,
     notice: ''
   };
@@ -526,6 +516,10 @@ class ClientUi {
     const candidate = ble.candidate ?? ble.device ?? this.model.activeConnection?.candidate ?? null;
     const connection = ble.connection ?? this.model.activeConnection ?? {};
 
+    if (ble.native && arrayOf(ble.candidates).length) {
+      surface.append(this.buildBleCandidateList(ble.candidates, ble.selectedCandidateId ?? bleCandidateReference(candidate)));
+    }
+
     if (candidate) {
       surface.append(this.buildBleCandidate(candidate, connection));
       const profileId = connection.profileId ?? candidate.profileId ?? null;
@@ -538,6 +532,14 @@ class ClientUi {
         ));
       }
       const connected = normalizeConnectionStatus(connection.status) === 'CONNECTED';
+      if (connected) {
+        surface.append(actionButton('断开连接', 'disconnect-ble', {
+          className: 'button button--secondary button--full',
+          iconName: 'Link',
+          data: { deviceId: candidate.id ?? candidate.deviceId ?? connection.deviceId },
+          disabled: this.isBusy('disconnect-ble')
+        }));
+      }
       surface.append(actionButton(connected ? '已连接' : '连接此设备', 'connect-ble', {
         className: 'button button--primary button--full',
         iconName: connected ? 'CircleCheck' : 'Link',
@@ -555,6 +557,13 @@ class ClientUi {
         className: 'button button--primary button--full',
         iconName: 'BluetoothSearching',
         disabled: availability === false || this.isBusy('request-ble')
+      }));
+    }
+    if (ble.native && ble.scanning) {
+      surface.append(actionButton('停止扫描', 'stop-ble-scan', {
+        className: 'button button--secondary button--full',
+        iconName: 'X',
+        disabled: this.isBusy('stop-ble-scan')
       }));
     }
     if (ble.errorCode === 'BLE_PERMISSION_DENIED') {
@@ -584,6 +593,35 @@ class ClientUi {
     }));
     summary.append(copy);
     return summary;
+  }
+
+  buildBleCandidateList(candidates, selectedCandidateId) {
+    const wrapper = element('div', 'candidate-list');
+    arrayOf(candidates).forEach((candidate) => {
+      const candidateId = bleCandidateReference(candidate);
+      const selected = candidateId === String(selectedCandidateId ?? '');
+      const row = actionButton('', 'select-ble-candidate', {
+        className: `candidate-row${selected ? ' candidate-row--selected' : ''}`,
+        data: { candidateId },
+        ariaLabel: `选择 ${deviceName(candidate)}`,
+        title: candidateId
+      });
+      const iconWrap = element('div', 'device-icon', { ariaHidden: 'true' });
+      iconWrap.append(icon('Bluetooth', 20));
+      row.append(iconWrap);
+      const body = element('div', 'candidate-row__body');
+      body.append(element('div', 'candidate-row__title', { text: deviceName(candidate) }));
+      const rssi = Number(candidate.rssi);
+      const rssiLabel = Number.isFinite(rssi) ? `${rssi} dBm` : '信号未知';
+      body.append(element('div', 'candidate-row__meta', { text: `${candidateId} / ${rssiLabel}` }));
+      row.append(body);
+      const aside = element('div', 'candidate-row__aside');
+      if (selected) aside.append(statusChip('已选择', 'success'));
+      else aside.append(icon('ChevronRight', 17));
+      row.append(aside);
+      wrapper.append(row);
+    });
+    return wrapper;
   }
 
   buildLanScreen() {
@@ -816,6 +854,24 @@ class ClientUi {
       }));
     }
     surface.append(summary);
+    if (device.localOnly && normalizeTransport(connection.transport) === 'BLE_DIRECT') {
+      const actions = element('div', 'form-actions');
+      if (normalized === 'CONNECTED') {
+        actions.append(actionButton('断开连接', 'disconnect-ble', {
+          className: 'button button--secondary',
+          iconName: 'Link',
+          data: { deviceId: deviceKey(device) },
+          disabled: this.isBusy('disconnect-ble')
+        }));
+      }
+      actions.append(actionButton('忘记设备', 'forget-ble', {
+        className: 'button button--danger',
+        iconName: 'X',
+        data: { deviceId: deviceKey(device) },
+        disabled: this.isBusy('forget-ble')
+      }));
+      surface.append(actions);
+    }
     return surface;
   }
 
@@ -867,9 +923,7 @@ class ClientUi {
     const pending = latestCommand && ['PENDING', 'SENT'].includes(normalizeCommandStatus(latestCommand.status));
     const controls = element('div', 'control-list');
     screenState.controls.forEach((capability) => {
-      if (capability.id === 'power') controls.append(this.buildPowerControl(device, capability, pending));
-      if (capability.id === 'level') controls.append(this.buildLevelControl(device, capability, pending));
-      if (capability.id === 'mode') controls.append(this.buildModeControl(device, capability, pending));
+      controls.append(this.buildCapabilityControl(device, capability, pending));
     });
     surface.append(controls);
     if (pending) {
@@ -879,6 +933,103 @@ class ClientUi {
       surface.append(note);
     }
     return surface;
+  }
+
+  buildCapabilityControl(device, capability, disabled) {
+    if (capability.controlType === 'toggle') return this.buildToggleControl(device, capability, disabled);
+    if (capability.controlType === 'range') return this.buildRangeControl(device, capability, disabled);
+    if (capability.controlType === 'select') return this.buildSelectControl(device, capability, disabled);
+    return this.buildActionControl(device, capability, disabled);
+  }
+
+  buildToggleControl(device, capability, disabled) {
+    const current = Boolean(capabilityValue(capability, device.desiredState, device.reportedState ?? device.state));
+    const row = element('div', 'control-row');
+    const heading = element('div', 'control-row__heading');
+    const copy = element('div');
+    copy.append(element('h4', '', { text: String(capability.label) }));
+    copy.append(element('p', '', { text: current ? '目标：开启' : '目标：关闭' }));
+    heading.append(copy);
+    heading.append(actionButton('', 'command-capability-toggle', {
+      className: `switch-button${current ? ' switch-button--on' : ''}`,
+      data: capabilityActionData(device, capability, !current),
+      ariaLabel: `${current ? '关闭' : '开启'} ${capability.label}`,
+      disabled
+    }));
+    row.append(heading);
+    return row;
+  }
+
+  buildRangeControl(device, capability, disabled) {
+    const min = Number.isFinite(capability.min) ? capability.min : 0;
+    const max = Number.isFinite(capability.max) ? capability.max : 100;
+    const step = Number.isFinite(capability.step) && capability.step > 0 ? capability.step : 1;
+    const key = `capability:${capability.id}:${deviceKey(device)}`;
+    const current = capabilityValue(capability, device.desiredState, device.reportedState ?? device.state);
+    const value = clampRangeValue(this.local.commandValues[key] ?? current, min, max, step);
+    const row = element('div', 'control-row');
+    const heading = element('div', 'control-row__heading');
+    const copy = element('div');
+    copy.append(element('h4', '', { text: String(capability.label) }));
+    copy.append(element('p', '', { text: `范围：${formatRangeValue(min)} 至 ${formatRangeValue(max)}` }));
+    heading.append(copy);
+    row.append(heading);
+    const rangeRow = element('div', 'range-row');
+    rangeRow.append(element('input', 'range-input', {
+      type: 'range',
+      min: String(min),
+      max: String(max),
+      step: String(step),
+      value: String(value),
+      disabled,
+      data: { ...capabilityActionData(device, capability), field: 'capability-range', rangeKey: key },
+      ariaLabel: `${capability.label} ${formatRangeValue(value)}`
+    }));
+    rangeRow.append(element('output', 'range-value', { text: formatRangeValue(value) }));
+    row.append(rangeRow);
+    return row;
+  }
+
+  buildSelectControl(device, capability, disabled) {
+    const options = arrayOf(capability.options);
+    const current = String(capabilityValue(capability, device.desiredState, device.reportedState ?? device.state) ?? '');
+    const row = element('div', 'control-row');
+    const heading = element('div', 'control-row__heading');
+    const copy = element('div');
+    copy.append(element('h4', '', { text: String(capability.label) }));
+    copy.append(element('p', '', { text: options.length ? '请选择设备提供的选项。' : '设备未提供可选项。' }));
+    heading.append(copy);
+    row.append(heading);
+    if (!options.length) return row;
+    const grid = element('div', 'mode-grid');
+    options.slice(0, 12).forEach((option) => {
+      const value = String(option.value);
+      grid.append(actionButton(String(option.label), 'command-capability-select', {
+        className: `mode-button${value === current ? ' mode-button--selected' : ''}`,
+        data: capabilityActionData(device, capability, option.value),
+        disabled,
+        ariaLabel: `设置 ${capability.label} 为 ${option.label}`
+      }));
+    });
+    row.append(grid);
+    return row;
+  }
+
+  buildActionControl(device, capability, disabled) {
+    const row = element('div', 'control-row');
+    const heading = element('div', 'control-row__heading');
+    const copy = element('div');
+    copy.append(element('h4', '', { text: String(capability.label) }));
+    if (capability.description) copy.append(element('p', '', { text: String(capability.description) }));
+    heading.append(copy);
+    heading.append(actionButton(capability.actionLabel ?? '执行', 'command-capability-action', {
+      className: 'button button--secondary',
+      iconName: 'Workflow',
+      data: capabilityActionData(device, capability),
+      disabled
+    }));
+    row.append(heading);
+    return row;
   }
 
   buildPowerControl(device, capability, disabled) {
@@ -1151,6 +1302,28 @@ class ClientUi {
       case 'command-mode':
         this.sendCommand(target.dataset.deviceId, target.dataset.commandType, { mode: target.dataset.value }, 'command-mode');
         break;
+      case 'command-capability-toggle':
+      case 'command-capability-select':
+      case 'command-capability-action':
+        this.sendCapabilityCommand(target, datasetJsonValue(target.dataset.valueJson), `command:${target.dataset.capabilityId}`);
+        break;
+      case 'disconnect-ble':
+        this.invoke('disconnectBle', { deviceId: target.dataset.deviceId }, { busy: 'disconnect-ble' });
+        break;
+      case 'forget-ble':
+        this.invoke('forgetBle', { deviceId: target.dataset.deviceId }, {
+          busy: 'forget-ble',
+          onResolved: () => {
+            this.local.screen = 'devices';
+          }
+        });
+        break;
+      case 'stop-ble-scan':
+        this.invoke('stopBleScan', {}, { busy: 'stop-ble-scan' });
+        break;
+      case 'select-ble-candidate':
+        this.invoke('selectBleCandidate', { candidateId: target.dataset.candidateId });
+        break;
       case 'retry-command':
         this.invoke('retryCommand', { commandId: target.dataset.commandId, deviceId: target.dataset.deviceId }, { busy: 'retry-command' });
         break;
@@ -1224,6 +1397,15 @@ class ClientUi {
       const output = target.parentElement?.querySelector('output');
       if (output) output.textContent = `${this.local.commandValues[key]}%`;
     }
+    if (field === 'capability-range') {
+      const min = Number(target.min);
+      const max = Number(target.max);
+      const step = Number(target.step);
+      const key = target.dataset.rangeKey;
+      this.local.commandValues[key] = clampRangeValue(target.value, min, max, step);
+      const output = target.parentElement?.querySelector('output');
+      if (output) output.textContent = formatRangeValue(this.local.commandValues[key]);
+    }
   }
 
   onChange(event) {
@@ -1232,6 +1414,10 @@ class ClientUi {
     if (target.dataset.field === 'level') {
       const value = clampNumber(target.value, 0, 100);
       this.sendCommand(target.dataset.deviceId, target.dataset.commandType, { level: value }, 'command-level');
+    }
+    if (target.dataset.field === 'capability-range') {
+      const value = clampRangeValue(target.value, Number(target.min), Number(target.max), Number(target.step));
+      this.sendCapabilityCommand(target, value, `command:${target.dataset.capabilityId}`);
     }
   }
 
@@ -1279,9 +1465,20 @@ class ClientUi {
     this.render({ ...this.model, activeDeviceId: deviceId });
   }
 
-  sendCommand(deviceId, type, parameters, busy) {
+  sendCommand(deviceId, type, parameters, busy, desiredState = undefined) {
     if (!deviceId || !type) return;
-    this.invoke('sendCommand', { deviceId, type, parameters }, { busy });
+    this.invoke('sendCommand', { deviceId, type, parameters, desiredState }, { busy });
+  }
+
+  sendCapabilityCommand(target, value, busy) {
+    const parameters = datasetJsonObject(target.dataset.parametersJson);
+    if (target.dataset.parameterKey && value !== undefined) {
+      parameters[target.dataset.parameterKey] = value;
+    }
+    const desiredState = target.dataset.stateKey && value !== undefined
+      ? { [target.dataset.stateKey]: value }
+      : undefined;
+    this.sendCommand(target.dataset.deviceId, target.dataset.commandType, parameters, busy, desiredState);
   }
 
   invoke(name, payload = {}, options = {}) {
@@ -1360,29 +1557,6 @@ function getPrimaryConnection(device = {}, activeConnection = null) {
   if (preferred) return plainObject(preferred);
   if (activeConnection && sameKey(activeConnection.deviceId ?? activeConnection.id, deviceKey(device))) return plainObject(activeConnection);
   return {};
-}
-
-function normalizeCapabilities(capabilities) {
-  return arrayOf(capabilities)
-    .map((raw) => {
-      const source = typeof raw === 'string' ? { id: raw } : plainObject(raw);
-      const original = String(source.id ?? source.type ?? source.name ?? '').trim().toLowerCase();
-      const id = CAPABILITY_ALIASES[original] ?? original;
-      return {
-        ...source,
-        id,
-        label: source.label ?? source.displayName ?? capabilityLabel(id),
-        commandType: source.commandType ?? source.command ?? null,
-        options: source.options ?? source.values ?? null
-      };
-    })
-    .filter((capability) => capability.id && capability.enabled !== false && capability.writable !== false);
-}
-
-function capabilityList(value) {
-  if (Array.isArray(value)) return value;
-  const source = plainObject(value);
-  return arrayOf(source.controls ?? source.capabilities);
 }
 
 function connectionHealth(value) {
@@ -1535,6 +1709,10 @@ function deviceKey(device = {}) {
 
 function candidateKey(candidate = {}) {
   return String(candidate.candidateId ?? candidate.id ?? candidate.deviceId ?? '');
+}
+
+function bleCandidateReference(candidate = {}) {
+  return String(candidate.deviceId ?? candidate.id ?? candidate.externalId ?? '');
 }
 
 function commandKey(command = {}) {
@@ -1804,6 +1982,51 @@ function errorMessage(error) {
 
 function plainObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function capabilityActionData(device, capability, value = undefined) {
+  const data = {
+    deviceId: deviceKey(device),
+    capabilityId: capability.id,
+    commandType: capability.commandType,
+    parameterKey: capability.parameterKey,
+    stateKey: capability.stateKey
+  };
+  if (value !== undefined) data.valueJson = JSON.stringify(value);
+  if (Object.keys(plainObject(capability.fixedParameters)).length) {
+    data.parametersJson = JSON.stringify(capability.fixedParameters);
+  }
+  return data;
+}
+
+function datasetJsonValue(value) {
+  if (typeof value !== 'string' || !value) return undefined;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function datasetJsonObject(value) {
+  const parsed = datasetJsonValue(value);
+  return plainObject(parsed);
+}
+
+function clampRangeValue(value, min = 0, max = 100, step = 1) {
+  const lower = Number.isFinite(min) ? min : 0;
+  const upper = Number.isFinite(max) && max >= lower ? max : 100;
+  const increment = Number.isFinite(step) && step > 0 ? step : 1;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return lower;
+  const clamped = Math.min(upper, Math.max(lower, number));
+  const stepped = Math.round((clamped - lower) / increment) * increment + lower;
+  return Number(stepped.toFixed(8));
+}
+
+function formatRangeValue(value) {
+  const number = Number(value);
+  return Number.isInteger(number) ? String(number) : String(Number(number.toFixed(4)));
 }
 
 function arrayOf(value) {

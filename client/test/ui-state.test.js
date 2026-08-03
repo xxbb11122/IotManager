@@ -29,3 +29,25 @@ test('stale platform state disables controls without hiding capabilities', () =>
   assert.equal(screen.controls.length, 1);
   assert.match(screen.notice, /缓存|同步/);
 });
+
+test('DeviceView Profile capabilities can expose controls beyond the legacy demo set', () => {
+  const screen = deviceScreenState({
+    connections: [{ transport: 'LAN_AGENT', profileId: 'hvac-v2' }],
+    capabilities: {
+      profileId: 'hvac-v2',
+      controls: [{
+        id: 'fan_speed',
+        inputType: 'range',
+        stateKey: 'fanSpeed',
+        commandType: 'set_fan_speed',
+        min: 1,
+        max: 5
+      }]
+    }
+  }, { accessRoute: 'SITE_API', stale: false });
+
+  assert.equal(screen.showControls, true);
+  assert.equal(screen.controls[0].id, 'fan_speed');
+  assert.equal(screen.controls[0].commandType, 'set_fan_speed');
+  assert.equal(screen.controls[0].controlType, 'range');
+});

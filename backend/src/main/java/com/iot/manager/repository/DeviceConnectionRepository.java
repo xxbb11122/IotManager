@@ -14,6 +14,8 @@ public interface DeviceConnectionRepository extends JpaRepository<DeviceConnecti
 
     List<DeviceConnection> findByDeviceId(Long deviceId);
 
+    List<DeviceConnection> findByAgentIdAndExternalId(String agentId, String externalId);
+
     void deleteByDeviceId(Long deviceId);
 
     @Query("select connection from DeviceConnection connection where connection.device.id in :deviceIds")

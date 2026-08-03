@@ -3,6 +3,8 @@ package com.iot.manager.controller;
 import com.iot.manager.dto.ApiProblem;
 import com.iot.manager.service.CommandValidationException;
 import com.iot.manager.service.LanCandidateAlreadyClaimedException;
+import com.iot.manager.service.IdempotencyConflictException;
+import com.iot.manager.service.GroupVersionConflictException;
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -67,6 +69,21 @@ public class ApiExceptionHandler {
     @ExceptionHandler(CommandValidationException.class)
     public ResponseEntity<ApiProblem> handleCommandValidation(CommandValidationException exception) {
         return problem(HttpStatus.BAD_REQUEST, exception.getMessage(), exception.getFieldErrors());
+    }
+
+    @ExceptionHandler(IdempotencyConflictException.class)
+    public ResponseEntity<ApiProblem> handleIdempotencyConflict(IdempotencyConflictException exception) {
+        return problem(HttpStatus.CONFLICT, exception.getMessage(), Map.of());
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiProblem> handleIllegalArgument(IllegalArgumentException exception) {
+        return problem(HttpStatus.BAD_REQUEST, exception.getMessage(), Map.of());
+    }
+
+    @ExceptionHandler(GroupVersionConflictException.class)
+    public ResponseEntity<ApiProblem> handleStateConflict(GroupVersionConflictException exception) {
+        return problem(HttpStatus.CONFLICT, exception.getMessage(), Map.of());
     }
 
     private ResponseEntity<ApiProblem> problem(HttpStatus status, String message, Map<String, String> fieldErrors) {

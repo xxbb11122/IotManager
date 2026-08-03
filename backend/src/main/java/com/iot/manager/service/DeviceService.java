@@ -36,6 +36,7 @@ public class DeviceService {
     private final DeviceConnectionRepository connectionRepo;
     private final BootstrapService bootstrapService;
     private final DeviceMapper deviceMapper;
+    private final WebSocketService webSocketService;
 
     public List<Device> getAll(String status, String type, String search) {
         return findDevices(status, type, search);
@@ -164,21 +165,27 @@ public class DeviceService {
     public void delete(Long id) {
         Device device = deviceRepo.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("Device not found"));
-        // Children must be removed before the device: commands, alerts,
-        // activity history and connections all reference the device row.
-        deviceCommandRepo.deleteByDeviceId(id);
-        alertRepo.deleteByDeviceId(id);
-        activityEventRepo.deleteByDeviceId(id);
-        connectionRepo.deleteByDeviceId(id);
-        deviceRepo.delete(device);
+        if (device.getArchivedAt() != null) {
+            return;
+        }
+        device.setArchivedAt(LocalDateTime.now());
+        device.setArchivedReason("Archived through device API");
+        device.setArchivedBy("anonymous");
+        activityEventRepo.save(ActivityEvent.builder()
+                .device(device)
+                .eventType("DEVICE_ARCHIVED")
+                .detail("Device archived; command and telemetry history retained")
+                .payloadJson("{\"reason\":\"Archived through device API\"}")
+                .occurredAt(LocalDateTime.now())
+                .build());
     }
 
     public Map<String, Object> getDashboardStats() {
         Map<String, Object> stats = new LinkedHashMap<>();
-        stats.put("total", deviceRepo.count());
-        stats.put("online", deviceRepo.countByStatus("ONLINE"));
-        stats.put("offline", deviceRepo.countByStatus("OFFLINE"));
-        stats.put("warning", deviceRepo.countByStatus("WARNING"));
+        stats.put("total", deviceRepo.findAllActive(Sort.by(Sort.Direction.DESC, "updatedAt")).size());
+        stats.put("online", deviceRepo.countByStatusAndArchivedAtIsNull("ONLINE"));
+        stats.put("offline", deviceRepo.countByStatusAndArchivedAtIsNull("OFFLINE"));
+        stats.put("warning", deviceRepo.countByStatusAndArchivedAtIsNull("WARNING"));
         stats.put("activeAlerts", alertRepo.countByResolvedFalse());
 
         List<Object[]> byStatus = deviceRepo.countGroupByStatus();
@@ -206,9 +213,25 @@ public class DeviceService {
     public Alert resolveAlert(Long alertId) {
         Alert alert = alertRepo.findById(alertId)
                 .orElseThrow(() -> new NoSuchElementException("Alert not found"));
+        if (alert.isResolved()) {
+            return alert;
+        }
         alert.setResolved(true);
         alert.setResolvedAt(LocalDateTime.now());
-        return alertRepo.save(alert);
+        alert.setStatus("RESOLVED");
+        Alert saved = alertRepo.save(alert);
+        if (saved.getDevice() != null) {
+            ActivityEvent event = activityEventRepo.save(ActivityEvent.builder()
+                    .device(saved.getDevice())
+                    .eventType("ALERT_RESOLVED")
+                    .detail("Alert resolved")
+                    .payloadJson("{\"alertId\":" + saved.getId() + "}")
+                    .occurredAt(LocalDateTime.now())
+                    .build());
+            webSocketService.sendActivityUpdate(event);
+        }
+        webSocketService.sendAlertUpdate(saved);
+        return saved;
     }
 
     @Transactional
@@ -218,21 +241,22 @@ public class DeviceService {
                 .level(level)
                 .message(message)
                 .resolved(false)
+                .status("OPEN")
                 .build();
         return alertRepo.save(alert);
     }
 
     private List<Device> findDevices(String status, String type, String search) {
         if (search != null && !search.isEmpty()) {
-            return deviceRepo.findByNameContainingOrDeviceIdContaining(search, search);
+            return deviceRepo.findActiveByNameContainingOrDeviceIdContaining(search);
         }
         if (status != null && !status.isEmpty()) {
-            return deviceRepo.findByStatus(status);
+            return deviceRepo.findByStatusAndArchivedAtIsNull(status);
         }
         if (type != null && !type.isEmpty()) {
-            return deviceRepo.findByType(type);
+            return deviceRepo.findByTypeAndArchivedAtIsNull(type);
         }
-        return deviceRepo.findAll(Sort.by(Sort.Direction.DESC, "updatedAt"));
+        return deviceRepo.findAllActive(Sort.by(Sort.Direction.DESC, "updatedAt"));
     }
 
     private Device updateDevice(

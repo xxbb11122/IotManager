@@ -14,6 +14,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
+
 @Entity
 @Table(name = "device_connections")
 @Data
@@ -36,11 +38,29 @@ public class DeviceConnection {
     @Column(length = 100)
     private String profileId;
 
+    @Column(name = "profile_version")
+    private Integer profileVersion;
+
     @Column(length = 255)
     private String externalId;
 
     @Column(length = 50)
     private String status;
+
+    @Column(name = "agent_id", length = 100)
+    private String agentId;
+
+    @Column(name = "driver_id", length = 100)
+    private String driverId;
+
+    @Column(name = "last_seen")
+    private LocalDateTime lastSeen;
+
+    @Column(name = "connected_at")
+    private LocalDateTime connectedAt;
+
+    @Column(name = "disconnected_at")
+    private LocalDateTime disconnectedAt;
 
     @Column(length = 4000)
     private String metadataJson;

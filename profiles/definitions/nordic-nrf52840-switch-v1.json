@@ -1,0 +1,18 @@
+{
+  "profileId": "nordic-nrf52840-switch-v1",
+  "version": 1,
+  "displayName": "nRF52840 reference switch",
+  "deviceType": "ACTUATOR",
+  "transports": ["BLE_DIRECT"],
+  "identity": {"serviceUuid": "6e400001-b5a3-f393-e0a9-e50e24dcca9e", "driverId": "nrf52840-nus-v1", "protocol": "a5-v1-token-crc8"},
+  "controls": [
+    {"id": "power", "kind": "toggle", "label": "Power", "commandType": "set_power", "parameter": "on"}
+  ],
+  "commands": [
+    {"type": "set_power", "stateField": "power", "stateParameter": "on", "parameters": {"on": {"type": "boolean", "required": true}}, "confirmation": "notify-token"}
+  ],
+  "telemetry": [
+    {"id": "power", "type": "boolean"},
+    {"id": "battery", "type": "number", "unit": "%"}
+  ]
+}

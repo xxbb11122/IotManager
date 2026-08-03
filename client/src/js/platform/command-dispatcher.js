@@ -10,11 +10,18 @@ export function createCommandDispatcher({
   onCommand = () => {},
   idFactory = () => createIdempotencyKey('mobile-command')
 } = {}) {
-  return async function dispatch({ device, type, parameters = {} }) {
+  return async function dispatch({ device, type, parameters = {}, desiredState = undefined }) {
     const endpointProfile = getEndpointProfile?.() ?? null;
     const route = resolveConnectionRoute({ device, bleConnected: getBleConnected?.() === true, endpointProfile });
     const commandId = idFactory(route.accessRoute);
-    const command = { commandId, idempotencyKey: commandId, deviceId: device.id, type, parameters };
+    const command = {
+      commandId,
+      idempotencyKey: commandId,
+      deviceId: device.id,
+      type,
+      parameters,
+      ...(desiredState && typeof desiredState === 'object' ? { desiredState } : {})
+    };
 
     try {
       let result;

@@ -47,6 +47,45 @@ The Android App uses the native Capacitor BLE adapter. When the same client is o
 - **Simulated LAN:** list candidates with `GET /api/discovery/lan?siteCode=demo-site`, claim one with `POST /api/discovery/lan/{candidateId}/claim`, then submit a command with `POST /api/devices/{id}/commands`. Command state progresses through `PENDING`, `SENT`, then `ACKNOWLEDGED` or `FAILED`; the client receives updates from `/ws/devices` and can query `GET /api/commands/{commandId}`.
 - **BLE:** the Android App scans and connects through the native BLE plugin; the browser build retains a Web Bluetooth fallback. BLE bindings remain local to the App installation and are separate from simulated LAN discovery, so a local BLE device is not automatically registered as a backend LAN device.
 
+### Device Profiles and operations
+
+Device capabilities are defined once under `profiles/definitions/` and are used by
+the backend command validator and the mobile client control renderer. A profile
+declares its supported transports, controls, commands, state fields, parameter
+constraints, and telemetry fields. The first delivery includes:
+
+- `legacy-generic-v1` for simulated/API-controlled actuators.
+- `nordic-nrf52840-switch-v1` for the reference BLE switch.
+- `shelly-plus-plug-s-v1` for a Shelly Plus Plug S reached through an Edge Agent.
+
+The platform persists profile identity on each device and rejects commands that
+the assigned profile does not support. Devices can be grouped within a site,
+controlled in batches (up to 200 targets), archived without deleting their
+history, and inspected through command event and telemetry history APIs.
+
+### Site Edge Agent (real LAN path)
+
+Run the Edge Agent inside the same LAN as the equipment. It maintains one
+outbound WebSocket to the platform, sends discovery/telemetry, accepts command
+requests, and returns a final receipt after the device driver confirms state.
+The included driver supports Shelly Plus Plug S Gen2 with `Switch.Set` followed
+by `Switch.GetStatus` read-back.
+
+```powershell
+$env:JAVA_HOME = 'C:\Program Files\Java\jdk-17'
+$env:Path = "$env:JAVA_HOME\bin;$env:Path"
+Set-Location edge-agent
+mvn package
+java -jar target/iot-edge-agent-0.1.0-SNAPSHOT.jar --config C:\ProgramData\iot-manager\edge-agent.properties
+```
+
+Copy `edge-agent/src/main/resources/edge-agent.properties.example` outside the
+repository and set `backend.websocket.url` to
+`ws://<platform-host>:8080/ws/edge/v1` locally, or
+`wss://<public-domain>/ws/edge/v1` when using the Caddy deployment. See
+[edge-agent/README.md](edge-agent/README.md) for the supported driver and
+configuration details.
+
 ## Prototype Security Boundary
 
 The first delivery prioritizes the device lifecycle, simulated LAN flow, BLE connection shell, command acknowledgement, activity history, and replaceable adapter boundaries. Authentication, RBAC, tenant enforcement, secret storage, production TLS/WSS, rate limits, and production hardening are deliberately deferred.
@@ -71,6 +110,9 @@ npm run dev
 
 ## Verify
 
+For the complete release-baseline verification commands, including the Android
+APK and Docker/Caddy configuration checks, see [docs/VERIFICATION.md](docs/VERIFICATION.md).
+
 ```powershell
 $env:JAVA_HOME = 'C:\Program Files\Java\jdk-17'
 $env:Path = "$env:JAVA_HOME\bin;$env:Path"
@@ -85,6 +127,13 @@ npm run build
 ```
 
 Build the other Vite applications with `npm run build` from `frontend` or `console`.
+
+## Cloud deployment
+
+The first full-stack deployment serves the monitoring dashboard at `/`, the
+operations console at `/console/`, and keeps the mobile API/WebSocket paths at
+`/api` and `/ws/devices`. See [deploy/DEPLOYMENT.md](deploy/DEPLOYMENT.md) for
+the Docker/Caddy setup and acceptance checks.
 
 ## Android enterprise client
 
@@ -153,6 +202,6 @@ Plain HTTP, WS, and WebView mixed content are enabled only when the Android pack
 - A known BLE binding can connect and send supported commands without platform access. A write changes `desiredState`, but only a decoded notification, read-back, or response may change `reportedState`.
 - A BLE profile that supports writes but has no reliable confirmation ends in `UNCONFIRMED`, displayed as **已发送，设备未提供确认**. This is not treated as an acknowledgement.
 
-The API 36 emulator flow has been exercised for install, launch, navigation, and connection settings. Physical BLE permission, scan, connect, reconnect, known-profile command, and unknown-profile read-only checks still require compatible BLE hardware before production acceptance.
+The API 36 emulator flow has been exercised for install, launch, navigation, and connection settings. Physical BLE permission, scan, connect, reconnect, known-profile command, and unknown-profile read-only checks still require compatible BLE hardware before production acceptance. The nRF52840 reference firmware is in [firmware/nrf52840-reference-switch](firmware/nrf52840-reference-switch); build it with Zephyr and validate it using a low-voltage load or board LED before controlling physical equipment.
 
-Authentication, RBAC, tenant enforcement, production certificates, background BLE, Edge Agent delivery, mini-program delivery, release signing, managed distribution, rate limits, and broader security hardening remain deferred milestones.
+Authentication, RBAC, tenant enforcement, PostgreSQL, backup/recovery, background BLE, mini-program delivery, release signing, managed distribution, rate limits, and broader security hardening remain deferred milestones.

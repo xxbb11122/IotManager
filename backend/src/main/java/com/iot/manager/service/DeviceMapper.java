@@ -43,6 +43,7 @@ public class DeviceMapper {
 
     private final DeviceConnectionRepository connectionRepository;
     private final ObjectMapper objectMapper;
+    private final DeviceProfileService profileService;
 
     public DeviceView toView(Device device) {
         if (device == null) {
@@ -114,7 +115,11 @@ public class DeviceMapper {
                 device.getHumidity(),
                 device.getCpuUsage(),
                 device.getUptimeSeconds(),
-                device.getSignalStrength()
+                device.getSignalStrength(),
+                device.getProfileId(),
+                device.getProfileVersion(),
+                capabilities(device),
+                device.getArchivedAt()
         );
     }
 
@@ -122,10 +127,21 @@ public class DeviceMapper {
         return new ConnectionView(
                 connection.getTransport(),
                 connection.getProfileId(),
+                connection.getProfileVersion(),
                 connection.getExternalId(),
                 connection.getStatus(),
+                connection.getAgentId(),
+                connection.getDriverId(),
                 removeSecrets(parseObject(connection.getMetadataJson()))
         );
+    }
+
+    private Map<String, Object> capabilities(Device device) {
+        try {
+            return profileService.capabilities(device.getProfileId(), device.getProfileVersion());
+        } catch (CommandValidationException ignored) {
+            return Map.of();
+        }
     }
 
     private Map<String, Object> parseObject(String json) {

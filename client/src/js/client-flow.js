@@ -1,3 +1,5 @@
+import { capabilityControls, resolveCapabilityEnvelope } from './device-capabilities.js';
+
 function asObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
@@ -7,15 +9,7 @@ function stringValue(value, fallback = '') {
   return text || fallback;
 }
 
-export function capabilityControls(capabilities) {
-  const controls = Array.isArray(capabilities)
-    ? capabilities
-    : Array.isArray(capabilities?.controls)
-      ? capabilities.controls
-      : [];
-
-  return controls.map((control) => ({ ...asObject(control) }));
-}
+export { capabilityControls } from './device-capabilities.js';
 
 export function decorateLanDevice(device = {}, capabilityEnvelope = null) {
   const connections = Array.isArray(device.connections) ? device.connections : [];
@@ -27,13 +21,18 @@ export function decorateLanDevice(device = {}, capabilityEnvelope = null) {
     return device;
   }
 
-  const controls = capabilityControls(capabilityEnvelope);
+  const declaredCapabilities = resolveCapabilityEnvelope(device, connections[0]) ?? capabilityEnvelope;
+  if (declaredCapabilities == null) {
+    return device;
+  }
+
+  const controls = capabilityControls(declaredCapabilities);
   return {
     ...device,
-    capabilities: controls,
+    capabilities: device.capabilities ?? device.profileCapabilities ?? controls,
     connections: connections.map((connection) => ({
       ...connection,
-      capabilities: controls
+      capabilities: connection.capabilities ?? connection.profileCapabilities ?? controls
     }))
   };
 }
@@ -46,7 +45,8 @@ export function createLocalBleDevice(candidate = {}, connection = {}, context = 
     throw new TypeError('A browser-local BLE device requires a browser device id');
   }
 
-  const controls = capabilityControls(connection.capabilities ?? candidate.capabilities);
+  const capabilityEnvelope = connection.capabilities ?? candidate.capabilities ?? null;
+  const controls = capabilityControls(capabilityEnvelope);
   const genericInformation = asObject(connection.genericInformation ?? candidate.genericInformation);
   const normalizedConnection = {
     ...asObject(connection),
@@ -55,6 +55,7 @@ export function createLocalBleDevice(candidate = {}, connection = {}, context = 
     transport: connection.transport ?? 'BLE_DIRECT',
     status: connection.status ?? 'DISCONNECTED',
     capabilities: controls,
+    profileCapabilities: capabilityEnvelope,
     metadata: { ...asObject(connection.metadata), ...genericInformation },
     identityScope: 'browser_local'
   };

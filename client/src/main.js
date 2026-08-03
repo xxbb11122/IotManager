@@ -25,14 +25,6 @@ const DEMO_CONTEXT = Object.freeze({
   spacePath: '/operations/field'
 });
 
-const DEMO_PLATFORM_CAPABILITIES = Object.freeze({
-  controls: Object.freeze([
-    Object.freeze({ id: 'power', commandType: 'set_power', writable: true }),
-    Object.freeze({ id: 'level', commandType: 'set_level', writable: true }),
-    Object.freeze({ id: 'mode', commandType: 'set_mode', writable: true })
-  ])
-});
-
 const nativeRuntime = Capacitor.isNativePlatform();
 const runtimeConfigRepository = new RuntimeConfigRepository();
 const cacheRepository = new CacheRepository();
@@ -52,9 +44,12 @@ let clientState = {
   ble: {
     availability: ble.availability().available,
     reason: ble.availability().reason ?? null,
+    candidates: [],
+    selectedCandidateId: null,
     candidate: null,
     connection: null,
     errorCode: null,
+    scanning: false,
     native: nativeRuntime
   },
   loading: {},
@@ -66,7 +61,11 @@ const ui = createClientUi(document.getElementById('app'), {
   openAddDevice: () => setClientState({ error: null }),
   chooseAddPath: () => setClientState({ error: null }),
   requestBle,
+  stopBleScan,
+  selectBleCandidate,
   connectBle,
+  disconnectBle,
+  forgetBle,
   discoverLan,
   selectLanCandidate: () => {},
   claimLan,
@@ -96,12 +95,19 @@ const unsubscribeBle = ble.subscribe((event) => {
 
   const rawConnection = event.payload ?? {};
   const pluginDeviceId = rawConnection.deviceId ?? rawConnection.id ?? clientState.ble.candidate?.deviceId ?? clientState.ble.candidate?.id;
-  const connection = { ...rawConnection, deviceId: pluginDeviceId };
+  const connection = {
+    ...rawConnection,
+    deviceId: pluginDeviceId,
+    capabilities: rawConnection.capabilities ?? ble.getCapabilities?.() ?? { controls: [] }
+  };
   setClientState({ ble: { connection, errorCode: null } });
   store.setActiveConnection(connection);
 
   const existing = store.selectDevice(pluginDeviceId);
-  const candidate = clientState.ble.candidate ?? existing ?? { deviceId: pluginDeviceId, name: connection.name };
+  const candidate = clientState.ble.candidates.find((item) => bleCandidateId(item) === String(pluginDeviceId))
+    ?? clientState.ble.candidate
+    ?? existing
+    ?? { deviceId: pluginDeviceId, name: connection.name };
   if (pluginDeviceId) {
     const device = createLocalBleDevice(candidate, connection, clientState.context);
     store.upsertDevice(device);
@@ -203,7 +209,7 @@ async function refreshDevices({ refreshActiveActivity = true } = {}) {
   try {
     if (!platform) throw new Error('Platform endpoint is unavailable');
     const devices = await platform.listDevices();
-    const decorated = devices.map((device) => decorateLanDevice(device, DEMO_PLATFORM_CAPABILITIES));
+    const decorated = devices.map((device) => decorateLanDevice(device));
     const merged = mergePlatformAndLocalDevices(decorated, store.getState().devices);
     store.setDevices(merged);
     await cacheRepository.replacePlatformDevices({ ...scope, devices: decorated });
@@ -314,7 +320,7 @@ async function bootstrapRuntime() {
   await activateEndpoint(profile);
   lifecycleHandle = await attachAppLifecycle({
     onBackground: async () => {
-      await ble.stopScan?.();
+      await stopBleScan();
       platform?.disconnect();
       store.setRuntimeContext({ stale: true });
     },
@@ -332,12 +338,22 @@ async function requestBle() {
   if (nativeRuntime) {
     setLoading('blePicker', true);
     try {
-      await ble.scan((candidate) => {
-        setClientState({ ble: { candidate, connection: null, errorCode: null } });
+      await ble.clearCandidates?.();
+      setClientState({
+        ble: {
+          candidates: [],
+          selectedCandidateId: null,
+          candidate: null,
+          scanning: true,
+          errorCode: null
+        }
+      });
+      await ble.scan((candidate, candidates) => {
+        updateBleCandidates(candidates ?? ble.getCandidates?.() ?? [candidate], candidate);
       });
       return null;
     } catch (error) {
-      setClientState({ ble: { errorCode: error.code ?? null } });
+      setClientState({ ble: { errorCode: error.code ?? null, scanning: false } });
       throw error;
     } finally {
       setLoading('blePicker', false);
@@ -348,7 +364,7 @@ async function requestBle() {
   setLoading('blePicker', true);
   try {
     const candidate = await picker;
-    setClientState({ ble: { candidate, connection: null, errorCode: null } });
+    updateBleCandidates([candidate], candidate);
     return candidate;
   } catch (error) {
     if (isBlePickerCancellation(error)) return null;
@@ -359,11 +375,70 @@ async function requestBle() {
   }
 }
 
+function bleCandidateId(candidate = {}) {
+  const value = candidate.deviceId ?? candidate.id ?? candidate.externalId ?? candidate.address;
+  return value === null || value === undefined ? '' : String(value);
+}
+
+function mergeBleCandidates(previous = [], discovered = []) {
+  const candidates = new Map();
+  for (const item of previous) {
+    const key = bleCandidateId(item);
+    if (key) candidates.set(key, item);
+  }
+  for (const item of discovered) {
+    const key = bleCandidateId(item);
+    if (!key) continue;
+    const prior = candidates.get(key);
+    candidates.set(key, {
+      ...(prior ?? {}),
+      ...item,
+      deviceId: item.deviceId ?? prior?.deviceId ?? key,
+      firstSeenAt: prior?.firstSeenAt ?? item.firstSeenAt ?? Date.now(),
+      lastSeenAt: item.lastSeenAt ?? Date.now()
+    });
+  }
+  return [...candidates.values()];
+}
+
+function updateBleCandidates(discovered, preferredCandidate = null) {
+  const candidates = mergeBleCandidates(clientState.ble.candidates, Array.isArray(discovered) ? discovered : [discovered]);
+  const preferredId = bleCandidateId(preferredCandidate)
+    || clientState.ble.selectedCandidateId
+    || bleCandidateId(clientState.ble.candidate)
+    || bleCandidateId(candidates[0]);
+  const candidate = candidates.find((item) => bleCandidateId(item) === preferredId) ?? candidates[0] ?? null;
+  setClientState({
+    ble: {
+      candidates,
+      selectedCandidateId: candidate ? bleCandidateId(candidate) : null,
+      candidate,
+      errorCode: null
+    }
+  });
+  return candidate;
+}
+
+function selectBleCandidate({ candidateId } = {}) {
+  const candidate = clientState.ble.candidates.find((item) => bleCandidateId(item) === String(candidateId ?? ''));
+  if (!candidate) return null;
+  setClientState({ ble: { candidate, selectedCandidateId: bleCandidateId(candidate), errorCode: null } });
+  return candidate;
+}
+
+async function stopBleScan() {
+  try {
+    await ble.stopScan?.();
+  } finally {
+    setClientState({ ble: { scanning: false } });
+  }
+}
+
 async function connectBle() {
   if (!clientState.ble.candidate) throw new Error('请先选择蓝牙设备。');
   setLoading('bleConnect', true);
   try {
-    await ble.stopScan?.().catch?.(() => {});
+    await stopBleScan().catch(() => {});
     const connection = await ble.connect(clientState.ble.candidate);
     const normalized = {
       ...connection,
@@ -374,7 +449,7 @@ async function connectBle() {
     store.upsertDevice(device);
     store.setActiveConnection(normalized);
     store.setActiveDevice(device.id);
-    setClientState({ ble: { connection: normalized, errorCode: null }, error: null });
+    setClientState({ ble: { connection: normalized, errorCode: null, scanning: false }, error: null });
     await persistBleBinding(device, normalized);
     ui.notify('蓝牙设备已连接。', 'success');
     return normalized;
@@ -383,6 +458,72 @@ async function connectBle() {
     throw error;
   } finally {
     setLoading('bleConnect', false);
+  }
+}
+
+async function disconnectBle({ deviceId } = {}) {
+  const connection = clientState.ble.connection ?? store.getState().activeConnection;
+  const activeDeviceId = deviceId ?? connection?.deviceId ?? connection?.id;
+  if (!activeDeviceId) return null;
+  setLoading('bleDisconnect', true);
+  try {
+    await ble.disconnect?.();
+    const disconnected = {
+      ...(connection ?? {}),
+      deviceId: connection?.deviceId ?? connection?.id ?? activeDeviceId,
+      transport: 'BLE_DIRECT',
+      status: 'DISCONNECTED'
+    };
+    store.setActiveConnection(disconnected);
+    const device = store.selectDevice(activeDeviceId);
+    if (device) {
+      const connections = (device.connections ?? []).map((item) => (
+        String(item.transport ?? '').toUpperCase().includes('BLE')
+          ? { ...item, status: 'DISCONNECTED' }
+          : item
+      ));
+      const updated = store.patchDevice(activeDeviceId, { status: 'OFFLINE', connections });
+      if (updated) await persistBleBinding(updated, disconnected);
+    }
+    setClientState({ ble: { connection: disconnected, scanning: false }, error: null });
+    return disconnected;
+  } finally {
+    setLoading('bleDisconnect', false);
+  }
+}
+
+async function forgetBle({ deviceId } = {}) {
+  const device = store.selectDevice(deviceId) ?? store.selectActiveDevice();
+  const pluginDeviceId = device?.deviceId
+    ?? clientState.ble.connection?.deviceId
+    ?? clientState.ble.candidate?.deviceId
+    ?? clientState.ble.candidate?.id;
+  if (!pluginDeviceId) return false;
+
+  setLoading('bleForget', true);
+  try {
+    if (clientState.ble.connection?.status === 'CONNECTED'
+      && String(clientState.ble.connection.deviceId ?? clientState.ble.connection.id) === String(pluginDeviceId)) {
+      await disconnectBle({ deviceId: pluginDeviceId });
+    }
+    if (appInstallId) await cacheRepository.removeLocalBinding(appInstallId, pluginDeviceId);
+    store.removeDevice(device?.id ?? pluginDeviceId);
+    const candidates = clientState.ble.candidates.filter((item) => bleCandidateId(item) !== String(pluginDeviceId));
+    const candidate = candidates[0] ?? null;
+    setClientState({
+      ble: {
+        candidates,
+        candidate,
+        selectedCandidateId: candidate ? bleCandidateId(candidate) : null,
+        connection: null,
+        scanning: false
+      },
+      error: null
+    });
+    ui.notify('已在本客户端忘记该蓝牙设备。', 'success');
+    return true;
+  } finally {
+    setLoading('bleForget', false);
   }
 }
 
@@ -405,7 +546,7 @@ async function claimLan({ candidateId, displayName, siteCode, spacePath }) {
   setLoading('lanClaim', true);
   try {
     const device = await platform.claimLan(candidate, { displayName, siteCode, spacePath });
-    const decorated = decorateLanDevice(device, DEMO_PLATFORM_CAPABILITIES);
+    const decorated = decorateLanDevice(device);
     store.upsertDevice(decorated);
     store.setActiveDevice(decorated.id);
     setClientState({
@@ -434,11 +575,11 @@ async function openDevice({ deviceId }) {
   return device;
 }
 
-async function sendCommand({ deviceId, type, parameters }) {
+async function sendCommand({ deviceId, type, parameters, desiredState }) {
   const device = store.selectDevice(deviceId);
   if (!device) throw new Error('未找到待控制设备。');
   const routedPlatform = platform;
-  const command = await dispatchCommand({ device, type, parameters });
+  const command = await dispatchCommand({ device, type, parameters, desiredState });
   if (command.accessRoute !== 'BLE_LOCAL' && !isTerminalCommandStatus(command.status)) {
     void pollCommand(command.commandId, routedPlatform);
   }
@@ -451,7 +592,8 @@ async function retryCommand({ commandId, deviceId }) {
   return sendCommand({
     deviceId: deviceId ?? command.deviceId,
     type: command.type,
-    parameters: command.parameters ?? {}
+    parameters: command.parameters ?? {},
+    desiredState: command.desiredState
   });
 }
 

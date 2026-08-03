@@ -27,3 +27,24 @@ test('an in-flight command remains on its original endpoint after a profile swit
   assert.deepEqual(calls, { site: 1, cloud: 0 });
   assert.deepEqual(events.map((command) => command.status), ['PENDING']);
 });
+
+test('profile-driven controls can supply an explicit desired state', async () => {
+  const events = [];
+  const dispatch = createCommandDispatcher({
+    getPlatform: () => ({ async sendCommand(command) { return { commandId: command.commandId, status: 'PENDING' }; } }),
+    getEndpointProfile: () => ({ accessRoute: 'SITE_API' }),
+    getBleConnected: () => false,
+    isPlatformStale: () => false,
+    idFactory: () => 'fan-speed-1',
+    onCommand: (command) => events.push(command)
+  });
+
+  await dispatch({
+    device: { id: 8, connections: [{ transport: 'LAN_AGENT' }] },
+    type: 'set_fan_speed',
+    parameters: { speed: 4 },
+    desiredState: { fanSpeed: 4 }
+  });
+
+  assert.deepEqual(events[0].desiredState, { fanSpeed: 4 });
+});

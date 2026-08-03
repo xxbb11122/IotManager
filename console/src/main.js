@@ -2,232 +2,420 @@ import './css/style.css';
 import Chart from 'chart.js/auto';
 import { api, esc } from './js/api.js';
 
-/* ── Clock ── */
-function tick() { document.getElementById('clock').textContent = new Date().toLocaleString('zh-CN', { hour12: false }); }
-tick(); setInterval(tick, 1000);
+const state = {
+  devices: [],
+  groups: [],
+  batches: [],
+  selectedGroup: null,
+  selectedBatch: null,
+  selectedBatchCommands: [],
+  chart: null
+};
 
-/* ── Toast ── */
-function toast(msg, isError) {
-  const el = document.getElementById('toast');
-  el.textContent = msg;
-  el.className = 'toast ' + (isError ? 'error' : '');
-  setTimeout(() => el.classList.add('show'), 10);
-  setTimeout(() => el.classList.remove('show'), 3000);
+const SITE_CODE = 'demo-site';
+
+function toast(message, isError = false) {
+  const element = document.getElementById('toast');
+  element.textContent = message;
+  element.className = `toast ${isError ? 'error' : ''}`;
+  requestAnimationFrame(() => element.classList.add('show'));
+  window.setTimeout(() => element.classList.remove('show'), 3000);
 }
 
-/* ── Navigation ── */
-document.querySelectorAll('.nav-item').forEach(el => {
-  el.addEventListener('click', () => {
-    document.querySelectorAll('.nav-item').forEach(e => e.classList.remove('active'));
-    el.classList.add('active');
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.getElementById('page-' + el.dataset.page).classList.add('active');
-    const page = el.dataset.page;
-    if (page === 'dashboard') loadDashboard();
-    if (page === 'devices') loadDeviceList();
-    if (page === 'alerts') loadAlertList();
-    if (page === 'register') resetForm();
-  });
-});
+function formatDate(value) {
+  if (!value) return '-';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleString('zh-CN', { hour12: false });
+}
 
-/* ═══════ Dashboard ═══════ */
-let doughnutChart = null;
+function badge(status) {
+  const normalized = String(status || 'UNKNOWN').toUpperCase();
+  const style = normalized === 'ONLINE' || normalized === 'ACKNOWLEDGED' || normalized === 'SUCCEEDED'
+    ? 'badge-online'
+    : normalized === 'WARNING' || normalized === 'PARTIALLY_SUCCEEDED' || normalized === 'UNCONFIRMED'
+      ? 'badge-warning'
+      : normalized === 'OFFLINE' || normalized === 'FAILED' || normalized === 'REJECTED'
+        ? 'badge-offline'
+        : 'badge-maintenance';
+  return `<span class="badge ${style}">${esc(normalized)}</span>`;
+}
+
+function selectedDeviceIds() {
+  return [...document.querySelectorAll('.device-select:checked')].map((element) => Number(element.value));
+}
 
 async function loadDashboard() {
-  try {
-    const stats = await api('/api/devices/stats');
-    document.getElementById('d-total').textContent = stats.total;
-    document.getElementById('d-online').textContent = stats.online;
-    document.getElementById('d-warning').textContent = stats.warning;
-    document.getElementById('d-offline').textContent = stats.offline;
+  const [stats, batches] = await Promise.all([
+    api('/api/devices/stats'),
+    api(`/api/command-batches?siteCode=${encodeURIComponent(SITE_CODE)}`)
+  ]);
+  state.batches = batches;
+  document.getElementById('d-total').textContent = stats.total ?? 0;
+  document.getElementById('d-online').textContent = stats.online ?? 0;
+  document.getElementById('d-warning').textContent = stats.warning ?? 0;
+  document.getElementById('d-offline').textContent = stats.offline ?? 0;
+  renderTypeChart(stats.typeBreakdown || {});
+  renderDashboardBatches();
+}
 
-    const ctx = document.getElementById('chart-types');
-    if (doughnutChart) doughnutChart.destroy();
-    const breakdown = stats.typeBreakdown || {};
-    doughnutChart = new Chart(ctx, {
-      type: 'doughnut',
-      data: {
-        labels: Object.keys(breakdown),
-        datasets: [{
-          data: Object.values(breakdown),
-          backgroundColor: ['#3699FF','#0FE87B','#F5A623','#F64E60','#8950FC'],
-          borderWidth: 0
-        }]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { position: 'right', labels: { color: '#7E8299', font: { size: 11 }, padding: 16 } } }
-      }
-    });
-  } catch (e) {
-    console.error('加载概览失败', e);
+function renderTypeChart(breakdown) {
+  const canvas = document.getElementById('chart-types');
+  if (state.chart) state.chart.destroy();
+  state.chart = new Chart(canvas, {
+    type: 'doughnut',
+    data: {
+      labels: Object.keys(breakdown),
+      datasets: [{ data: Object.values(breakdown), backgroundColor: ['#3699FF', '#0FE87B', '#F5A623', '#F64E60', '#8950FC'], borderWidth: 0 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: '#7E8299', font: { size: 11 } } } } }
+  });
+}
+
+function renderDashboardBatches() {
+  const container = document.getElementById('dashboard-batches');
+  if (!state.batches.length) {
+    container.innerHTML = '<div class="empty">暂无批量命令</div>';
+    return;
+  }
+  container.innerHTML = state.batches.slice(0, 5).map((batch) => `
+    <div class="compact-row"><div><strong>${esc(batch.type)}</strong><div class="muted">${esc(batch.batchId)} · ${formatDate(batch.requestedAt)}</div></div><div>${badge(batch.status)}</div></div>
+  `).join('');
+}
+
+function batchSummary(batch) {
+  return [
+    `${batch.acknowledgedCount || 0} 已确认`,
+    `${batch.failedCount || 0} 未确认或失败`,
+    `${batch.rejectedCount || 0} 已拒绝`,
+    `${batch.pendingCount || 0} 等待中`,
+    `${batch.sentCount || 0} 已发送`
+  ];
+}
+
+function commandOutcome(command) {
+  if (command.error) return command.error;
+  if (command.failureCode) return command.failureCode;
+  if (command.result?.reason) return command.result.reason;
+  if (command.result?.applied) return '设备已确认状态';
+  return '-';
+}
+
+function retryableCommands() {
+  return state.selectedBatchCommands.filter((command) => ['FAILED', 'UNCONFIRMED', 'REJECTED'].includes(String(command.status).toUpperCase()));
+}
+
+function renderBatchDetail() {
+  const title = document.getElementById('batch-detail-title');
+  const copy = document.getElementById('batch-detail-copy');
+  const actions = document.getElementById('batch-detail-actions');
+  const content = document.getElementById('batch-detail-content');
+  const batch = state.selectedBatch;
+  if (!batch) {
+    title.textContent = '选择一个批次';
+    copy.textContent = '可查看每台设备的命令回执和失败原因。';
+    actions.innerHTML = '';
+    content.innerHTML = '';
+    return;
+  }
+  const retryable = retryableCommands();
+  title.textContent = `批次详情：${batch.type}`;
+  copy.textContent = `${batch.batchId} · ${formatDate(batch.requestedAt)}`;
+  actions.innerHTML = retryable.length
+    ? `<button class="btn btn-ghost btn-sm" id="retry-batch-failed">重试 ${retryable.length} 台失败设备</button>`
+    : '';
+  const meta = batchSummary(batch).map((item) => `<span>${esc(item)}</span>`).join('');
+  const rows = state.selectedBatchCommands.map((command) => `<tr>
+    <td>${esc(command.deviceId)}</td>
+    <td>${esc(command.type)}</td>
+    <td>${badge(command.status)}</td>
+    <td>${esc(commandOutcome(command))}</td>
+    <td>${formatDate(command.completedAt || command.sentAt || command.requestedAt)}</td>
+  </tr>`).join('');
+  content.innerHTML = `<div class="detail-meta">${meta}</div>${rows
+    ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>设备 ID</th><th>命令</th><th>状态</th><th>结果</th><th>最后更新</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    : '<div class="detail-empty">批次尚未生成子命令。</div>'}`;
+}
+
+async function selectBatch(batchId) {
+  const batch = state.batches.find((item) => item.batchId === batchId);
+  if (!batch) return;
+  state.selectedBatch = batch;
+  state.selectedBatchCommands = [];
+  renderBatchDetail();
+  try {
+    state.selectedBatchCommands = await api(`/api/command-batches/${encodeURIComponent(batchId)}/commands`);
+    renderBatchDetail();
+  } catch (error) {
+    state.selectedBatchCommands = [];
+    renderBatchDetail();
+    toast(`批次详情加载失败：${error.message}`, true);
   }
 }
 
-/* ═══════ Device List ═══════ */
-async function loadDeviceList() {
-  const tbody = document.getElementById('dev-table-body');
-  try {
-    const devices = await api('/api/devices');
-    tbody.innerHTML = devices.map(d => {
-      let bc = 'badge-online';
-      if (d.status==='OFFLINE') bc='badge-offline';
-      else if (d.status==='WARNING') bc='badge-warning';
-      else if (d.status==='MAINTENANCE') bc='badge-maintenance';
-      return `<tr>
-        <td>${esc(d.name)}</td>
-        <td><span class="mono">${esc(d.deviceId)}</span></td>
-        <td>${esc(d.type)}</td>
-        <td><span class="badge ${bc}">${esc(d.status)}</span></td>
-        <td>${esc(d.location||'—')}</td>
-        <td>
-          <button class="btn btn-ghost btn-sm edit-btn" data-id="${d.id}">编辑</button>
-          <button class="btn btn-danger btn-sm del-btn" data-id="${d.id}">删除</button>
-        </td>
-      </tr>`;
-    }).join('');
-  } catch (e) {
-    tbody.innerHTML = '<tr><td colspan="6"><div class="empty">加载失败: ' + esc(e.message) + '</div></td></tr>';
+async function loadDevices() {
+  const query = document.getElementById('dev-search').value.trim();
+  state.devices = await api(`/api/devices${query ? `?search=${encodeURIComponent(query)}` : ''}`);
+  const body = document.getElementById('dev-table-body');
+  if (!state.devices.length) {
+    body.innerHTML = '<tr><td colspan="7" class="empty">没有匹配的设备</td></tr>';
+    return;
   }
+  body.innerHTML = state.devices.map((device) => {
+    const connection = device.connections?.[0];
+    const profile = `${device.profileId || 'legacy-generic-v1'} v${device.profileVersion || 1}`;
+    return `<tr>
+      <td><input class="device-select" type="checkbox" value="${device.id}" aria-label="选择 ${esc(device.name)}"></td>
+      <td><strong>${esc(device.name)}</strong><div class="mono">${esc(device.deviceId)}</div></td>
+      <td>${esc(profile)}</td>
+      <td>${esc(connection?.transport || device.protocol || '-')}</td>
+      <td>${badge(device.status)}</td>
+      <td>${esc(device.location || '-')}</td>
+      <td class="row-actions"><button class="btn btn-ghost btn-sm edit-device" data-id="${device.id}">编辑</button><button class="btn btn-danger btn-sm archive-device" data-id="${device.id}">归档</button></td>
+    </tr>`;
+  }).join('');
 }
 
-// Delegated click handlers for device list
-document.getElementById('dev-table-body').addEventListener('click', async (e) => {
-  const editBtn = e.target.closest('.edit-btn');
-  const delBtn = e.target.closest('.del-btn');
-  if (editBtn) editDevice(editBtn.dataset.id);
-  if (delBtn) deleteDevice(delBtn.dataset.id);
-});
-
-document.getElementById('dev-search').addEventListener('input', async function() {
-  const q = this.value.trim();
-  let url = '/api/devices';
-  if (q) url += '?search=' + encodeURIComponent(q);
-  try {
-    const devices = await api(url);
-    document.getElementById('dev-table-body').innerHTML = devices.map(d => {
-      let bc = 'badge-online';
-      if (d.status==='OFFLINE') bc='badge-offline';
-      else if (d.status==='WARNING') bc='badge-warning';
-      else if (d.status==='MAINTENANCE') bc='badge-maintenance';
-      return `<tr>
-        <td>${esc(d.name)}</td><td><span class="mono">${esc(d.deviceId)}</span></td><td>${esc(d.type)}</td>
-        <td><span class="badge ${bc}">${esc(d.status)}</span></td><td>${esc(d.location||'—')}</td>
-        <td>
-          <button class="btn btn-ghost btn-sm edit-btn" data-id="${d.id}">编辑</button>
-          <button class="btn btn-danger btn-sm del-btn" data-id="${d.id}">删除</button>
-        </td>
-      </tr>`;
-    }).join('');
-  } catch (e) { /* ignore */ }
-});
-
-/* ═══════ Register / Edit ═══════ */
-function resetForm() {
+function resetDeviceForm() {
   document.getElementById('edit-id').value = '';
-  document.getElementById('form-title').textContent = '注册新设备';
+  document.getElementById('form-title').textContent = '登记设备';
   document.getElementById('device-form').reset();
 }
 
 async function editDevice(id) {
+  const device = await api(`/api/devices/${id}`);
+  document.getElementById('edit-id').value = device.id;
+  document.getElementById('form-title').textContent = `编辑设备：${device.name}`;
+  document.getElementById('f-name').value = device.name || '';
+  document.getElementById('f-type').value = device.type || 'ACTUATOR';
+  document.getElementById('f-protocol').value = device.protocol || 'API';
+  document.getElementById('f-location').value = device.location || '';
+  document.getElementById('f-firmware').value = device.firmwareVersion || '';
+  document.getElementById('f-status').value = device.status || 'OFFLINE';
+  navigate('devices');
+}
+
+async function archiveDevice(id) {
+  if (!window.confirm('归档后设备将从默认列表隐藏，但历史与审计会保留。继续吗？')) return;
+  await api(`/api/devices/${id}`, { method: 'DELETE' });
+  toast('设备已归档');
+  await loadDevices();
+}
+
+async function loadGroups() {
+  state.groups = await api(`/api/device-groups?siteCode=${encodeURIComponent(SITE_CODE)}`);
+  renderGroups();
+  const selector = document.getElementById('batch-group');
+  selector.innerHTML = '<option value="">选择设备组</option>' + state.groups.map((group) => `<option value="${esc(group.groupId)}">${esc(group.name)} (${group.memberCount})</option>`).join('');
+}
+
+function renderGroups() {
+  const list = document.getElementById('group-list');
+  if (!state.groups.length) {
+    list.innerHTML = '<div class="empty">暂无设备组</div>';
+    return;
+  }
+  list.innerHTML = state.groups.map((group) => `<div class="compact-row"><div><strong>${esc(group.name)}</strong><div class="muted">${group.memberCount} 台设备，${group.onlineCount} 台在线</div></div><button class="btn btn-ghost btn-sm select-group" data-id="${esc(group.groupId)}">管理成员</button></div>`).join('');
+}
+
+function selectGroup(groupId) {
+  state.selectedGroup = state.groups.find((group) => group.groupId === groupId) || null;
+  const title = document.getElementById('group-detail-title');
+  const copy = document.getElementById('group-detail-copy');
+  title.textContent = state.selectedGroup ? state.selectedGroup.name : '选择一个设备组';
+  copy.textContent = state.selectedGroup
+    ? `当前 ${state.selectedGroup.memberCount} 台设备，版本 ${state.selectedGroup.version}。输入设备数据库 ID 后保存。`
+    : '选择设备组后可按设备 ID 更新成员。';
+}
+
+function parseIds(value) {
+  return [...new Set(String(value || '').split(/[\s,]+/).filter(Boolean).map(Number).filter(Number.isFinite))];
+}
+
+async function loadBatches() {
+  state.batches = await api(`/api/command-batches?siteCode=${encodeURIComponent(SITE_CODE)}`);
+  const container = document.getElementById('batch-list');
+  if (!state.batches.length) {
+    container.innerHTML = '<div class="empty">暂无批量命令</div>';
+    return;
+  }
+  container.innerHTML = state.batches.map((batch) => `<div class="compact-row"><div><strong>${esc(batch.type)}</strong><div class="muted">${esc(batch.batchId)} · ${batch.acknowledgedCount}/${batch.totalCount} 已确认 · ${formatDate(batch.requestedAt)}</div></div><div class="row-actions">${badge(batch.status)}<button class="btn btn-ghost btn-sm select-batch" data-id="${esc(batch.batchId)}">详情</button></div></div>`).join('');
+  if (state.selectedBatch) {
+    const current = state.batches.find((batch) => batch.batchId === state.selectedBatch.batchId);
+    if (current) {
+      state.selectedBatch = current;
+      renderBatchDetail();
+    } else {
+      state.selectedBatch = null;
+      state.selectedBatchCommands = [];
+      renderBatchDetail();
+    }
+  }
+}
+
+async function loadAlerts() {
+  const resolved = document.getElementById('alert-resolved').value;
+  const query = document.getElementById('alert-query').value.trim();
+  const params = new URLSearchParams({ page: '0', size: '50' });
+  if (resolved) params.set('resolved', resolved);
+  if (query) params.set('q', query);
+  const result = await api(`/api/alerts/search?${params}`);
+  const body = document.getElementById('alerts-list');
+  body.innerHTML = result.items.length ? result.items.map((alert) => `<tr>
+    <td>${formatDate(alert.createdAt)}</td><td>${badge(alert.level)}</td><td>${esc(alert.deviceName || '-')}</td><td>${esc(alert.message)}</td><td>${badge(alert.status)}</td>
+    <td>${alert.status !== 'RESOLVED' ? `<button class="btn btn-ghost btn-sm resolve-alert" data-id="${alert.id}">解决</button>` : ''}</td>
+  </tr>`).join('') : '<tr><td colspan="6" class="empty">没有匹配的告警</td></tr>';
+}
+
+async function loadAudit() {
+  const params = new URLSearchParams({ page: '0', size: '50' });
+  const status = document.getElementById('audit-status').value;
+  const batchId = document.getElementById('audit-batch').value.trim();
+  if (status) params.set('status', status);
+  if (batchId) params.set('batchId', batchId);
+  const result = await api(`/api/commands?${params}`);
+  const body = document.getElementById('audit-list');
+  body.innerHTML = result.items.length ? result.items.map((command) => `<tr>
+    <td>${formatDate(command.requestedAt)}</td><td>${esc(command.deviceId)}</td><td>${esc(command.type)}</td><td class="mono">${esc(command.batchId || '-')}</td><td>${esc(command.source)}</td><td>${badge(command.status)}</td><td>${command.error ? esc(command.error) : command.result?.applied ? '已确认' : '-'}</td>
+  </tr>`).join('') : '<tr><td colspan="7" class="empty">没有匹配的命令</td></tr>';
+}
+
+async function refreshCurrentPage() {
+  const active = document.querySelector('.page.active')?.id?.replace('page-', '') || 'dashboard';
+  const loaders = { dashboard: loadDashboard, devices: loadDevices, groups: loadGroups, batches: loadBatches, alerts: loadAlerts, audit: loadAudit };
+  await loaders[active]();
+}
+
+async function navigate(page) {
+  document.querySelectorAll('.nav-item').forEach((element) => element.classList.toggle('active', element.dataset.page === page));
+  document.querySelectorAll('.page').forEach((element) => element.classList.toggle('active', element.id === `page-${page}`));
   try {
-    const d = await api('/api/devices/' + id);
-    document.getElementById('edit-id').value = d.id;
-    document.getElementById('form-title').textContent = '编辑设备: ' + d.name;
-    document.getElementById('f-name').value = d.name;
-    document.getElementById('f-type').value = d.type;
-    document.getElementById('f-protocol').value = d.protocol;
-    document.getElementById('f-location').value = d.location || '';
-    document.getElementById('f-firmware').value = d.firmwareVersion || '';
-    document.getElementById('f-status').value = d.status || 'ONLINE';
-    navigateTo('register');
-  } catch (e) { toast('加载设备失败: ' + e.message, true); }
+    await refreshCurrentPage();
+  } catch (error) {
+    toast(`加载失败：${error.message}`, true);
+  }
 }
 
-async function deleteDevice(id) {
-  if (!confirm('确定要删除此设备吗？')) return;
-  try {
-    await api('/api/devices/' + id, { method: 'DELETE' });
-    toast('设备已删除');
-    loadDeviceList();
-  } catch (e) { toast('删除失败: ' + e.message, true); }
-}
+document.querySelectorAll('.nav-item').forEach((element) => element.addEventListener('click', () => navigate(element.dataset.page)));
+document.getElementById('refresh-all').addEventListener('click', () => refreshCurrentPage().catch((error) => toast(error.message, true)));
+document.getElementById('load-devices').addEventListener('click', () => loadDevices().catch((error) => toast(error.message, true)));
+document.getElementById('dev-search').addEventListener('input', () => loadDevices().catch(() => {}));
+document.getElementById('btn-cancel').addEventListener('click', resetDeviceForm);
 
-function navigateTo(page) {
-  document.querySelectorAll('.nav-item').forEach(e => e.classList.remove('active'));
-  const nav = document.querySelector('.nav-item[data-page="' + page + '"]');
-  if (nav) nav.classList.add('active');
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.getElementById('page-' + page).classList.add('active');
-}
+document.getElementById('dev-table-body').addEventListener('click', (event) => {
+  const edit = event.target.closest('.edit-device');
+  const archive = event.target.closest('.archive-device');
+  if (edit) editDevice(edit.dataset.id).catch((error) => toast(error.message, true));
+  if (archive) archiveDevice(archive.dataset.id).catch((error) => toast(error.message, true));
+});
 
-document.getElementById('btn-cancel').addEventListener('click', resetForm);
-
-document.getElementById('device-form').addEventListener('submit', async function(e) {
-  e.preventDefault();
+document.getElementById('device-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
   const id = document.getElementById('edit-id').value;
   const body = {
     name: document.getElementById('f-name').value,
     type: document.getElementById('f-type').value,
     protocol: document.getElementById('f-protocol').value,
-    location: document.getElementById('f-location').value,
-    firmwareVersion: document.getElementById('f-firmware').value,
+    location: document.getElementById('f-location').value || null,
+    firmwareVersion: document.getElementById('f-firmware').value || null,
     status: document.getElementById('f-status').value
   };
   try {
-    if (id) {
-      await api('/api/devices/' + id, {
-        method: 'PUT',
-        body: JSON.stringify(body)
-      });
-      toast('设备已更新');
-    } else {
-      await api('/api/devices', {
-        method: 'POST',
-        body: JSON.stringify(body)
-      });
-      toast('设备已注册');
-    }
-    resetForm();
-  } catch (err) {
-    toast('操作失败: ' + err.message, true);
+    await api(id ? `/api/devices/${id}` : '/api/devices', { method: id ? 'PUT' : 'POST', body: JSON.stringify(body) });
+    toast(id ? '设备已更新' : '设备已登记');
+    resetDeviceForm();
+    await loadDevices();
+  } catch (error) { toast(error.message, true); }
+});
+
+document.getElementById('group-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    await api('/api/device-groups', { method: 'POST', body: JSON.stringify({ siteCode: SITE_CODE, name: document.getElementById('group-name').value, description: document.getElementById('group-description').value || null }) });
+    event.target.reset();
+    await loadGroups();
+    toast('设备组已创建');
+  } catch (error) { toast(error.message, true); }
+});
+
+document.getElementById('group-list').addEventListener('click', (event) => {
+  const button = event.target.closest('.select-group');
+  if (button) selectGroup(button.dataset.id);
+});
+
+document.getElementById('group-members-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!state.selectedGroup) { toast('请先选择设备组', true); return; }
+  try {
+    const updated = await api(`/api/device-groups/${encodeURIComponent(state.selectedGroup.groupId)}/members`, {
+      method: 'PATCH',
+      body: JSON.stringify({ expectedVersion: state.selectedGroup.version, addDeviceIds: parseIds(document.getElementById('group-add-members').value), removeDeviceIds: parseIds(document.getElementById('group-remove-members').value) })
+    });
+    await loadGroups();
+    selectGroup(updated.groupId);
+    event.target.reset();
+    toast('设备组成员已更新');
+  } catch (error) { toast(error.message, true); }
+});
+
+document.getElementById('batch-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    const groupId = document.getElementById('batch-group').value || null;
+    const deviceIds = parseIds(document.getElementById('batch-device-ids').value);
+    const parameters = JSON.parse(document.getElementById('batch-parameters').value || '{}');
+    if (!groupId && !deviceIds.length) throw new Error('请选择设备组或填写设备 ID');
+    if (groupId && deviceIds.length) throw new Error('设备组和设备 ID 只能选择一个');
+    const batch = await api('/api/command-batches', {
+      method: 'POST',
+      body: JSON.stringify({ siteCode: SITE_CODE, target: { groupId, deviceIds }, type: document.getElementById('batch-type').value, parameters, idempotencyKey: crypto.randomUUID(), expiresInSeconds: Number(document.getElementById('batch-expiry').value || 300) })
+    });
+    await loadBatches();
+    await selectBatch(batch.batchId);
+    toast('批量命令已提交');
+  } catch (error) { toast(error.message, true); }
+});
+
+document.getElementById('batch-list').addEventListener('click', (event) => {
+  const button = event.target.closest('.select-batch');
+  if (button) selectBatch(button.dataset.id);
+});
+
+document.getElementById('batch-detail-actions').addEventListener('click', async (event) => {
+  if (!event.target.closest('#retry-batch-failed') || !state.selectedBatch) return;
+  const commands = retryableCommands();
+  if (!commands.length) return;
+  const parameters = commands[0].parameters || {};
+  try {
+    const batch = await api('/api/command-batches', {
+      method: 'POST',
+      body: JSON.stringify({
+        siteCode: SITE_CODE,
+        target: { deviceIds: commands.map((command) => command.deviceId) },
+        type: state.selectedBatch.type,
+        parameters,
+        idempotencyKey: crypto.randomUUID(),
+        expiresInSeconds: 300
+      })
+    });
+    await loadBatches();
+    await selectBatch(batch.batchId);
+    toast(`已重新提交 ${commands.length} 台失败设备`);
+  } catch (error) {
+    toast(`重试失败：${error.message}`, true);
   }
 });
 
-/* ═══════ Alerts ═══════ */
-async function loadAlertList() {
-  try {
-    const alerts = await api('/api/alerts');
-    const container = document.getElementById('alerts-list');
-    if (!alerts || alerts.length === 0) {
-      container.innerHTML = '<div class="empty">暂无告警记录</div>';
-      return;
-    }
-    container.innerHTML = alerts.map(a => {
-      let lvlClr = a.level === 'CRITICAL' ? 'var(--red)' : a.level === 'WARNING' ? 'var(--amber)' : 'var(--blue)';
-      let time = a.createdAt ? new Date(a.createdAt).toLocaleString('zh-CN', { hour12: false }) : '';
-      let status = a.resolved ? '✅ 已解决' : '⏳ 待处理';
-      return `<div class="alert-item">
-        <div><span style="color:${lvlClr};font-weight:600;">[${esc(a.level)}]</span> ${esc(a.message)} <span style="color:var(--text2);font-size:0.6875rem;">${esc(a.device?.name||'')}</span></div>
-        <div style="display:flex;align-items:center;gap:1rem;">
-          <span style="color:var(--text2);font-size:0.75rem;">${time}</span>
-          <span style="font-size:0.75rem;">${status}</span>
-          ${!a.resolved ? '<button class="btn btn-ghost btn-sm resolve-btn" data-id="' + a.id + '">解决</button>' : ''}
-        </div>
-      </div>`;
-    }).join('');
-  } catch (e) { /* ignore */ }
-}
-
-document.getElementById('alerts-list').addEventListener('click', async (e) => {
-  const btn = e.target.closest('.resolve-btn');
-  if (!btn) return;
-  try {
-    await api('/api/alerts/' + btn.dataset.id + '/resolve', { method: 'PUT' });
-    toast('告警已解决');
-    loadAlertList();
-  } catch (e) { toast('操作失败: ' + e.message, true); }
+document.getElementById('alert-resolved').addEventListener('change', () => loadAlerts().catch((error) => toast(error.message, true)));
+document.getElementById('alert-query').addEventListener('input', () => loadAlerts().catch(() => {}));
+document.getElementById('alerts-list').addEventListener('click', async (event) => {
+  const button = event.target.closest('.resolve-alert');
+  if (!button) return;
+  try { await api(`/api/alerts/${button.dataset.id}/resolve`, { method: 'PUT' }); await loadAlerts(); toast('告警已解决'); } catch (error) { toast(error.message, true); }
 });
+document.getElementById('audit-status').addEventListener('change', () => loadAudit().catch((error) => toast(error.message, true)));
+document.getElementById('audit-batch').addEventListener('input', () => loadAudit().catch(() => {}));
 
-/* ── Init ── */
-loadDashboard();
+function updateClock() { document.getElementById('clock').textContent = new Date().toLocaleString('zh-CN', { hour12: false }); }
+updateClock();
+window.setInterval(updateClock, 1000);
+Promise.all([loadDashboard(), loadGroups()]).catch((error) => toast(`初始化失败：${error.message}`, true));

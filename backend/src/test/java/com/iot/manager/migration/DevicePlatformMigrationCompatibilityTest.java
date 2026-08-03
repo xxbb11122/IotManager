@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DevicePlatformMigrationCompatibilityTest {
 
     @Test
-    void migratesLegacyV1DeviceAndDuplicateCommandsThroughV4AndValidatesJpaSchema() {
+    void migratesLegacyV1DeviceAndDuplicateCommandsThroughV7AndValidatesJpaSchema() {
         String url = "jdbc:h2:mem:legacy-device-" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE";
 
         Flyway.configure()
@@ -60,11 +60,11 @@ class DevicePlatformMigrationCompatibilityTest {
         Flyway latest = Flyway.configure()
                 .dataSource(url, "sa", "")
                 .locations("classpath:db/migration")
-                .target("4")
+                .target("7")
                 .load();
         latest.migrate();
 
-        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("4");
+        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("7");
         assertThat(jdbcTemplate.queryForObject("""
                 SELECT command_id
                 FROM device_commands
@@ -94,7 +94,8 @@ class DevicePlatformMigrationCompatibilityTest {
 
         LegacyDevice migrated = jdbcTemplate.queryForObject("""
                 SELECT public_id, status, temperature, humidity, cpu_usage, uptime_seconds,
-                       signal_strength, reported_state_json, desired_state_json
+                       signal_strength, reported_state_json, desired_state_json,
+                       organization_id, site_id, space_id
                 FROM devices
                 WHERE device_id = 'legacy-device-001'
                 """, (resultSet, rowNumber) -> new LegacyDevice(
@@ -106,7 +107,10 @@ class DevicePlatformMigrationCompatibilityTest {
                 resultSet.getLong("uptime_seconds"),
                 resultSet.getDouble("signal_strength"),
                 resultSet.getString("reported_state_json"),
-                resultSet.getString("desired_state_json")
+                resultSet.getString("desired_state_json"),
+                resultSet.getLong("organization_id"),
+                resultSet.getLong("site_id"),
+                resultSet.getLong("space_id")
         ));
 
         assertThat(migrated.publicId()).startsWith("device-");
@@ -118,6 +122,9 @@ class DevicePlatformMigrationCompatibilityTest {
         assertThat(migrated.signalStrength()).isZero();
         assertThat(migrated.reportedStateJson()).isEqualTo("{}");
         assertThat(migrated.desiredStateJson()).isEqualTo("{}");
+        assertThat(migrated.organizationId()).isPositive();
+        assertThat(migrated.siteId()).isPositive();
+        assertThat(migrated.spaceId()).isPositive();
 
         assertHibernateValidationPasses(dataSource);
     }
@@ -157,7 +164,10 @@ class DevicePlatformMigrationCompatibilityTest {
             long uptimeSeconds,
             double signalStrength,
             String reportedStateJson,
-            String desiredStateJson
+            String desiredStateJson,
+            long organizationId,
+            long siteId,
+            long spaceId
     ) {
     }
 }

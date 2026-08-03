@@ -22,3 +22,13 @@ test('local BLE bindings use install and plugin identities without becoming plat
   await cache.addLocalActivity({ id: 'event-1', bindingKey: binding.key, eventType: 'command_unconfirmed' });
   assert.deepEqual((await cache.listLocalActivity(binding.key)).map((event) => event.id), ['event-1']);
 });
+
+test('forgetting a local BLE binding removes its local activity trail', async () => {
+  const cache = new CacheRepository({ databaseName: `iot-test-${Date.now()}-forget` });
+  const binding = await cache.putLocalBinding({ appInstallId: 'install-1', pluginDeviceId: 'ble-1', displayName: 'Switch' });
+  await cache.addLocalActivity({ id: 'event-1', bindingKey: binding.key, eventType: 'command_acknowledged' });
+
+  assert.equal(await cache.removeLocalBinding('install-1', 'ble-1'), true);
+  assert.equal((await cache.listLocalBindings()).length, 0);
+  assert.deepEqual(await cache.listLocalActivity(binding.key), []);
+});

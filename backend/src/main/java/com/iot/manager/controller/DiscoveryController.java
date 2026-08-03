@@ -3,6 +3,7 @@ package com.iot.manager.controller;
 import com.iot.manager.dto.ClaimLanDeviceRequest;
 import com.iot.manager.dto.DeviceView;
 import com.iot.manager.dto.LanCandidateView;
+import com.iot.manager.service.EdgeDiscoveryService;
 import com.iot.manager.service.LanDiscoveryService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -23,9 +24,13 @@ import java.util.List;
 public class DiscoveryController {
 
     private final LanDiscoveryService lanDiscoveryService;
+    private final EdgeDiscoveryService edgeDiscoveryService;
 
     @GetMapping("/lan")
     public List<LanCandidateView> listLanCandidates(@RequestParam(required = false) String siteCode) {
+        if (siteCode != null && !siteCode.isBlank() && edgeDiscoveryService.hasConnectedAgent(siteCode)) {
+            return edgeDiscoveryService.listCandidates(siteCode);
+        }
         return lanDiscoveryService.listCandidates(siteCode);
     }
 
@@ -34,6 +39,9 @@ public class DiscoveryController {
             @PathVariable String candidateId,
             @Valid @RequestBody ClaimLanDeviceRequest request
     ) {
+        if (edgeDiscoveryService.ownsCandidate(candidateId)) {
+            return ResponseEntity.ok(edgeDiscoveryService.claim(candidateId, request));
+        }
         return ResponseEntity.ok(lanDiscoveryService.claim(candidateId, request));
     }
 }

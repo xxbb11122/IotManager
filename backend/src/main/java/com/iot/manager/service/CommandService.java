@@ -7,9 +7,11 @@ import com.iot.manager.dto.DeviceCommandRequest;
 import com.iot.manager.dto.DeviceCommandView;
 import com.iot.manager.dto.RealtimeEvent;
 import com.iot.manager.entity.ActivityEvent;
+import com.iot.manager.entity.CommandEvent;
 import com.iot.manager.entity.Device;
 import com.iot.manager.entity.DeviceCommand;
 import com.iot.manager.repository.ActivityEventRepository;
+import com.iot.manager.repository.CommandEventRepository;
 import com.iot.manager.repository.DeviceCommandRepository;
 import com.iot.manager.repository.DeviceConnectionRepository;
 import com.iot.manager.repository.DeviceRepository;
@@ -21,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -37,7 +40,10 @@ public class CommandService {
     private static final String SENT = "SENT";
     private static final String ACKNOWLEDGED = "ACKNOWLEDGED";
     private static final String FAILED = "FAILED";
+    private static final String UNCONFIRMED = "UNCONFIRMED";
+    private static final String REJECTED = "REJECTED";
     private static final String LAN_MOCK = "LAN_MOCK";
+    private static final String EDGE_AGENT = "EDGE_AGENT";
     private static final String API = "API";
     private static final int MAX_JSON_LENGTH = 4000;
     private static final int MAX_ERROR_MESSAGE_LENGTH = 2000;
@@ -50,23 +56,87 @@ public class CommandService {
     private final DeviceCommandRepository commandRepository;
     private final DeviceConnectionRepository connectionRepository;
     private final ActivityEventRepository activityEventRepository;
+    private final CommandEventRepository commandEventRepository;
     private final ObjectMapper objectMapper;
     private final WebSocketService webSocketService;
     private final PlatformTransactionManager transactionManager;
+    private final DeviceProfileService profileService;
+    private final CommandBatchSummaryService batchSummaryService;
 
     @Transactional
     public DeviceCommandView submit(Long deviceId, DeviceCommandRequest request) {
-        CommandSpec spec = validate(request);
+        validateRequestEnvelope(request);
         String parametersJson = writeBoundedJson(request.parameters(), "parameters");
         Device device = deviceRepository.findByIdForUpdate(deviceId)
                 .orElseThrow(() -> new NoSuchElementException("Device not found"));
+        ProfileCommandSpec spec = profileService.validateCommand(device, request);
 
         return commandRepository.findByDeviceIdAndIdempotencyKey(device.getId(), request.idempotencyKey().trim())
                 .map(existing -> toView(existing, device))
                 .orElseGet(() -> {
                     preflightAcknowledgement(device, spec);
-                    return createPending(device, request, spec, parametersJson);
+                    return createPending(device, request, spec, parametersJson, SubmissionMetadata.api());
                 });
+    }
+
+    @Transactional(noRollbackFor = CommandValidationException.class)
+    public DeviceCommandView submitBatchTarget(
+            Long deviceId,
+            String type,
+            Map<String, Object> parameters,
+            String batchId,
+            String idempotencyKey,
+            String requestFingerprint,
+            LocalDateTime expiresAt
+    ) {
+        Device device = deviceRepository.findByIdForUpdate(deviceId)
+                .orElseThrow(() -> new NoSuchElementException("Device not found"));
+        DeviceCommandRequest request = new DeviceCommandRequest(type, idempotencyKey, parameters);
+        validateRequestEnvelope(request);
+        ProfileCommandSpec spec = profileService.validateCommand(device, request);
+        String parametersJson = writeBoundedJson(parameters, "parameters");
+        preflightAcknowledgement(device, spec);
+        return createPending(device, request, spec, parametersJson,
+                new SubmissionMetadata(batchId, requestFingerprint, "BATCH", "anonymous", expiresAt));
+    }
+
+    @Transactional
+    public DeviceCommandView rejectBatchTarget(
+            Long deviceId,
+            String type,
+            Map<String, Object> parameters,
+            String batchId,
+            String idempotencyKey,
+            String requestFingerprint,
+            String reason
+    ) {
+        Device device = deviceRepository.findByIdForUpdate(deviceId)
+                .orElseThrow(() -> new NoSuchElementException("Device not found"));
+        long nextSequence = (device.getCommandSequence() == null ? 0L : device.getCommandSequence()) + 1;
+        device.setCommandSequence(nextSequence);
+        String boundedReason = truncate(reason, MAX_ERROR_MESSAGE_LENGTH);
+        DeviceCommand command = commandRepository.save(DeviceCommand.builder()
+                .commandId("command-" + UUID.randomUUID())
+                .device(device)
+                .type(type == null ? "unknown" : type.trim().toLowerCase(Locale.ROOT))
+                .source("PROFILE")
+                .parametersJson(writeBoundedJson(parameters, "parameters"))
+                .idempotencyKey(idempotencyKey)
+                .status(REJECTED)
+                .batchId(batchId)
+                .sequenceNo(nextSequence)
+                .requestFingerprint(requestFingerprint)
+                .requestOrigin("BATCH")
+                .requestedBy("anonymous")
+                .failureCode("PROFILE_UNSUPPORTED")
+                .errorMessage(boundedReason)
+                .resultJson(writeBoundedJson(Map.of("applied", false, "reason", boundedReason), "result"))
+                .requestedAt(LocalDateTime.now())
+                .completedAt(LocalDateTime.now())
+                .dispatchAttempts(0)
+                .build());
+        publishTransition(command, device, null, "command_rejected", "Command rejected by device profile");
+        return toView(command, device);
     }
 
     @Transactional(readOnly = true)
@@ -74,6 +144,11 @@ public class CommandService {
         return commandRepository.findByCommandId(commandId)
                 .map(command -> toView(command, command.getDevice()))
                 .orElseThrow(() -> new NoSuchElementException("Command not found"));
+    }
+
+    @Transactional(readOnly = true)
+    public DeviceCommandView view(DeviceCommand command) {
+        return toView(command, command.getDevice());
     }
 
     public DeviceCommandView processPending(String commandId) {
@@ -104,23 +179,24 @@ public class CommandService {
             return toView(command, device);
         }
 
-        command.setStatus(SENT);
-        publishTransition(command, device, "command_sent", "Command sent");
+        transition(command, device, SENT, "command_sent", "Command sent");
 
         if ("simulate_failure".equals(command.getType())) {
             return failCommand(command, device, "Simulated device failure");
         }
 
         try {
-            CommandSpec spec = validateStoredCommand(command);
+            ProfileCommandSpec spec = validateStoredCommand(command, device);
             String reportedStateJson = writeBoundedJson(prospectiveReportedState(device, spec), "reportedState");
             String resultJson = writeBoundedJson(successResult(spec), "result");
 
             device.setReportedStateJson(reportedStateJson);
+            String previousStatus = command.getStatus();
             command.setStatus(ACKNOWLEDGED);
             command.setAcknowledgedAt(LocalDateTime.now());
             command.setResultJson(resultJson);
-            publishTransition(command, device, "command_acknowledged", "Command acknowledged");
+            complete(command);
+            publishTransition(command, device, previousStatus, "command_acknowledged", "Command acknowledged");
             return toView(command, device);
         } catch (CommandValidationException exception) {
             return failCommand(command, device, LATE_VALIDATION_FAILURE_REASON);
@@ -136,8 +212,9 @@ public class CommandService {
     private DeviceCommandView createPending(
             Device device,
             DeviceCommandRequest request,
-            CommandSpec spec,
-            String parametersJson
+            ProfileCommandSpec spec,
+            String parametersJson,
+            SubmissionMetadata metadata
     ) {
         Map<String, Object> desiredState = readJson(device.getDesiredStateJson());
         if (spec.stateField() != null) {
@@ -145,6 +222,8 @@ public class CommandService {
             device.setDesiredStateJson(writeBoundedJson(desiredState, "desiredState"));
         }
 
+        long nextSequence = (device.getCommandSequence() == null ? 0L : device.getCommandSequence()) + 1;
+        device.setCommandSequence(nextSequence);
         DeviceCommand command = commandRepository.save(DeviceCommand.builder()
                 .commandId("command-" + UUID.randomUUID())
                 .device(device)
@@ -153,13 +232,20 @@ public class CommandService {
                 .parametersJson(parametersJson)
                 .idempotencyKey(request.idempotencyKey().trim())
                 .status(PENDING)
+                .batchId(metadata.batchId())
+                .sequenceNo(nextSequence)
+                .requestFingerprint(metadata.requestFingerprint())
+                .requestOrigin(metadata.requestOrigin())
+                .requestedBy(metadata.requestedBy())
+                .expiresAt(metadata.expiresAt())
+                .dispatchAttempts(0)
                 .requestedAt(LocalDateTime.now())
                 .build());
-        publishTransition(command, device, "command_submitted", "Command submitted");
+        publishTransition(command, device, null, "command_submitted", "Command submitted");
         return toView(command, device);
     }
 
-    private void preflightAcknowledgement(Device device, CommandSpec spec) {
+    private void preflightAcknowledgement(Device device, ProfileCommandSpec spec) {
         if (spec.stateField() == null) {
             return;
         }
@@ -167,7 +253,7 @@ public class CommandService {
         writeBoundedJson(successResult(spec), "result");
     }
 
-    private Map<String, Object> prospectiveReportedState(Device device, CommandSpec spec) {
+    private Map<String, Object> prospectiveReportedState(Device device, ProfileCommandSpec spec) {
         Map<String, Object> reportedState = readJson(device.getReportedStateJson());
         if (spec.stateField() != null) {
             reportedState.put(spec.stateField(), spec.stateValue());
@@ -175,7 +261,7 @@ public class CommandService {
         return reportedState;
     }
 
-    private Map<String, Object> successResult(CommandSpec spec) {
+    private Map<String, Object> successResult(ProfileCommandSpec spec) {
         return Map.of(
                 "applied", true,
                 "stateField", spec.stateField(),
@@ -185,17 +271,175 @@ public class CommandService {
 
     private DeviceCommandView failCommand(DeviceCommand command, Device device, String reason) {
         String boundedReason = truncate(reason, MAX_ERROR_MESSAGE_LENGTH);
+        String previousStatus = command.getStatus();
         command.setStatus(FAILED);
         command.setErrorMessage(boundedReason);
         command.setResultJson(writeBoundedJson(Map.of(
                 "applied", false,
                 "reason", boundedReason
         ), "result"));
-        publishTransition(command, device, "command_failed", "Command failed");
+        command.setFailureCode("COMMAND_FAILED");
+        complete(command);
+        publishTransition(command, device, previousStatus, "command_failed", "Command failed");
         return toView(command, device);
     }
 
-    private void publishTransition(DeviceCommand command, Device device, String activityType, String detail) {
+    public DeviceCommandView markUnconfirmed(String commandId, String reason) {
+        return requiresNewTransaction().execute(status -> {
+            DeviceCommand command = commandRepository.findByCommandIdForUpdate(commandId)
+                    .orElseThrow(() -> new NoSuchElementException("Command not found"));
+            Device device = deviceRepository.findByIdForUpdate(command.getDevice().getId())
+                    .orElseThrow(() -> new NoSuchElementException("Device not found"));
+            if (!PENDING.equals(command.getStatus()) && !SENT.equals(command.getStatus())) return toView(command, device);
+            String previousStatus = command.getStatus();
+            command.setStatus(UNCONFIRMED);
+            command.setErrorMessage(truncate(reason, MAX_ERROR_MESSAGE_LENGTH));
+            command.setFailureCode("CONFIRMATION_TIMEOUT");
+            command.setResultJson(writeBoundedJson(Map.of("applied", false, "reason", command.getErrorMessage()), "result"));
+            complete(command);
+            publishTransition(command, device, previousStatus, "command_unconfirmed", "Command confirmation timed out");
+            return toView(command, device);
+        });
+    }
+
+    public DeviceCommandView markSentForEdgeAgent(String commandId) {
+        return requiresNewTransaction().execute(status -> {
+            DeviceCommand command = commandRepository.findByCommandIdForUpdate(commandId)
+                    .orElseThrow(() -> new NoSuchElementException("Command not found"));
+            Device device = deviceRepository.findByIdForUpdate(command.getDevice().getId())
+                    .orElseThrow(() -> new NoSuchElementException("Device not found"));
+            if (!PENDING.equals(command.getStatus())) return toView(command, device);
+            transition(command, device, SENT, "command_sent", "Command sent to edge agent");
+            return toView(command, device);
+        });
+    }
+
+    public DeviceCommandView completeFromEdgeAgent(
+            String commandId,
+            String status,
+            Map<String, Object> reportedState,
+            String errorCode,
+            String errorMessage,
+            Instant completedAt
+    ) {
+        return requiresNewTransaction().execute(transactionStatus -> {
+            DeviceCommand command = commandRepository.findByCommandIdForUpdate(commandId)
+                    .orElseThrow(() -> new NoSuchElementException("Command not found"));
+            Device device = deviceRepository.findByIdForUpdate(command.getDevice().getId())
+                    .orElseThrow(() -> new NoSuchElementException("Device not found"));
+            if (isTerminal(command.getStatus())) {
+                publishTransition(command, device, command.getStatus(), "command_late_ack", "Late edge-agent result retained for audit");
+                return toView(command, device);
+            }
+            String normalized = status == null ? FAILED : status.trim().toUpperCase(Locale.ROOT);
+            LocalDateTime completed = completedAt == null
+                    ? LocalDateTime.now()
+                    : LocalDateTime.ofInstant(completedAt, java.time.ZoneOffset.UTC);
+            return switch (normalized) {
+                case ACKNOWLEDGED -> acknowledgeFromEdge(command, device, reportedState, completed);
+                case UNCONFIRMED -> unconfirmFromEdge(command, device, errorCode, errorMessage, completed);
+                case REJECTED -> rejectFromEdge(command, device, errorCode, errorMessage, completed);
+                default -> failFromEdge(command, device, errorCode, errorMessage, completed);
+            };
+        });
+    }
+
+    private DeviceCommandView acknowledgeFromEdge(
+            DeviceCommand command, Device device, Map<String, Object> reportedState, LocalDateTime completed
+    ) {
+        Map<String, Object> state = reportedState == null ? Map.of() : reportedState;
+        String previousStatus = command.getStatus();
+        device.setReportedStateJson(writeBoundedJson(state, "reportedState"));
+        command.setStatus(ACKNOWLEDGED);
+        command.setAcknowledgedAt(completed);
+        command.setCompletedAt(completed);
+        command.setFailureCode(null);
+        command.setErrorMessage(null);
+        command.setResultJson(writeBoundedJson(Map.of("applied", true, "reportedState", state), "result"));
+        publishTransition(command, device, previousStatus, "command_acknowledged", "Edge agent confirmed device state");
+        return toView(command, device);
+    }
+
+    private DeviceCommandView unconfirmFromEdge(
+            DeviceCommand command, Device device, String errorCode, String errorMessage, LocalDateTime completed
+    ) {
+        String previousStatus = command.getStatus();
+        String reason = truncate(orDefault(errorMessage, "Device state could not be confirmed"), MAX_ERROR_MESSAGE_LENGTH);
+        command.setStatus(UNCONFIRMED);
+        command.setFailureCode(orDefault(errorCode, "CONFIRMATION_TIMEOUT"));
+        command.setErrorMessage(reason);
+        command.setCompletedAt(completed);
+        command.setResultJson(writeBoundedJson(Map.of("applied", false, "reason", reason), "result"));
+        publishTransition(command, device, previousStatus, "command_unconfirmed", "Edge agent could not confirm device state");
+        return toView(command, device);
+    }
+
+    private DeviceCommandView rejectFromEdge(
+            DeviceCommand command, Device device, String errorCode, String errorMessage, LocalDateTime completed
+    ) {
+        String previousStatus = command.getStatus();
+        String reason = truncate(orDefault(errorMessage, "Device rejected command"), MAX_ERROR_MESSAGE_LENGTH);
+        command.setStatus(REJECTED);
+        command.setFailureCode(orDefault(errorCode, "DEVICE_REJECTED"));
+        command.setErrorMessage(reason);
+        command.setCompletedAt(completed);
+        command.setResultJson(writeBoundedJson(Map.of("applied", false, "reason", reason), "result"));
+        publishTransition(command, device, previousStatus, "command_rejected", "Edge agent reported device rejection");
+        return toView(command, device);
+    }
+
+    private DeviceCommandView failFromEdge(
+            DeviceCommand command, Device device, String errorCode, String errorMessage, LocalDateTime completed
+    ) {
+        String previousStatus = command.getStatus();
+        String reason = truncate(orDefault(errorMessage, "Edge agent delivery failed"), MAX_ERROR_MESSAGE_LENGTH);
+        command.setStatus(FAILED);
+        command.setFailureCode(orDefault(errorCode, "EDGE_AGENT_FAILED"));
+        command.setErrorMessage(reason);
+        command.setCompletedAt(completed);
+        command.setResultJson(writeBoundedJson(Map.of("applied", false, "reason", reason), "result"));
+        publishTransition(command, device, previousStatus, "command_failed", "Edge agent command failed");
+        return toView(command, device);
+    }
+
+    private void transition(DeviceCommand command, Device device, String nextStatus, String activityType, String detail) {
+        String previousStatus = command.getStatus();
+        command.setStatus(nextStatus);
+        if (SENT.equals(nextStatus)) command.setSentAt(LocalDateTime.now());
+        if (ACKNOWLEDGED.equals(nextStatus) || FAILED.equals(nextStatus) || UNCONFIRMED.equals(nextStatus) || REJECTED.equals(nextStatus)) {
+            complete(command);
+        }
+        publishTransition(command, device, previousStatus, activityType, detail);
+    }
+
+    private void complete(DeviceCommand command) {
+        if (command.getCompletedAt() == null) command.setCompletedAt(LocalDateTime.now());
+    }
+
+    private boolean isTerminal(String status) {
+        return ACKNOWLEDGED.equals(status) || FAILED.equals(status) || UNCONFIRMED.equals(status) || REJECTED.equals(status);
+    }
+
+    private String orDefault(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private void publishTransition(
+            DeviceCommand command,
+            Device device,
+            String previousStatus,
+            String activityType,
+            String detail
+    ) {
+        commandEventRepository.save(CommandEvent.builder()
+                .command(command)
+                .fromStatus(previousStatus)
+                .toStatus(command.getStatus())
+                .eventType(activityType.toUpperCase(Locale.ROOT))
+                .detail(detail)
+                .payloadJson(compactActivityPayload(command, device))
+                .occurredAt(LocalDateTime.now())
+                .build());
         ActivityEvent activity = activityEventRepository.save(ActivityEvent.builder()
                 .device(device)
                 .eventType(activityType)
@@ -206,6 +450,7 @@ public class CommandService {
         DeviceCommandView view = toView(command, device);
         webSocketService.broadcastEvent(new RealtimeEvent("command_update", view));
         webSocketService.sendActivityUpdate(activity);
+        batchSummaryService.refresh(command.getBatchId());
     }
 
     private Map<String, Object> activityPayload(DeviceCommand command, Device device) {
@@ -242,30 +487,42 @@ public class CommandService {
                 readJson(command.getResultJson()),
                 command.getErrorMessage(),
                 command.getRequestedAt(),
-                command.getAcknowledgedAt()
+                command.getAcknowledgedAt(),
+                command.getBatchId(),
+                command.getSequenceNo(),
+                command.getRequestOrigin(),
+                command.getFailureCode(),
+                command.getSentAt(),
+                command.getCompletedAt()
         );
     }
 
     private String sourceFor(Device device) {
         return connectionRepository.findByDeviceId(device.getId()).stream()
                 .anyMatch(connection -> "LAN_AGENT".equals(connection.getTransport())
-                        && "CONNECTED".equals(connection.getStatus()))
+                        && "CONNECTED".equals(connection.getStatus())
+                        && connection.getAgentId() != null && !connection.getAgentId().isBlank())
+                ? EDGE_AGENT
+                : connectionRepository.findByDeviceId(device.getId()).stream()
+                        .anyMatch(connection -> "LAN_AGENT".equals(connection.getTransport())
+                                && "CONNECTED".equals(connection.getStatus()))
                 ? LAN_MOCK
                 : API;
     }
 
-    private CommandSpec validateStoredCommand(DeviceCommand command) {
-        return validate(new DeviceCommandRequest(
+    private ProfileCommandSpec validateStoredCommand(DeviceCommand command, Device device) {
+        return profileService.validateCommand(device, new DeviceCommandRequest(
                 command.getType(),
                 command.getIdempotencyKey(),
                 readJson(command.getParametersJson())
         ));
     }
 
-    private CommandSpec validate(DeviceCommandRequest request) {
+    private void validateRequestEnvelope(DeviceCommandRequest request) {
         Map<String, String> errors = new LinkedHashMap<>();
         if (request == null) {
-            throw new CommandValidationException(Map.of("request", "must not be null"));
+            errors.put("request", "must not be null");
+            throw new CommandValidationException(errors);
         }
         String type = request.type() == null ? null : request.type().trim().toLowerCase(Locale.ROOT);
         if (type == null || type.isBlank()) {
@@ -277,39 +534,6 @@ public class CommandService {
         if (!errors.isEmpty()) {
             throw new CommandValidationException(errors);
         }
-
-        Map<String, Object> parameters = request.parameters();
-        return switch (type) {
-            case "set_power" -> new CommandSpec(type, "power", requiredBoolean(parameters, "on"));
-            case "set_level" -> new CommandSpec(type, "level", requiredNumber(parameters, "level"));
-            case "set_mode" -> new CommandSpec(type, "mode", requiredText(parameters, "mode"));
-            case "simulate_failure" -> new CommandSpec(type, null, null);
-            default -> throw new CommandValidationException(Map.of("type", "must be one of set_power, set_level, set_mode, simulate_failure"));
-        };
-    }
-
-    private Boolean requiredBoolean(Map<String, Object> parameters, String field) {
-        Object value = parameters.get(field);
-        if (value instanceof Boolean booleanValue) {
-            return booleanValue;
-        }
-        throw new CommandValidationException(Map.of("parameters." + field, "must be a boolean"));
-    }
-
-    private Number requiredNumber(Map<String, Object> parameters, String field) {
-        Object value = parameters.get(field);
-        if (value instanceof Number number) {
-            return number;
-        }
-        throw new CommandValidationException(Map.of("parameters." + field, "must be a number"));
-    }
-
-    private String requiredText(Map<String, Object> parameters, String field) {
-        Object value = parameters.get(field);
-        if (value instanceof String text && !text.isBlank()) {
-            return text;
-        }
-        throw new CommandValidationException(Map.of("parameters." + field, "must be a nonblank string"));
     }
 
     private Map<String, Object> readJson(String json) {
@@ -355,6 +579,16 @@ public class CommandService {
         return value.substring(0, maxLength);
     }
 
-    private record CommandSpec(String type, String stateField, Object stateValue) {
+    private record SubmissionMetadata(
+            String batchId,
+            String requestFingerprint,
+            String requestOrigin,
+            String requestedBy,
+            LocalDateTime expiresAt
+    ) {
+        private static SubmissionMetadata api() {
+            return new SubmissionMetadata(null, null, "API", "anonymous", LocalDateTime.now().plusMinutes(5));
+        }
     }
+
 }

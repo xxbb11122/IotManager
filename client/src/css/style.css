@@ -497,6 +497,11 @@ select:focus-visible {
   background: #f8fbfb;
 }
 
+.candidate-row--selected {
+  background: var(--teal-soft);
+  box-shadow: inset 3px 0 0 var(--teal);
+}
+
 .device-row:last-child,
 .candidate-row:last-child {
   border-bottom: 0;

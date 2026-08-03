@@ -15,7 +15,13 @@ public record DeviceCommandView(
         Map<String, Object> result,
         String error,
         LocalDateTime requestedAt,
-        LocalDateTime acknowledgedAt
+        LocalDateTime acknowledgedAt,
+        String batchId,
+        Long sequenceNo,
+        String requestOrigin,
+        String failureCode,
+        LocalDateTime sentAt,
+        LocalDateTime completedAt
     ) {
 
     public DeviceCommandView {

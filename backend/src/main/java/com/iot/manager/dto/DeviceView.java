@@ -30,12 +30,17 @@ public record DeviceView(
         Double humidity,
         Double cpuUsage,
         Long uptimeSeconds,
-        Double signalStrength
+        Double signalStrength,
+        String profileId,
+        Integer profileVersion,
+        Map<String, Object> capabilities,
+        LocalDateTime archivedAt
 ) {
 
     public DeviceView {
         reportedState = immutableMap(reportedState);
         desiredState = immutableMap(desiredState);
+        capabilities = immutableMap(capabilities);
         connections = immutableList(connections);
     }
 

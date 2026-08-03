@@ -23,6 +23,7 @@ export class NativeBleAdapter {
     this.registry = registry;
     this.listeners = new Set();
     this.candidates = new Map();
+    this.scanning = false;
     this.connection = null;
     this.profile = null;
     this.confirmationTimeoutMs = confirmationTimeoutMs;
@@ -47,13 +48,40 @@ export class NativeBleAdapter {
     if (typeof listener !== 'function') throw new TypeError('BLE scan requires a listener');
     await this.requestPermissions();
     await this.bleClient.requestLEScan({}, (result) => {
-      const candidate = { ...result.device, rssi: result.rssi, transport: 'BLE_DIRECT', identityScope: 'app_local' };
-      this.candidates.set(candidate.deviceId, candidate);
-      listener(candidate);
+      const deviceId = result?.device?.deviceId;
+      if (!deviceId) return;
+      const existing = this.candidates.get(deviceId);
+      const candidate = {
+        ...(existing ?? {}),
+        ...result.device,
+        rssi: result.rssi ?? existing?.rssi ?? null,
+        transport: 'BLE_DIRECT',
+        identityScope: 'app_local',
+        firstSeenAt: existing?.firstSeenAt ?? Date.now(),
+        lastSeenAt: Date.now()
+      };
+      this.candidates.set(deviceId, candidate);
+      listener(candidate, this.getCandidates());
     });
+    this.scanning = true;
   }
 
-  stopScan() { return this.bleClient.stopLEScan(); }
+  async stopScan() {
+    if (!this.scanning) return undefined;
+    try {
+      return await this.bleClient.stopLEScan();
+    } finally {
+      this.scanning = false;
+    }
+  }
+
+  clearCandidates() {
+    this.candidates.clear();
+  }
+
+  getCandidates() {
+    return [...this.candidates.values()];
+  }
 
   async connect(candidate) {
     const deviceId = candidate?.deviceId;
@@ -112,7 +140,15 @@ export class NativeBleAdapter {
     const operation = this.registry.encodeCommand(this.profile?.id ?? null, command);
     const bytes = new Uint8Array(operation.value);
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    await this.bleClient.write(this.connection.deviceId, operation.serviceUuid, operation.characteristicUuid, view);
+    const notification = operation.confirmation.type === 'notification'
+      ? await this.startNotificationConfirmation(command, operation.confirmation)
+      : null;
+    try {
+      await this.bleClient.write(this.connection.deviceId, operation.serviceUuid, operation.characteristicUuid, view);
+    } catch (error) {
+      await notification?.cancel();
+      throw error;
+    }
 
     if (operation.confirmation.type === 'none') {
       return { ...command, deviceId: this.connection.deviceId, status: 'UNCONFIRMED', reportedState: this.connection.reportedState ?? {} };
@@ -127,43 +163,84 @@ export class NativeBleAdapter {
       this.connection = { ...this.connection, reportedState };
       return { ...command, deviceId: this.connection.deviceId, status: 'ACKNOWLEDGED', reportedState };
     }
-    return this.waitForNotification(command, operation.confirmation);
+    return notification.result;
   }
 
-  async waitForNotification(command, confirmation) {
+  async startNotificationConfirmation(command, confirmation) {
     const deviceId = this.connection.deviceId;
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const finish = async (result, error = null) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        try {
-          await this.bleClient.stopNotifications(deviceId, confirmation.serviceUuid, confirmation.characteristicUuid);
-        } catch {
-          // The command result still owns the outcome when notification cleanup fails.
-        }
-        if (error) reject(error);
-        else resolve(result);
-      };
-      const timer = setTimeout(() => {
-        void finish(null, new Error('BLE confirmation timed out'));
-      }, this.confirmationTimeoutMs);
+    let settled = false;
+    let timer = null;
+    let subscribed = false;
+    let resolveResult;
+    let rejectResult;
+    const result = new Promise((resolve, reject) => {
+      resolveResult = resolve;
+      rejectResult = reject;
+    });
+    // A cancelled write deliberately rejects this private promise; suppress it
+    // until sendCommand propagates the original write error to the caller.
+    result.catch(() => {});
 
-      this.bleClient.startNotifications(
+    const cleanup = async () => {
+      if (!subscribed) return;
+      try {
+        await this.bleClient.stopNotifications(deviceId, confirmation.serviceUuid, confirmation.characteristicUuid);
+      } catch {
+        // Notification cleanup must not rewrite the command outcome.
+      }
+    };
+    const finish = async (next, error = null) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      await cleanup();
+      if (error) rejectResult(error);
+      else resolveResult(next);
+    };
+    const onNotification = (value) => {
+      try {
+        const reportedState = confirmation.decode(value);
+        if (reportedState == null) return;
+        this.connection = { ...this.connection, reportedState };
+        void finish({ ...command, deviceId, status: 'ACKNOWLEDGED', reportedState });
+      } catch (error) {
+        void finish(null, error);
+      }
+    };
+
+    try {
+      await this.bleClient.startNotifications(
         deviceId,
         confirmation.serviceUuid,
         confirmation.characteristicUuid,
-        (value) => {
-          try {
-            const reportedState = confirmation.decode(value);
-            this.connection = { ...this.connection, reportedState };
-            void finish({ ...command, deviceId, status: 'ACKNOWLEDGED', reportedState });
-          } catch (error) {
-            void finish(null, error);
-          }
-        }
-      ).catch((error) => void finish(null, error));
-    });
+        onNotification
+      );
+      subscribed = true;
+    } catch (error) {
+      await finish(null, error);
+      throw error;
+    }
+
+    if (settled) {
+      await cleanup();
+      return { result, cancel: async () => {} };
+    }
+
+    timer = setTimeout(() => {
+      void finish({
+        ...command,
+        deviceId,
+        status: 'UNCONFIRMED',
+        reportedState: this.connection?.reportedState ?? {},
+        confirmationTimedOut: true
+      });
+    }, this.confirmationTimeoutMs);
+
+    return {
+      result,
+      cancel: async () => {
+        await finish(null, new Error('BLE command was not written'));
+      }
+    };
   }
 }

@@ -19,14 +19,17 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);line-height:
 /* Top Bar */
 .topbar{background:var(--panel);border-bottom:1px solid var(--border);padding:0 2rem;height:56px;display:flex;align-items:center;justify-content:space-between}
 .topbar h1{font-size:1.0625rem;font-weight:600}
+.eyebrow{font-size:0.6875rem;color:var(--blue);font-weight:700;letter-spacing:0.08em;text-transform:uppercase}
 .topbar-right{font-size:0.8125rem;color:var(--text2);display:flex;gap:1.5rem}
+.icon-button{width:32px;height:32px;border:1px solid var(--border);background:transparent;color:var(--text);font-size:1.25rem;cursor:pointer;border-radius:4px;line-height:1}
+.icon-button:hover{border-color:var(--blue);color:var(--blue)}
 .topbar a{color:var(--blue);text-decoration:none;font-size:0.75rem}
 .topbar a:hover{text-decoration:underline}
 
 /* Layout */
 .main{display:grid;grid-template-columns:240px 1fr;min-height:calc(100vh - 56px)}
 .nav-panel{background:var(--panel);border-right:1px solid var(--border);padding:1.5rem 0}
-.nav-item{padding:0.625rem 1.5rem;cursor:pointer;font-size:0.8125rem;color:var(--text2);border-left:2px solid transparent;transition:all 0.2s;display:flex;align-items:center;gap:0.5rem}
+.nav-item{padding:0.625rem 1.5rem;cursor:pointer;font-size:0.8125rem;color:var(--text2);border:0;border-left:2px solid transparent;transition:all 0.2s;display:flex;align-items:center;gap:0.5rem;background:transparent;width:100%;font-family:var(--font);text-align:left}
 .nav-item:hover,.nav-item.active{color:var(--text);border-left-color:var(--blue);background:rgba(54,153,255,0.04)}
 .content{padding:2rem;overflow-y:auto}
 .page{display:none}
@@ -46,13 +49,22 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);line-height:
 .panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:1.5rem}
 .panel-header{padding:1rem 1.5rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
 .panel-header h2{font-size:0.9375rem;font-weight:600}
+.panel-body{min-width:0}
+.padded{padding:1.25rem}
+.chart-body{height:240px}
+.toolbar{display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap}
+.toolbar select{background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:0.375rem 0.5rem;font-family:var(--font);font-size:0.75rem}
+.two-column{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1.5rem}
+.stack-form{display:flex;flex-direction:column;gap:0.875rem}
 
 /* Form */
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
 .form-group{display:flex;flex-direction:column;gap:0.375rem}
 .form-group label{font-size:0.75rem;color:var(--text2);font-weight:500}
-.form-group input,.form-group select{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:0.5rem 0.75rem;color:var(--text);font-size:0.8125rem;outline:none;font-family:var(--font)}
-.form-group input:focus,.form-group select:focus{border-color:var(--blue)}
+.form-group input,.form-group select,.form-group textarea{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:0.5rem 0.75rem;color:var(--text);font-size:0.8125rem;outline:none;font-family:var(--font);min-width:0}
+.form-group textarea{min-height:72px;resize:vertical}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--blue)}
+.form-span{grid-column:1/-1}
 
 /* Buttons */
 .btn{display:inline-flex;align-items:center;gap:0.375rem;padding:0.5rem 1.25rem;border-radius:4px;font-size:0.8125rem;font-weight:500;cursor:pointer;border:none;transition:all 0.2s;font-family:var(--font)}
@@ -67,6 +79,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);line-height:
 
 /* Table */
 .tbl{width:100%;border-collapse:collapse;font-size:0.8125rem}
+.table-wrap{overflow-x:auto}
 .tbl th{text-align:left;padding:0.625rem 1rem;color:var(--text2);font-weight:500;font-size:0.6875rem;letter-spacing:0.06em;text-transform:uppercase}
 .tbl td{padding:0.625rem 1rem;border-top:1px solid var(--border)}
 .tbl tr:hover td{background:rgba(255,255,255,0.015)}
@@ -95,10 +108,28 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);line-height:
 .toast.error{background:var(--red);color:#fff}
 
 .empty{text-align:center;padding:3rem;color:var(--text2);font-size:0.875rem}
+.muted{color:var(--text2);font-size:0.8125rem;margin-bottom:1rem}
+.compact-list{display:flex;flex-direction:column;gap:0.5rem;padding:0.5rem}
+.compact-row{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:0.75rem;border-bottom:1px solid var(--border);font-size:0.8125rem}
+.compact-row:last-child{border-bottom:0}
+.compact-row button{flex:0 0 auto}
+.batch-detail{border-top:1px solid var(--border);padding:1.25rem 1.5rem 1.5rem}
+.detail-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:1rem}
+.detail-heading h3{font-size:0.875rem;font-weight:600}
+.detail-heading .muted{margin:0.25rem 0 0}
+.detail-meta{display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:1rem;font-size:0.75rem;color:var(--text2)}
+.detail-meta span{padding:0.2rem 0.5rem;border:1px solid var(--border);border-radius:4px}
+.detail-empty{padding:0.75rem 0;color:var(--text2);font-size:0.8125rem}
+.status-text{font-size:0.6875rem;font-weight:700;color:var(--blue)}
+.row-actions{display:flex;gap:0.375rem;flex-wrap:wrap}
 
 @media(max-width:768px){
   .main{grid-template-columns:1fr}
   .nav-panel{display:none}
   .stats-grid{grid-template-columns:repeat(2,1fr)}
   .form-grid{grid-template-columns:1fr}
+  .two-column{grid-template-columns:1fr}
+  .detail-heading{flex-direction:column}
+  .content{padding:1rem}
+  .topbar{padding:0 1rem}
 }

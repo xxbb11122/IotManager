@@ -52,7 +52,7 @@ class DeviceDeleteTest {
     private ActivityEventRepository activityEventRepository;
 
     @Test
-    void deleteRemovesDependentRecordsBeforeTheDeviceRow() {
+    void deleteArchivesTheDeviceAndRetainsDependentRecordsForAudit() {
         Device device = deviceService.create(Device.builder()
                 .name("FK cascade device")
                 .type("SENSOR")
@@ -94,11 +94,14 @@ class DeviceDeleteTest {
         );
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
-        assertThat(deviceRepository.findById(device.getId())).isEmpty();
-        assertThat(connectionRepository.findByDeviceId(device.getId())).isEmpty();
-        assertThat(commandRepository.findByDeviceIdOrderByRequestedAtDesc(device.getId())).isEmpty();
-        assertThat(alertRepository.findByDevice_Id(device.getId())).isEmpty();
-        assertThat(activityEventRepository.findByDeviceIdOrderByOccurredAtDesc(device.getId())).isEmpty();
+        assertThat(deviceRepository.findById(device.getId())).isPresent()
+                .get().extracting(Device::getArchivedAt).isNotNull();
+        assertThat(connectionRepository.findByDeviceId(device.getId())).hasSize(1);
+        assertThat(commandRepository.findByDeviceIdOrderByRequestedAtDesc(device.getId())).hasSize(1);
+        assertThat(alertRepository.findByDevice_Id(device.getId())).hasSize(1);
+        assertThat(activityEventRepository.findByDeviceIdOrderByOccurredAtDesc(device.getId()))
+                .extracting(ActivityEvent::getEventType)
+                .contains("DEVICE_ARCHIVED");
     }
 
     @Test

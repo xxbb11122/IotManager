@@ -59,6 +59,20 @@ export class CacheRepository {
     return (await this.db()).getAll('localBindings');
   }
 
+  async removeLocalBinding(appInstallId, pluginDeviceId) {
+    if (!appInstallId || !pluginDeviceId) return false;
+    const key = `${appInstallId}:${pluginDeviceId}`;
+    const db = await this.db();
+    const tx = db.transaction(['localBindings', 'localActivity'], 'readwrite');
+    await tx.objectStore('localBindings').delete(key);
+    const activity = tx.objectStore('localActivity');
+    for (const entry of await activity.index('bindingKey').getAllKeys(key)) {
+      await activity.delete(entry);
+    }
+    await tx.done;
+    return true;
+  }
+
   async addLocalActivity(activity) {
     if (!activity?.id || !activity?.bindingKey) throw new TypeError('Local activity requires id and bindingKey');
     const value = { ...activity, occurredAt: activity.occurredAt ?? new Date().toISOString() };

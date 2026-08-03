@@ -1,0 +1,23 @@
+{
+  "profileId": "legacy-generic-v1",
+  "version": 1,
+  "displayName": "Legacy generic actuator",
+  "deviceType": "ACTUATOR",
+  "transports": ["LAN_AGENT", "API"],
+  "controls": [
+    {"id": "power", "kind": "toggle", "label": "Power", "commandType": "set_power", "parameter": "on"},
+    {"id": "level", "kind": "range", "label": "Level", "commandType": "set_level", "parameter": "level", "min": 0, "max": 100, "step": 1},
+    {"id": "mode", "kind": "select", "label": "Mode", "commandType": "set_mode", "parameter": "mode", "options": ["eco", "normal", "boost"]}
+  ],
+  "commands": [
+    {"type": "set_power", "stateField": "power", "stateParameter": "on", "parameters": {"on": {"type": "boolean", "required": true}}},
+    {"type": "set_level", "stateField": "level", "parameters": {"level": {"type": "number", "required": true, "min": 0, "max": 100}}},
+    {"type": "set_mode", "stateField": "mode", "stateParameter": "mode", "parameters": {"mode": {"type": "string", "required": true}}},
+    {"type": "simulate_failure", "parameters": {}}
+  ],
+  "telemetry": [
+    {"id": "temperature", "type": "number", "unit": "C"},
+    {"id": "humidity", "type": "number", "unit": "%"},
+    {"id": "signalStrength", "type": "number", "unit": "dBm"}
+  ]
+}

@@ -1,8 +1,10 @@
 # IoT Manager 云端部署（移动数据可用）
 
+> 当前首版完整部署（后端、监控界面和运维控制台）请以 [DEPLOYMENT.md](DEPLOYMENT.md) 为准。
+
 手机使用移动数据时无法访问家里的 `192.168.x.x` 内网地址。要真正使用"互联网远程"，
 需要把后端放到一个有公网域名/公网 IP 的服务器上。本目录提供一键部署：
-Spring Boot 后端 + Caddy 反向代理（自动 HTTPS/WSS 证书）。
+Spring Boot 后端 + 监控前端 + 运维控制台 + Caddy 反向代理（自动 HTTPS/WSS 证书）。
 
 ## 前置条件
 
