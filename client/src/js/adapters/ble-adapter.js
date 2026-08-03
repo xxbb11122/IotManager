@@ -21,19 +21,6 @@ function textFromDataView(value) {
   return Array.from(bytes, (byte) => String.fromCharCode(byte)).join('').replace(/\0+$/, '');
 }
 
-function reportedStateFromCommand(command) {
-  switch (command?.type) {
-    case 'set_power':
-      return { power: command.parameters?.on === true };
-    case 'set_level':
-      return { level: command.parameters?.level };
-    case 'set_mode':
-      return { mode: command.parameters?.mode };
-    default:
-      return {};
-  }
-}
-
 export class BleUnavailableError extends Error {
   constructor(message) {
     super(message);
@@ -160,8 +147,8 @@ export class BleAdapter extends ConnectionAdapter {
       commandId: command?.commandId ?? null,
       deviceId: this.activeConnection?.id ?? null,
       type: command?.type,
-      status: 'ACKNOWLEDGED',
-      reportedState: reportedStateFromCommand(command)
+      status: operation.confirmation?.type === 'none' ? 'UNCONFIRMED' : 'SENT',
+      reportedState: this.activeConnection?.reportedState ?? {}
     };
     this.emit('command_update', result);
     return result;

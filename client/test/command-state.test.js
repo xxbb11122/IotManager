@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { transitionCommand } from '../src/js/command-state.js';
+import { isTerminalCommandStatus, transitionCommand } from '../src/js/command-state.js';
 
 test('acknowledgement commits the confirmed reported state', () => {
   const device = {
@@ -52,4 +52,14 @@ test('pending backend view prefers its desired state over its stale reported sta
 
   assert.deepEqual(next.desiredState, { power: true });
   assert.deepEqual(next.reportedState, { power: false });
+});
+
+test('unconfirmed BLE delivery never changes reported state', () => {
+  const next = transitionCommand(
+    { desiredState: { power: false }, reportedState: { power: false } },
+    { commandId: 'ble-1', type: 'set_power', parameters: { on: true }, status: 'UNCONFIRMED' }
+  );
+  assert.deepEqual(next.reportedState, { power: false });
+  assert.equal(next.commandStatus, 'UNCONFIRMED');
+  assert.equal(isTerminalCommandStatus(next.commandStatus), true);
 });

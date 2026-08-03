@@ -19,7 +19,8 @@ const DEFAULT_PROFILES = Object.freeze([
         serviceUuid: DEMO_SWITCH_SERVICE,
         characteristicUuid: DEMO_SWITCH_WRITE_CHARACTERISTIC,
         value: new Uint8Array([parameters?.on === true ? 1 : 0]),
-        withResponse: true
+        withResponse: true,
+        confirmation: { type: 'none' }
       })
     })
   })
@@ -111,11 +112,20 @@ export class BleProfileRegistry {
       throw new TypeError(`BLE profile '${profileId}' returned an invalid command operation`);
     }
 
+    const confirmation = operation.confirmation ?? { type: 'none' };
+    if (!['none', 'read', 'notification'].includes(confirmation.type)) {
+      throw new TypeError(`BLE profile '${profileId}' returned an invalid confirmation type`);
+    }
+    if (confirmation.type !== 'none' && (!confirmation.serviceUuid || !confirmation.characteristicUuid || typeof confirmation.decode !== 'function')) {
+      throw new TypeError(`BLE profile '${profileId}' requires confirmation UUIDs and decoder`);
+    }
+
     return {
       serviceUuid: operation.serviceUuid,
       characteristicUuid: operation.characteristicUuid,
       value: new Uint8Array(operation.value),
-      withResponse: operation.withResponse !== false
+      withResponse: operation.withResponse !== false,
+      confirmation: { ...confirmation }
     };
   }
 }

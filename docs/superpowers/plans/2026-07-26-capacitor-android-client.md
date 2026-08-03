@@ -6,7 +6,7 @@
 
 **Architecture:** Keep the existing UI and store as the shared application layer. Add a Capacitor Android shell, a native BLE adapter, one reusable platform adapter created from immutable endpoint profiles, a connection resolver, and partitioned persistence. App access route and device transport remain separate, and reported state changes only from confirmed device/platform data.
 
-**Tech Stack:** Vite 5, Node.js 24, Capacitor 8.4.2, `@capacitor-community/bluetooth-le` 8.2.0, Capacitor Preferences/App/Network plugins, IndexedDB through `idb`, Java 17, Android API 36, Spring Boot 3.2, Node test runner, Playwright, Maven/JUnit.
+**Tech Stack:** Vite 5, Node.js 24, Capacitor 8.4.2, `@capacitor-community/bluetooth-le` 8.2.0, Capacitor Preferences/App/Network plugins, IndexedDB through `idb`, JDK 21+ for Android (verified with JDK 23), JDK 17 for Spring Boot, Android API 36, Spring Boot 3.2, Node test runner, Playwright, Maven/JUnit.
 
 ---
 
@@ -65,7 +65,7 @@
 
 **Files:**
 - Track: `.gitignore`, `README.md`, `backend/`, `client/`, `console/`, `frontend/`, existing specs and plans
-- External tools: `C:\Program Files\Java\jdk-17`, `C:\Users\Raid\AppData\Local\Android\Sdk`
+- External tools: `C:\Program Files\Java\jdk-23` for Android, `C:\Program Files\Java\jdk-17` for the backend, `C:\Users\Raid\AppData\Local\Android\Sdk`
 
 - [ ] **Step 1: Record the current source baseline without staging generated artifacts**
 
@@ -99,7 +99,7 @@ Expected: one commit containing the previously untracked project sources, with t
 - [ ] **Step 4: Install Android command-line tools only when `sdkmanager.bat` is absent**
 
 ```powershell
-$env:JAVA_HOME = 'C:\Program Files\Java\jdk-17'
+$env:JAVA_HOME = 'C:\Program Files\Java\jdk-23'
 $env:ANDROID_SDK_ROOT = 'C:\Users\Raid\AppData\Local\Android\Sdk'
 $env:ANDROID_HOME = $env:ANDROID_SDK_ROOT
 $env:Path = "$env:JAVA_HOME\bin;$env:ANDROID_SDK_ROOT\platform-tools;$env:ANDROID_SDK_ROOT\cmdline-tools\latest\bin;$env:Path"
@@ -146,7 +146,7 @@ Expected: exit code 0 and installed directories under `platform-tools`, `platfor
 & $sdkManager --sdk_root=$env:ANDROID_SDK_ROOT --list_installed
 ```
 
-Expected: Java 17, a working ADB, and API 36/build-tools 36.0.0 listed.
+Expected: Java 21 or newer, a working ADB, and API 36/build-tools 36.0.0 listed. This project was verified with JDK 23 because Capacitor 8.4.2 uses Java 21 source compatibility.
 
 ## Task 2: Add the Capacitor Android Shell
 
@@ -1825,7 +1825,7 @@ Expected: tests pass and Capacitor reports BLE, Preferences, App, and Network pl
 - [ ] **Step 6: Build the debug APK**
 
 ```powershell
-$env:JAVA_HOME = 'C:\Program Files\Java\jdk-17'
+$env:JAVA_HOME = 'C:\Program Files\Java\jdk-23'
 $env:ANDROID_SDK_ROOT = 'C:\Users\Raid\AppData\Local\Android\Sdk'
 $env:ANDROID_HOME = $env:ANDROID_SDK_ROOT
 Set-Location android
@@ -1931,10 +1931,10 @@ Append this section to `README.md`:
 ````markdown
 ## Android enterprise client
 
-The Android App packages the existing `client` application with Capacitor. It requires Node.js 22+, Java 17, Android SDK Platform 36, Build Tools 36.0.0, and platform tools.
+The Android App packages the existing `client` application with Capacitor. It requires Node.js 22+, JDK 21+ for Android, Android SDK Platform 36, Build Tools 36.0.0, and platform tools. The backend continues to use JDK 17.
 
 ```powershell
-$env:JAVA_HOME = 'C:\Program Files\Java\jdk-17'
+$env:JAVA_HOME = 'C:\Program Files\Java\jdk-23'
 $env:ANDROID_SDK_ROOT = 'C:\Users\Raid\AppData\Local\Android\Sdk'
 $env:ANDROID_HOME = $env:ANDROID_SDK_ROOT
 Set-Location client

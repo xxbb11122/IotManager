@@ -10,3 +10,5 @@ backend/*.err.log
 client/android/.gradle/
 client/android/local.properties
 client/android/**/build/
+**/test-results/
+**/playwright-report/

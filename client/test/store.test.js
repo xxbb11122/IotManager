@@ -164,3 +164,12 @@ test('store rekeys early activity and alert events when their device later arriv
   assert.equal(next.activitiesByDeviceId['lan-field-01'], undefined);
   assert.equal(next.alertsByDeviceId['lan-field-01'], undefined);
 });
+
+test('stores access route separately from device transport and stale state', () => {
+  const store = createClientStore();
+  store.setRuntimeContext({ accessRoute: 'CLOUD_API', endpointId: 'cloud', stale: true, lastSyncedAt: 10 });
+  store.setDevices([{ id: 7, connections: [{ transport: 'LAN_AGENT', status: 'CONNECTED' }] }]);
+  assert.equal(store.getState().runtime.accessRoute, 'CLOUD_API');
+  assert.equal(store.getState().devices[0].connections[0].transport, 'LAN_AGENT');
+  assert.equal(store.getState().runtime.stale, true);
+});

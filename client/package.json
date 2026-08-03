@@ -10,9 +10,19 @@
     "test": "node --test"
   },
   "devDependencies": {
+    "@capacitor/cli": "8.4.2",
+    "@playwright/test": "1.62.0",
+    "fake-indexeddb": "6.2.5",
     "vite": "^5.1.0"
   },
   "dependencies": {
+    "@capacitor-community/bluetooth-le": "8.2.0",
+    "@capacitor/android": "8.4.2",
+    "@capacitor/app": "8.1.1",
+    "@capacitor/core": "8.4.2",
+    "@capacitor/network": "8.0.1",
+    "@capacitor/preferences": "8.0.1",
+    "idb": "8.0.3",
     "lucide": "^1.26.0"
   }
 }
