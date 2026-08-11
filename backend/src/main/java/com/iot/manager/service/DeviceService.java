@@ -119,6 +119,7 @@ public class DeviceService {
                 .payloadJson("{\"deviceId\":\"" + saved.getDeviceId() + "\"}")
                 .occurredAt(LocalDateTime.now())
                 .build());
+        webSocketService.sendDeviceUpdate(saved);
         return saved;
     }
 
@@ -178,6 +179,7 @@ public class DeviceService {
                 .payloadJson("{\"reason\":\"Archived through device API\"}")
                 .occurredAt(LocalDateTime.now())
                 .build());
+        webSocketService.sendDeviceArchived(device);
     }
 
     public Map<String, Object> getDashboardStats() {
@@ -288,6 +290,8 @@ public class DeviceService {
         if (status != null) {
             device.setStatus(status);
         }
-        return deviceRepo.save(device);
+        Device saved = deviceRepo.save(device);
+        webSocketService.sendDeviceUpdate(saved);
+        return saved;
     }
 }

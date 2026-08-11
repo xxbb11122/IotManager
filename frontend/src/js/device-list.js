@@ -24,38 +24,55 @@ export function applyFilter(devices, statusFilter, typeFilter, search) {
   return filtered;
 }
 
+function deviceRow(d) {
+  const temp = d.temperature != null ? d.temperature.toFixed(1) + '°C' : '—';
+  const cpu = d.cpuUsage != null ? d.cpuUsage.toFixed(0) + '%' : '—';
+  const sig = d.signalStrength != null ? d.signalStrength.toFixed(0) + ' dBm' : '—';
+  const seen = d.lastSeen ? new Date(d.lastSeen).toLocaleString('zh-CN', { hour12: false }) : '—';
+  let bc = 'badge-online';
+  if (d.status === 'OFFLINE') bc = 'badge-offline';
+  else if (d.status === 'WARNING') bc = 'badge-warning';
+  else if (d.status === 'MAINTENANCE') bc = 'badge-maintenance';
+  return `<tr data-device-id="${esc(d.deviceId)}">
+    <td><strong>${esc(d.name)}</strong><br><span style="color:var(--text2);font-size:0.6875rem;">${esc(d.location || '—')}</span></td>
+    <td><span class="mono">${esc(d.deviceId)}</span></td>
+    <td>${esc(d.type)}</td>
+    <td>${esc(d.protocol)}</td>
+    <td><span class="badge ${bc}">${esc(d.status)}</span></td>
+    <td>${temp}</td>
+    <td>${cpu}</td>
+    <td>${sig}</td>
+    <td>${seen}</td>
+  </tr>`;
+}
+
+function updateEmptyState(tbody) {
+  const empty = document.getElementById('device-empty');
+  if (empty) empty.style.display = tbody.children.length ? 'none' : 'block';
+}
+
 export function renderDevices(devices) {
   const tbody = document.getElementById('device-tbody');
   if (!tbody) return;
-  const empty = document.getElementById('device-empty');
-  if (!devices || devices.length === 0) {
-    tbody.innerHTML = '';
-    if (empty) empty.style.display = 'block';
-    return;
-  }
-  if (empty) empty.style.display = 'none';
+  tbody.innerHTML = devices?.length ? devices.map(deviceRow).join('') : '';
+  updateEmptyState(tbody);
+}
 
-  tbody.innerHTML = devices.map(d => {
-    const temp = d.temperature != null ? d.temperature.toFixed(1) + '°C' : '—';
-    const cpu = d.cpuUsage != null ? d.cpuUsage.toFixed(0) + '%' : '—';
-    const sig = d.signalStrength != null ? d.signalStrength.toFixed(0) + ' dBm' : '—';
-    const seen = d.lastSeen ? new Date(d.lastSeen).toLocaleString('zh-CN', { hour12: false }) : '—';
-    let bc = 'badge-online';
-    if (d.status === 'OFFLINE') bc = 'badge-offline';
-    else if (d.status === 'WARNING') bc = 'badge-warning';
-    else if (d.status === 'MAINTENANCE') bc = 'badge-maintenance';
-    return `<tr>
-      <td><strong>${esc(d.name)}</strong><br><span style="color:var(--text2);font-size:0.6875rem;">${esc(d.location || '—')}</span></td>
-      <td><span class="mono">${esc(d.deviceId)}</span></td>
-      <td>${esc(d.type)}</td>
-      <td>${esc(d.protocol)}</td>
-      <td><span class="badge ${bc}">${esc(d.status)}</span></td>
-      <td>${temp}</td>
-      <td>${cpu}</td>
-      <td>${sig}</td>
-      <td>${seen}</td>
-    </tr>`;
-  }).join('');
+// Telemetry events are high-frequency. Updating only their row preserves the
+// operator's scroll position and prevents a visible whole-table refresh.
+export function patchDevice(device, isVisible) {
+  const tbody = document.getElementById('device-tbody');
+  if (!tbody || !device?.deviceId) return;
+  const existing = [...tbody.querySelectorAll('tr[data-device-id]')]
+    .find((row) => row.dataset.deviceId === String(device.deviceId));
+  if (!isVisible) {
+    existing?.remove();
+  } else if (existing) {
+    existing.outerHTML = deviceRow(device);
+  } else {
+    tbody.insertAdjacentHTML('afterbegin', deviceRow(device));
+  }
+  updateEmptyState(tbody);
 }
 
 export function renderAlerts(alerts) {
@@ -76,20 +93,6 @@ export function renderAlerts(alerts) {
       </div>
     </div>`;
   }).join('');
-
-  // Attach event listeners
-  container.querySelectorAll('.btn-resolve').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const id = btn.dataset.id;
-      try {
-        await fetch('/api/alerts/' + id + '/resolve', { method: 'PUT' });
-        // Re-trigger parent refresh
-        window.dispatchEvent(new CustomEvent('refresh-alerts'));
-      } catch (e) {
-        console.error('解决告警失败', e);
-      }
-    });
-  });
 }
 
 export function renderStats(stats) {

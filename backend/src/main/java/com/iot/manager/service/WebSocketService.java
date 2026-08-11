@@ -46,6 +46,16 @@ public class WebSocketService {
         broadcastEvent("device_update", payload);
     }
 
+    public void sendDeviceArchived(Device device) {
+        Device storedDevice = storedDevice(device);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("id", storedDevice.getId());
+        payload.put("deviceId", storedDevice.getDeviceId());
+        payload.put("publicId", storedDevice.getPublicId());
+        payload.put("archivedAt", storedDevice.getArchivedAt());
+        broadcastEvent("device_archived", payload);
+    }
+
     public void sendDeviceUpdates(List<Map<String, Object>> updates) {
         broadcastEvent("device_updates", updates);
     }

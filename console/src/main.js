@@ -1,6 +1,7 @@
 import './css/style.css';
 import Chart from 'chart.js/auto';
 import { api, esc } from './js/api.js';
+import { realtime } from './js/realtime.js';
 
 const state = {
   devices: [],
@@ -60,12 +61,19 @@ async function loadDashboard() {
 
 function renderTypeChart(breakdown) {
   const canvas = document.getElementById('chart-types');
-  if (state.chart) state.chart.destroy();
+  const labels = Object.keys(breakdown);
+  const values = Object.values(breakdown);
+  if (state.chart) {
+    state.chart.data.labels = labels;
+    state.chart.data.datasets[0].data = values;
+    state.chart.update('none');
+    return;
+  }
   state.chart = new Chart(canvas, {
     type: 'doughnut',
     data: {
-      labels: Object.keys(breakdown),
-      datasets: [{ data: Object.values(breakdown), backgroundColor: ['#3699FF', '#0FE87B', '#F5A623', '#F64E60', '#8950FC'], borderWidth: 0 }]
+      labels,
+      datasets: [{ data: values, backgroundColor: ['#3699FF', '#0FE87B', '#F5A623', '#F64E60', '#8950FC'], borderWidth: 0 }]
     },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: '#7E8299', font: { size: 11 } } } } }
   });
@@ -285,6 +293,43 @@ async function refreshCurrentPage() {
   await loaders[active]();
 }
 
+function debounce(callback, delay = 250) {
+  let timer = null;
+  return (...args) => {
+    if (timer) window.clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      timer = null;
+      callback(...args);
+    }, delay);
+  };
+}
+
+function activePage() {
+  return document.querySelector('.page.active')?.id?.replace('page-', '') || 'dashboard';
+}
+
+const pendingRealtimeTypes = new Set();
+const flushRealtimeRefresh = debounce(() => {
+  const page = activePage();
+  const relevant = {
+    dashboard: ['device_update', 'device_updates', 'device_archived', 'command_batch_update', 'alert', 'alert_update'],
+    devices: ['device_update', 'device_updates', 'device_archived', 'connection_update'],
+    groups: ['device_group_update'],
+    batches: ['command_batch_update', 'command_update'],
+    alerts: ['alert', 'alert_update'],
+    audit: ['command_update']
+  };
+  const shouldRefresh = [...pendingRealtimeTypes].some((type) => relevant[page]?.includes(type));
+  pendingRealtimeTypes.clear();
+  if (!shouldRefresh) return;
+  refreshCurrentPage().catch((error) => toast(`实时刷新失败：${error.message}`, true));
+}, 300);
+
+function refreshForRealtimeEvent(event) {
+  pendingRealtimeTypes.add(event.type);
+  flushRealtimeRefresh();
+}
+
 async function navigate(page) {
   document.querySelectorAll('.nav-item').forEach((element) => element.classList.toggle('active', element.dataset.page === page));
   document.querySelectorAll('.page').forEach((element) => element.classList.toggle('active', element.id === `page-${page}`));
@@ -298,7 +343,7 @@ async function navigate(page) {
 document.querySelectorAll('.nav-item').forEach((element) => element.addEventListener('click', () => navigate(element.dataset.page)));
 document.getElementById('refresh-all').addEventListener('click', () => refreshCurrentPage().catch((error) => toast(error.message, true)));
 document.getElementById('load-devices').addEventListener('click', () => loadDevices().catch((error) => toast(error.message, true)));
-document.getElementById('dev-search').addEventListener('input', () => loadDevices().catch(() => {}));
+document.getElementById('dev-search').addEventListener('input', debounce(() => loadDevices().catch(() => {})));
 document.getElementById('btn-cancel').addEventListener('click', resetDeviceForm);
 
 document.getElementById('dev-table-body').addEventListener('click', (event) => {
@@ -406,16 +451,19 @@ document.getElementById('batch-detail-actions').addEventListener('click', async 
 });
 
 document.getElementById('alert-resolved').addEventListener('change', () => loadAlerts().catch((error) => toast(error.message, true)));
-document.getElementById('alert-query').addEventListener('input', () => loadAlerts().catch(() => {}));
+document.getElementById('alert-query').addEventListener('input', debounce(() => loadAlerts().catch(() => {})));
 document.getElementById('alerts-list').addEventListener('click', async (event) => {
   const button = event.target.closest('.resolve-alert');
   if (!button) return;
   try { await api(`/api/alerts/${button.dataset.id}/resolve`, { method: 'PUT' }); await loadAlerts(); toast('告警已解决'); } catch (error) { toast(error.message, true); }
 });
 document.getElementById('audit-status').addEventListener('change', () => loadAudit().catch((error) => toast(error.message, true)));
-document.getElementById('audit-batch').addEventListener('input', () => loadAudit().catch(() => {}));
+document.getElementById('audit-batch').addEventListener('input', debounce(() => loadAudit().catch(() => {})));
 
 function updateClock() { document.getElementById('clock').textContent = new Date().toLocaleString('zh-CN', { hour12: false }); }
 updateClock();
 window.setInterval(updateClock, 1000);
+realtime.on(refreshForRealtimeEvent);
+realtime.connect();
+window.addEventListener('beforeunload', () => realtime.disconnect());
 Promise.all([loadDashboard(), loadGroups()]).catch((error) => toast(`初始化失败：${error.message}`, true));

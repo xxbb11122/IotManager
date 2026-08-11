@@ -3,8 +3,8 @@ import Chart from 'chart.js/auto';
 let chartCpu = null, chartTrend = null;
 const trendData = Array(12).fill(0);
 
-export function loadCharts(devices) {
-  if (!devices || devices.length === 0) return;
+export function loadCharts(devices, { recordTrend = false } = {}) {
+  devices = Array.isArray(devices) ? devices : [];
 
   // CPU distribution
   const buckets = { '0-20%': 0, '20-40%': 0, '40-60%': 0, '60-80%': 0, '80-100%': 0 };
@@ -19,8 +19,11 @@ export function loadCharts(devices) {
 
   const ctx1 = document.getElementById('chart-cpu');
   if (ctx1) {
-    if (chartCpu) chartCpu.destroy();
-    chartCpu = new Chart(ctx1, {
+    if (chartCpu) {
+      chartCpu.data.datasets[0].data = Object.values(buckets);
+      chartCpu.update('none');
+    } else {
+      chartCpu = new Chart(ctx1, {
       type: 'bar',
       data: {
         labels: Object.keys(buckets),
@@ -39,18 +42,26 @@ export function loadCharts(devices) {
           x: { grid: { display: false }, ticks: { color: '#7E8299', font: { size: 10 } } }
         }
       }
-    });
+      });
+    }
   }
 
   // Online trend
   const online = devices.filter(d => d.status === 'ONLINE').length;
-  trendData.push(online);
-  if (trendData.length > 12) trendData.shift();
+  if (recordTrend) {
+    trendData.push(online);
+    if (trendData.length > 12) trendData.shift();
+  } else {
+    trendData[trendData.length - 1] = online;
+  }
 
   const ctx2 = document.getElementById('chart-trend');
   if (ctx2) {
-    if (chartTrend) chartTrend.destroy();
-    chartTrend = new Chart(ctx2, {
+    if (chartTrend) {
+      chartTrend.data.datasets[0].data = [...trendData];
+      chartTrend.update('none');
+    } else {
+      chartTrend = new Chart(ctx2, {
       type: 'line',
       data: {
         labels: trendData.map((_, i) => 'T-' + (trendData.length - i - 1)),
@@ -70,7 +81,8 @@ export function loadCharts(devices) {
           x: { grid: { display: false }, ticks: { color: '#7E8299', font: { size: 9 } } }
         }
       }
-    });
+      });
+    }
   }
 }
 

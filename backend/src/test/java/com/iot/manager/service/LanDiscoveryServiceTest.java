@@ -187,7 +187,7 @@ class LanDiscoveryServiceTest {
             );
 
             ArgumentCaptor<TextMessage> messageCaptor = ArgumentCaptor.forClass(TextMessage.class);
-            verify(session, times(2)).sendMessage(messageCaptor.capture());
+            verify(session, times(3)).sendMessage(messageCaptor.capture());
             List<JsonNode> events = messageCaptor.getAllValues().stream()
                     .map(message -> readEvent(message.getPayload()))
                     .toList();
@@ -207,6 +207,13 @@ class LanDiscoveryServiceTest {
                     .orElseThrow();
             assertThat(activityEvent.path("version").asInt()).isEqualTo(1);
             assertThat(activityEvent.path("payload").path("eventType").asText()).isEqualTo("device_claimed");
+
+            JsonNode deviceEvent = events.stream()
+                    .filter(event -> "device_update".equals(event.path("type").asText()))
+                    .findFirst()
+                    .orElseThrow();
+            assertThat(deviceEvent.path("payload").path("deviceId").asText()).isNotBlank();
+            assertThat(deviceEvent.path("payload").path("status").asText()).isEqualTo("OFFLINE");
         } finally {
             webSocketService.unregister(session);
         }

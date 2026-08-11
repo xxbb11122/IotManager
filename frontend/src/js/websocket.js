@@ -51,8 +51,12 @@ function on(type, fn) {
   handlers[type].push(fn);
 }
 
+function isConnected() {
+  return ws?.readyState === WebSocket.OPEN;
+}
+
 function emit(type, data) {
   (handlers[type] || []).forEach(fn => fn(data));
 }
 
-export const wsService = { connect, disconnect, on };
+export const wsService = { connect, disconnect, on, isConnected };
