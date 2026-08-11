@@ -1,5 +1,42 @@
 # IoT Manager
 
+> 面向现场与云端设备的企业 IoT 运维基础平台：统一设备接入、能力建模、命令确认、遥测告警和跨端运营体验。
+
+IoT Manager is a modular IoT operations foundation for controlled pilots. It
+connects browser and Android clients to a Spring Boot platform, supports a
+site Edge Agent for LAN equipment, and treats every controllable device as a
+versioned Profile instead of a collection of hard-coded buttons.
+
+## What is included
+
+- **Device operations:** inventory, discovery and claim, archive, device
+  groups, alarms, telemetry, activity history, and real-time updates.
+- **Reliable command handling:** profile validation, idempotency, audit events,
+  acknowledgement states, and batches of up to 200 site-scoped devices.
+- **Real adapter boundaries:** direct Android BLE for the nRF52840 reference
+  switch, plus an outbound WebSocket Edge Agent with Shelly Plus Plug S Gen2
+  RPC control and state read-back.
+- **Three operator surfaces:** a mobile/PDA client, a monitoring dashboard,
+  and an operations console; the mobile client supports site/cloud endpoint
+  switching and read-only offline snapshots.
+- **Repeatable engineering:** Flyway migrations, backend and Edge Agent tests,
+  client unit tests, Android APK build automation, and Docker/Caddy deployment
+  configuration.
+
+## Current status
+
+This is a functional MVP and controlled-pilot foundation, **not a production
+enterprise deployment**. The current release deliberately defers
+authentication, RBAC, tenant authorization, Agent authentication, secrets
+management, PostgreSQL, backup/recovery, rate limiting, and high-availability
+coordination. Only the nRF52840 reference switch and Shelly Plus Plug S Gen2
+have concrete adapter implementations; physical-device acceptance testing
+remains required before operating real equipment.
+
+See [Device Profiles](profiles/README.md), [Edge Agent](edge-agent/README.md),
+and [release verification](docs/VERIFICATION.md) for the supported contracts
+and acceptance checks.
+
 ## Prerequisites
 
 - Node.js 22+ and npm.
