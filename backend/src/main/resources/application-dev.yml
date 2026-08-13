@@ -1,0 +1,41 @@
+server:
+  # Bind explicitly to the LAN interface so a debug APK on the same Wi-Fi can reach IDEA's backend.
+  address: 0.0.0.0
+
+spring:
+  datasource:
+    url: jdbc:h2:file:./data/iotdb;DB_CLOSE_DELAY=-1;AUTO_SERVER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+  flyway:
+    baseline-on-migrate: true
+
+iot:
+  command-simulator:
+    # Real Android testing should receive actual platform events, not a
+    # one-second simulated stream that forces the UI to re-render constantly.
+    enabled: false
+    interval-ms: 1000
+    initial-delay-ms: 5000
+
+  simulator:
+    enabled: false
+    interval-ms: 4000
+    initial-device-count: 12
+
+  weather:
+    scheduler-enabled: true
+    refresh-interval-ms: 1800000
+    # Let the local backend complete startup before its first weather request.
+    initial-delay-ms: 30000
+    retry-check-interval-ms: 30000
+    retry-initial-delay-ms: 30000
+    open-meteo:
+      timeout-seconds: 10

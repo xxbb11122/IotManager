@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IoT Manager device profile",
+  "type": "object",
+  "required": ["profileId", "version", "displayName", "deviceType", "transports", "commands", "telemetry"],
+  "properties": {
+    "profileId": {"type": "string", "minLength": 1, "maxLength": 100},
+    "version": {"type": "integer", "minimum": 1},
+    "displayName": {"type": "string", "minLength": 1, "maxLength": 255},
+    "deviceType": {"type": "string", "minLength": 1, "maxLength": 50},
+    "transports": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "controls": {"type": "array"},
+    "commands": {"type": "array", "minItems": 1},
+    "telemetry": {"type": "array"}
+  },
+  "additionalProperties": true
+}

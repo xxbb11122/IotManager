@@ -1,0 +1,21 @@
+{
+  "profileId": "shelly-plus-plug-s-v1",
+  "version": 1,
+  "displayName": "Shelly Plus Plug S",
+  "deviceType": "ACTUATOR",
+  "transports": ["LAN_AGENT"],
+  "identity": {"driverId": "shelly-plus-plug-s-rpc-v1", "app": "PlusPlugS", "modelPrefix": "SNPL-00116"},
+  "controls": [
+    {"id": "power", "kind": "toggle", "label": "Power", "commandType": "set_power", "parameter": "on"}
+  ],
+  "commands": [
+    {"type": "set_power", "stateField": "power", "stateParameter": "on", "parameters": {"on": {"type": "boolean", "required": true}}, "confirmation": "readback"}
+  ],
+  "telemetry": [
+    {"id": "power", "type": "boolean"},
+    {"id": "voltage", "type": "number", "unit": "V"},
+    {"id": "current", "type": "number", "unit": "A"},
+    {"id": "powerWatts", "type": "number", "unit": "W"},
+    {"id": "temperature", "type": "number", "unit": "C"}
+  ]
+}

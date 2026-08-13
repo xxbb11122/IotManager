@@ -1,0 +1,17 @@
+**/node_modules/
+**/dist/
+backend/data/
+backend/target/
+backend/*.log
+backend/*.err.log
+.idea/
+.superpowers/
+.worktrees/
+client/android/.gradle/
+client/android/local.properties
+client/android/**/build/
+**/test-results/
+**/playwright-report/
+deploy/.env
+client/.env.local
+client/.env.*.local

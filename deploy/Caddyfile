@@ -1,0 +1,30 @@
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Keep routing order explicit: platform APIs and WebSockets never fall
+	# through to a single-page-app HTML response.
+	route {
+		@consoleRoot path /console
+		redir @consoleRoot /console/ permanent
+
+		@platform path /api /api/* /ws /ws/*
+		handle @platform {
+			reverse_proxy backend:8080
+		}
+
+		# Caddy strips /console before looking up the console build. The
+		# console is built with Vite base=/console/, so its assets stay scoped.
+		handle_path /console/* {
+			root * /srv/console
+			try_files {path} /index.html
+			file_server
+		}
+
+		# The monitoring dashboard owns the root path and its /assets files.
+		handle {
+			root * /srv/frontend
+			try_files {path} /index.html
+			file_server
+		}
+	}
+}

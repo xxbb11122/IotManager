@@ -1,0 +1,16 @@
+# Copy this file outside the source tree, adjust it, then pass --config <path>.
+agent.name=plant-edge-01
+agent.site-code=demo-site
+agent.identity-file=./data/edge-agent/identity.json
+
+# Local development endpoint. For the Caddy deployment use
+# wss://your-domain.example/ws/edge/v1 instead.
+backend.websocket.url=ws://localhost:8080/ws/edge/v1
+heartbeat.interval.seconds=30
+discovery.interval.seconds=60
+reconnect.delay.seconds=5
+request.timeout.seconds=5
+
+# The standard JDK has no mDNS browser. The first driver accepts explicitly
+# configured Shelly hosts; an mDNS discovery adapter can feed the same driver.
+shelly.endpoints=http://192.168.1.50,http://192.168.1.51

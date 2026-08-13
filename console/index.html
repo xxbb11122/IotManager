@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IoT Manager 企业运维控制台</title>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">IoT Manager</p>
+      <h1>企业运维控制台</h1>
+    </div>
+    <div class="topbar-right">
+      <span id="clock"></span>
+      <button class="icon-button" id="refresh-all" title="刷新数据" aria-label="刷新数据">&#8635;</button>
+    </div>
+  </header>
+
+  <div class="main">
+    <nav class="nav-panel" aria-label="主导航">
+      <button class="nav-item active" data-page="dashboard">概览</button>
+      <button class="nav-item" data-page="devices">设备</button>
+      <button class="nav-item" data-page="groups">设备组</button>
+      <button class="nav-item" data-page="batches">批量控制</button>
+      <button class="nav-item" data-page="alerts">告警</button>
+      <button class="nav-item" data-page="audit">命令审计</button>
+      <button class="nav-item" data-page="weather">站点天气</button>
+    </nav>
+
+    <main class="content">
+      <section class="page active" id="page-dashboard">
+        <div class="stats-grid">
+          <div class="stat-box"><div class="num" id="d-total">0</div><div class="lbl">设备总数</div></div>
+          <div class="stat-box"><div class="num" id="d-online">0</div><div class="lbl">在线</div></div>
+          <div class="stat-box"><div class="num" id="d-warning">0</div><div class="lbl">告警状态</div></div>
+          <div class="stat-box"><div class="num" id="d-offline">0</div><div class="lbl">离线或维护</div></div>
+        </div>
+        <section class="panel">
+          <div class="panel-header"><h2>设备类型分布</h2></div>
+          <div class="panel-body chart-body"><canvas id="chart-types"></canvas></div>
+        </section>
+        <section class="panel">
+          <div class="panel-header"><h2>最近批次</h2></div>
+          <div class="panel-body"><div id="dashboard-batches" class="compact-list"></div></div>
+        </section>
+      </section>
+
+      <section class="page" id="page-devices">
+        <section class="panel">
+          <div class="panel-header">
+            <h2>设备</h2>
+            <div class="toolbar">
+              <input type="search" id="dev-search" placeholder="按名称或设备 ID 搜索" class="search-input">
+              <button class="btn btn-ghost" id="load-devices">刷新</button>
+            </div>
+          </div>
+          <div class="panel-body table-wrap">
+            <table class="tbl">
+              <thead><tr><th></th><th>名称</th><th>Profile</th><th>连接</th><th>状态</th><th>位置</th><th>操作</th></tr></thead>
+              <tbody id="dev-table-body"><tr><td colspan="7" class="empty">加载中</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+        <section class="panel">
+          <div class="panel-header"><h2 id="form-title">登记设备</h2></div>
+          <div class="panel-body padded">
+            <form id="device-form" class="form-grid">
+              <input type="hidden" id="edit-id">
+              <label class="form-group">名称<input type="text" id="f-name" required></label>
+              <label class="form-group">类型<select id="f-type"><option>ACTUATOR</option><option>SENSOR</option><option>GATEWAY</option><option>CAMERA</option></select></label>
+              <label class="form-group">协议<select id="f-protocol"><option>API</option><option>LAN_AGENT</option><option>MQTT</option><option>HTTP</option></select></label>
+              <label class="form-group">位置<input type="text" id="f-location"></label>
+              <label class="form-group">固件版本<input type="text" id="f-firmware"></label>
+              <label class="form-group">状态<select id="f-status"><option>ONLINE</option><option>OFFLINE</option><option>MAINTENANCE</option></select></label>
+              <div class="btn-row form-span"><button type="submit" class="btn btn-primary">保存设备</button><button type="button" class="btn btn-ghost" id="btn-cancel">取消编辑</button></div>
+            </form>
+          </div>
+        </section>
+      </section>
+
+      <section class="page" id="page-groups">
+        <div class="two-column">
+          <section class="panel">
+            <div class="panel-header"><h2>设备组</h2></div>
+            <div class="panel-body padded">
+              <form id="group-form" class="stack-form">
+                <label class="form-group">名称<input id="group-name" required maxlength="100"></label>
+                <label class="form-group">说明<textarea id="group-description" maxlength="1000"></textarea></label>
+                <button class="btn btn-primary" type="submit">创建设备组</button>
+              </form>
+              <div id="group-list" class="compact-list"></div>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-header"><h2 id="group-detail-title">选择一个设备组</h2></div>
+            <div class="panel-body padded">
+              <p id="group-detail-copy" class="muted">选择设备组后可按设备 ID 更新成员。</p>
+              <form id="group-members-form" class="stack-form">
+                <label class="form-group">加入设备 ID（逗号分隔）<textarea id="group-add-members" placeholder="1, 2, 3"></textarea></label>
+                <label class="form-group">移除设备 ID（逗号分隔）<textarea id="group-remove-members" placeholder="4, 5"></textarea></label>
+                <button class="btn btn-primary" type="submit">更新成员</button>
+              </form>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="page" id="page-batches">
+        <div class="two-column">
+          <section class="panel">
+            <div class="panel-header"><h2>新建批量命令</h2></div>
+            <div class="panel-body padded">
+              <form id="batch-form" class="stack-form">
+                <label class="form-group">设备组<select id="batch-group"><option value="">选择设备组</option></select></label>
+                <label class="form-group">或指定设备 ID<textarea id="batch-device-ids" placeholder="1, 2, 3"></textarea></label>
+                <label class="form-group">命令<select id="batch-type"><option value="set_power">设置电源</option><option value="set_level">设置强度</option><option value="set_mode">设置模式</option></select></label>
+                <label class="form-group">命令参数 JSON<textarea id="batch-parameters">{"on":true}</textarea></label>
+                <label class="form-group">有效期（秒）<input id="batch-expiry" type="number" min="1" max="3600" value="300"></label>
+                <button class="btn btn-primary" type="submit">提交批次</button>
+              </form>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-header"><h2>批次执行情况</h2></div>
+            <div class="panel-body">
+              <div id="batch-list" class="compact-list"></div>
+              <section class="batch-detail" aria-live="polite">
+                <div class="detail-heading">
+                  <div>
+                    <h3 id="batch-detail-title">选择一个批次</h3>
+                    <p id="batch-detail-copy" class="muted">可查看每台设备的命令回执和失败原因。</p>
+                  </div>
+                  <div id="batch-detail-actions"></div>
+                </div>
+                <div id="batch-detail-content"></div>
+              </section>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="page" id="page-alerts">
+        <section class="panel">
+          <div class="panel-header"><h2>告警中心</h2><div class="toolbar"><select id="alert-resolved"><option value="">全部状态</option><option value="false">未解决</option><option value="true">已解决</option></select><input id="alert-query" class="search-input" placeholder="搜索告警"></div></div>
+          <div class="panel-body table-wrap"><table class="tbl"><thead><tr><th>时间</th><th>级别</th><th>设备</th><th>内容</th><th>状态</th><th></th></tr></thead><tbody id="alerts-list"></tbody></table></div>
+        </section>
+      </section>
+
+      <section class="page" id="page-audit">
+        <section class="panel">
+          <div class="panel-header"><h2>命令审计</h2><div class="toolbar"><select id="audit-status"><option value="">全部状态</option><option>PENDING</option><option>SENT</option><option>ACKNOWLEDGED</option><option>FAILED</option><option>UNCONFIRMED</option><option>REJECTED</option></select><input id="audit-batch" class="search-input" placeholder="批次 ID"></div></div>
+          <div class="panel-body table-wrap"><table class="tbl"><thead><tr><th>时间</th><th>设备</th><th>命令</th><th>批次</th><th>路由</th><th>状态</th><th>结果</th></tr></thead><tbody id="audit-list"></tbody></table></div>
+        </section>
+      </section>
+
+      <section class="page" id="page-weather">
+        <div class="two-column">
+          <section class="panel">
+            <div class="panel-header"><h2>站点天气配置</h2><button class="btn btn-ghost btn-sm" id="refresh-weather">立即刷新</button></div>
+            <div class="panel-body padded">
+              <form id="weather-settings-form" class="stack-form">
+                <label class="form-group">天气功能<select id="weather-enabled"><option value="true">启用</option><option value="false">停用</option></select></label>
+                <label class="form-group">纬度<input id="weather-latitude" type="number" min="-90" max="90" step="0.000001" placeholder="例如 22.5431"></label>
+                <label class="form-group">经度<input id="weather-longitude" type="number" min="-180" max="180" step="0.000001" placeholder="例如 114.0579"></label>
+                <label class="form-group">时区<input id="weather-timezone" maxlength="64" placeholder="Asia/Shanghai"></label>
+                <label class="form-group">手动海拔（米，可选）<input id="weather-elevation" type="number" min="-500" max="9000" step="0.1"></label>
+                <label class="form-group">结露温度设备数据库 ID（可选）<input id="weather-condensation-device" type="number" min="1"></label>
+                <label class="form-group">结露温度字段<input id="weather-condensation-field" maxlength="128" placeholder="temperature"></label>
+                <button class="btn btn-primary" type="submit">保存天气配置</button>
+              </form>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-header"><h2>当前环境状态</h2></div>
+            <div class="panel-body padded" id="weather-current"><div class="empty">加载中</div></div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast" role="status"></div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

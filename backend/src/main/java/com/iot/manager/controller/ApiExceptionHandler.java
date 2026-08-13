@@ -1,0 +1,117 @@
+package com.iot.manager.controller;
+
+import com.iot.manager.dto.ApiProblem;
+import com.iot.manager.service.CommandValidationException;
+import com.iot.manager.service.LanCandidateAlreadyClaimedException;
+import com.iot.manager.service.IdempotencyConflictException;
+import com.iot.manager.service.GroupVersionConflictException;
+import com.iot.manager.weather.WeatherRefreshInProgressException;
+import com.iot.manager.weather.WeatherRefreshRateLimitedException;
+import com.iot.manager.weather.WeatherProviderException;
+import jakarta.validation.ConstraintViolationException;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.NoSuchElementException;
+
+@RestControllerAdvice
+public class ApiExceptionHandler {
+
+    @ExceptionHandler(NoSuchElementException.class)
+    public ResponseEntity<ApiProblem> handleNotFound(NoSuchElementException exception) {
+        return problem(HttpStatus.NOT_FOUND, exception.getMessage(), Map.of());
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ApiProblem> handleValidation(MethodArgumentNotValidException exception) {
+        Map<String, String> fieldErrors = new LinkedHashMap<>();
+        exception.getBindingResult().getFieldErrors().forEach(error ->
+                fieldErrors.putIfAbsent(error.getField(), error.getDefaultMessage())
+        );
+        return problem(HttpStatus.BAD_REQUEST, "Request validation failed", fieldErrors);
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ApiProblem> handleConstraintViolation(ConstraintViolationException exception) {
+        Map<String, String> fieldErrors = new LinkedHashMap<>();
+        exception.getConstraintViolations().forEach(violation ->
+                fieldErrors.put(violation.getPropertyPath().toString(), violation.getMessage())
+        );
+        return problem(HttpStatus.BAD_REQUEST, "Request validation failed", fieldErrors);
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiProblem> handleMalformedRequest(HttpMessageNotReadableException exception) {
+        return problem(HttpStatus.BAD_REQUEST, "Malformed request body", Map.of());
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiProblem> handleTypeMismatch(MethodArgumentTypeMismatchException exception) {
+        return problem(HttpStatus.BAD_REQUEST, "Invalid request parameter", Map.of());
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiProblem> handleConflict(DataIntegrityViolationException exception) {
+        return problem(HttpStatus.CONFLICT, "The request conflicts with an existing resource", Map.of());
+    }
+
+    @ExceptionHandler(LanCandidateAlreadyClaimedException.class)
+    public ResponseEntity<ApiProblem> handleCandidateClaimConflict(LanCandidateAlreadyClaimedException exception) {
+        return problem(HttpStatus.CONFLICT, exception.getMessage(), Map.of());
+    }
+
+    @ExceptionHandler(CommandValidationException.class)
+    public ResponseEntity<ApiProblem> handleCommandValidation(CommandValidationException exception) {
+        return problem(HttpStatus.BAD_REQUEST, exception.getMessage(), exception.getFieldErrors());
+    }
+
+    @ExceptionHandler(IdempotencyConflictException.class)
+    public ResponseEntity<ApiProblem> handleIdempotencyConflict(IdempotencyConflictException exception) {
+        return problem(HttpStatus.CONFLICT, exception.getMessage(), Map.of());
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiProblem> handleIllegalArgument(IllegalArgumentException exception) {
+        return problem(HttpStatus.BAD_REQUEST, exception.getMessage(), Map.of());
+    }
+
+    @ExceptionHandler(GroupVersionConflictException.class)
+    public ResponseEntity<ApiProblem> handleStateConflict(GroupVersionConflictException exception) {
+        return problem(HttpStatus.CONFLICT, exception.getMessage(), Map.of());
+    }
+
+    @ExceptionHandler(WeatherRefreshInProgressException.class)
+    public ResponseEntity<ApiProblem> handleWeatherRefreshConflict(WeatherRefreshInProgressException exception) {
+        return problem(HttpStatus.CONFLICT, exception.getMessage(), Map.of());
+    }
+
+    @ExceptionHandler(WeatherRefreshRateLimitedException.class)
+    public ResponseEntity<ApiProblem> handleWeatherRefreshRateLimit(WeatherRefreshRateLimitedException exception) {
+        return problem(HttpStatus.TOO_MANY_REQUESTS, exception.getMessage(), Map.of());
+    }
+
+    @ExceptionHandler(WeatherProviderException.class)
+    public ResponseEntity<ApiProblem> handleWeatherProviderFailure(WeatherProviderException exception) {
+        return problem(HttpStatus.BAD_GATEWAY, exception.getMessage(), Map.of());
+    }
+
+    private ResponseEntity<ApiProblem> problem(HttpStatus status, String message, Map<String, String> fieldErrors) {
+        ApiProblem body = new ApiProblem(
+                Instant.now(),
+                status.value(),
+                status.getReasonPhrase(),
+                message,
+                fieldErrors
+        );
+        return ResponseEntity.status(status).body(body);
+    }
+}

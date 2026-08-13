@@ -1,0 +1,44 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: iot-manager
+
+  profiles:
+    default: dev
+
+  flyway:
+    enabled: true
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+iot:
+  weather:
+    environment-rules:
+      temperature-ideal-min: 20
+      temperature-ideal-max: 25
+      temperature-normal-min: 18
+      temperature-normal-max: 28
+      temperature-risk-high: 35
+      humidity-ideal-min: 40
+      humidity-ideal-max: 60
+      humidity-normal-min: 30
+      humidity-normal-max: 70
+      humidity-risk-low: 20
+      humidity-risk-high: 80
+      pressure-ideal-min-kpa: 95
+      pressure-ideal-max-kpa: 105
+      pressure-normal-min-kpa: 90
+      pressure-normal-max-kpa: 110
+      pressure-risk-low-kpa: 80
+      esd-observe-humidity-pct: 30
+      esd-risk-humidity-pct: 20
+      condensation-observe-margin-c: 5
+      condensation-risk-margin-c: 2
