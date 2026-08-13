@@ -1001,8 +1001,8 @@ class ClientUi {
       }));
     }
     surface.append(modes);
-    surface.append(this.textField('API 地址', 'endpoint-api-url', this.local.endpointDraft.apiBaseUrl, '真机当前应为：http://192.168.5.10:8080/api', 'endpointApiUrl'));
-    surface.append(this.textField('WebSocket 地址', 'endpoint-ws-url', this.local.endpointDraft.wsUrl, '真机当前应为：ws://192.168.5.10:8080/ws/devices', 'endpointWsUrl'));
+    surface.append(this.textField('API 地址', 'endpoint-api-url', this.local.endpointDraft.apiBaseUrl, '真机示例：http://192.168.1.100:8080/api', 'endpointApiUrl'));
+    surface.append(this.textField('WebSocket 地址', 'endpoint-ws-url', this.local.endpointDraft.wsUrl, '真机示例：ws://192.168.1.100:8080/ws/devices', 'endpointWsUrl'));
     if (this.local.endpointDraft.accessRoute === 'SITE_API') {
       surface.append(this.buildNotice('请先在电脑 IDEA 中启动后端，并确保手机与电脑连接同一 Wi‑Fi；保存前必须先通过“测试连接”。', 'info', null, '真机连接要求'));
     }

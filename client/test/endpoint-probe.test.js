@@ -24,8 +24,8 @@ test('probe reports success with a device count when the API responds', async ()
 test('probe verifies the realtime endpoint when requested', async () => {
   const result = await probeEndpoint({
     accessRoute: 'SITE_API',
-    apiBaseUrl: 'http://192.168.5.10:8080/api',
-    wsUrl: 'ws://192.168.5.10:8080/ws/devices',
+    apiBaseUrl: 'http://192.168.1.100:8080/api',
+    wsUrl: 'ws://192.168.1.100:8080/ws/devices',
     fetchImpl: fakeFetch(200, []),
     verifyWebSocket: true,
     webSocketFactory: class {
@@ -40,8 +40,8 @@ test('probe verifies the realtime endpoint when requested', async () => {
 test('probe reports a readable realtime failure when the WebSocket cannot open', async () => {
   const result = await probeEndpoint({
     accessRoute: 'SITE_API',
-    apiBaseUrl: 'http://192.168.5.10:8080/api',
-    wsUrl: 'ws://192.168.5.10:8080/ws/devices',
+    apiBaseUrl: 'http://192.168.1.100:8080/api',
+    wsUrl: 'ws://192.168.1.100:8080/ws/devices',
     fetchImpl: fakeFetch(200, []),
     verifyWebSocket: true,
     webSocketFactory: class {

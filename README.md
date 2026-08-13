@@ -1,32 +1,72 @@
 # IoT Manager
 
-> 面向现场与云端设备的企业 IoT 运维基础平台：统一设备接入、能力建模、命令确认、遥测告警和跨端运营体验。
+<p align="center">
+  <img src="docs/images/iot-manager-overview.svg" alt="IoT Manager project overview / 项目概览" width="100%" />
+</p>
 
-IoT Manager is a modular IoT operations foundation for controlled pilots. It
-connects browser and Android clients to a Spring Boot platform, supports a
-site Edge Agent for LAN equipment, and treats every controllable device as a
-versioned Profile instead of a collection of hard-coded buttons.
+<p align="center"><strong>现场设备运营平台 · Real-time IoT Operations Platform</strong></p>
 
-## What is included
+## 项目简介 / Project overview
 
-- **Device operations:** inventory, discovery and claim, archive, device
-  groups, alarms, telemetry, activity history, and real-time updates.
-- **Reliable command handling:** profile validation, idempotency, audit events,
-  acknowledgement states, and batches of up to 200 site-scoped devices.
-- **Real adapter boundaries:** direct Android BLE for the nRF52840 reference
-  switch, plus an outbound WebSocket Edge Agent with Shelly Plus Plug S Gen2
-  RPC control and state read-back.
-- **Three operator surfaces:** a mobile/PDA client, a monitoring dashboard,
-  and an operations console; the mobile client supports site/cloud endpoint
-  switching and read-only offline snapshots.
-- **Repeatable engineering:** Flyway migrations, backend and Edge Agent tests,
-  client unit tests, Android APK build automation, and Docker/Caddy deployment
-  configuration.
+**中文：** IoT Manager 是面向现场局域网和云端设备的物联网运维平台。它统一设备接入、能力建模、命令确认、遥测告警、实时动态与真实天气环境数据，并提供 Android/PDA、监控大屏和运维控制台三类界面。
 
-## Current status
+**English:** IoT Manager is an operations platform for on-site LAN and cloud-connected devices. It unifies device onboarding, capability profiles, command acknowledgement, telemetry, alerts, real-time activity, and live weather context across Android/PDA, monitoring, and operations-console experiences.
 
-This is a functional MVP and controlled-pilot foundation, **not a production
-enterprise deployment**. The current release deliberately defers
+| 核心能力 | Key capability |
+| --- | --- |
+| 设备发现、认领、分组、归档与活动追踪 | Device discovery, claim, grouping, archive, and activity tracking |
+| BLE、本地边缘代理与云端 API 的可替换接入层 | Replaceable BLE, Edge Agent, and cloud API integration boundaries |
+| 具备确认回执、幂等性与审计记录的设备命令 | Device commands with acknowledgement, idempotency, and audit history |
+| 实时天气、预报、海拔与环境风险状态 | Live weather, forecast, elevation, and environmental risk status |
+| 可离线查看缓存、手动下拉刷新、真机位置授权 | Cached offline viewing, pull-to-refresh, and device location permission flows |
+
+## 核心能力 / Core capabilities
+
+**中文：** IoT Manager 是面向受控试点的模块化物联网运维基础。浏览器与 Android 客户端通过 Spring Boot 平台协同工作，可借助现场 Edge Agent 接入局域网设备；每一种可控设备均以可版本化的 Profile 建模，而不是硬编码按钮集合。
+
+**English:** IoT Manager is a modular IoT operations foundation for controlled pilots. It connects browser and Android clients to a Spring Boot platform, supports a site Edge Agent for LAN equipment, and treats every controllable device as a versioned Profile instead of a collection of hard-coded buttons.
+
+## 功能详情 / Included functionality
+
+- **设备运营 / Device operations:** inventory, discovery and claim, archive,
+  device groups, alarms, telemetry, activity history, and real-time updates.
+- **可靠命令 / Reliable command handling:** profile validation, idempotency,
+  audit events, acknowledgement states, and batches of up to 200 site-scoped
+  devices.
+- **真实接入 / Real adapter boundaries:** direct Android BLE for the nRF52840
+  reference switch, plus an outbound WebSocket Edge Agent with Shelly Plus Plug
+  S Gen2 RPC control and state read-back.
+- **三端运营 / Three operator surfaces:** a mobile/PDA client, a monitoring
+  dashboard, and an operations console; the mobile client supports site/cloud
+  endpoint switching and read-only offline snapshots.
+- **可重复交付 / Repeatable engineering:** Flyway migrations, backend and Edge
+  Agent tests, client unit tests, Android APK build automation, and
+  Docker/Caddy deployment configuration.
+
+## 实时天气系统 / Real-time weather system
+
+- **真实数据 / Live data:** the backend queries Open-Meteo for weather
+  conditions, temperature, humidity, pressure, wind, elevation, hourly
+  forecasts, and seven-day forecasts.
+- **一次性定位 / One-time location:** the mobile client asks for location only
+  after an explicit tap. Approximate Android location is supported and the app
+  never starts background location tracking.
+- **环境判定 / Environmental status:** temperature, humidity, pressure, ESD,
+  and condensation risk are classified as suitable (green), observe (yellow),
+  or risk (red) by server-side rules.
+- **稳定刷新 / Stable refresh:** cache-aware reads, explicit pull-to-refresh,
+  real-time render throttling, a 60-second manual-refresh cooldown, and one
+  short automatic retry avoid refresh storms while preserving the last useful
+  result.
+
+See the bilingual [weather feature development guide](docs/weather-feature-development.md) for API contracts, data flow, and validation coverage.
+
+## 当前状态 / Current status
+
+**中文：** 当前版本是可运行的 MVP 与受控试点基础，不是生产级企业部署；生产级认证、RBAC、租户授权、密钥管理、PostgreSQL、备份恢复和高可用仍属于后续阶段。
+
+**English:** This is a functional MVP and controlled-pilot foundation, **not a
+production enterprise deployment**. The current release deliberately defers
 authentication, RBAC, tenant authorization, Agent authentication, secrets
 management, PostgreSQL, backup/recovery, rate limiting, and high-availability
 coordination. Only the nRF52840 reference switch and Shelly Plus Plug S Gen2
@@ -41,7 +81,7 @@ and acceptance checks.
 
 - Node.js 22+ and npm.
 - JDK 17 for the Spring Boot backend. The host default Maven Java runtime may be Java 8, so select JDK 17 before running backend commands.
-- JDK 21+ for Android builds. This project has been verified with `C:\Program Files\Java\jdk-23`; Capacitor 8.4.2 cannot be built with JDK 17 source compatibility.
+- JDK 21+ for Android builds. Capacitor 8 cannot be built with JDK 17 source compatibility.
 - Android SDK Platform 36, Build Tools 36.0.0, platform tools, and an API 36 emulator or Android device for App verification.
 
 ## Run locally
@@ -179,8 +219,8 @@ The Android App packages the existing `client` application with Capacitor. Andro
 ### Build the debug APK
 
 ```powershell
-$env:JAVA_HOME = 'C:\Program Files\Java\jdk-23'
-$env:ANDROID_SDK_ROOT = 'C:\Users\Raid\AppData\Local\Android\Sdk'
+$env:JAVA_HOME = '<JDK_21_OR_NEWER_HOME>'
+$env:ANDROID_SDK_ROOT = '<ANDROID_SDK_ROOT>'
 $env:ANDROID_HOME = $env:ANDROID_SDK_ROOT
 $env:Path = "$env:JAVA_HOME\bin;$env:ANDROID_SDK_ROOT\platform-tools;$env:Path"
 
@@ -212,6 +252,11 @@ WebSocket: ws://10.0.2.2:8080/ws/devices
 ```
 
 For a physical phone or PDA, replace `10.0.2.2` with the backend computer's reachable LAN address. `localhost` on Android refers to Android itself, not the development computer.
+
+For a physical-device build, copy `client/.env.example` to
+`client/.env.local` and set the computer's LAN address before running
+`npm run build`. The local file is excluded from Git so a public checkout
+never contains a personal network address.
 
 ### 互联网远程 (cloud endpoint)
 

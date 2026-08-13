@@ -8,7 +8,7 @@ export const ACCESS_ROUTES = Object.freeze({
 });
 
 const STORAGE_KEY = 'iot-manager.active-endpoint.v1';
-const LEGACY_NATIVE_DEVELOPMENT_HOSTS = new Set(['10.0.2.2', '192.168.5.38']);
+const LEGACY_NATIVE_DEVELOPMENT_HOSTS = new Set(['10.0.2.2']);
 
 function endpointId(value) {
   const id = String(value ?? '').trim();
@@ -35,10 +35,8 @@ export function normalizeEndpointProfile(input = {}) {
 }
 
 /**
- * Migrates only the two known development-only addresses that were shipped in
- * earlier builds. A real operator-selected LAN or cloud endpoint is never
- * changed. This makes an upgrade recover from the old emulator address and
- * the previously saved, unreachable LAN address without a manual reset.
+ * Migrates only the Android-emulator development address. A real
+ * operator-selected LAN or cloud endpoint is never changed.
  */
 export function repairLegacyNativeEndpoint(profile, nativeDefaults) {
   if (!profile || !nativeDefaults?.apiBaseUrl || !nativeDefaults?.wsUrl) return profile;

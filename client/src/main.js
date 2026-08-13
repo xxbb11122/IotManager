@@ -26,11 +26,13 @@ const DEMO_CONTEXT = Object.freeze({
   spacePath: '/operations/field'
 });
 
-// The real Android device is on the same Wi-Fi as the development backend.
-// 10.0.2.2 is intentionally not used because it only works inside an emulator.
+// A public checkout starts with the Android-emulator endpoint. A physical
+// Android/PDA build supplies its LAN endpoint through VITE_NATIVE_* variables
+// in client/.env.local, which is intentionally excluded from Git.
+const nativeBuildEnv = import.meta.env ?? {};
 const DEFAULT_NATIVE_ENDPOINT = Object.freeze({
-  apiBaseUrl: 'http://192.168.5.10:8080/api',
-  wsUrl: 'ws://192.168.5.10:8080/ws/devices'
+  apiBaseUrl: nativeBuildEnv.VITE_NATIVE_API_BASE_URL ?? 'http://10.0.2.2:8080/api',
+  wsUrl: nativeBuildEnv.VITE_NATIVE_WS_URL ?? 'ws://10.0.2.2:8080/ws/devices'
 });
 const WEATHER_READ_CACHE_MS = 10 * 60 * 1000;
 const WEATHER_FORECAST_CACHE_MS = 30 * 60 * 1000;
@@ -210,10 +212,10 @@ function setLoading(key, value) {
 
 function describeError(error) {
   if (nativeRuntime && endpointProfile?.apiBaseUrl?.includes('://10.0.2.2')) {
-    return '当前地址 10.0.2.2 仅适用于 Android 模拟器；真机请在连接设置填写本机局域网地址 http://192.168.5.10:8080/api。';
+    return '当前地址 10.0.2.2 仅适用于 Android 模拟器；真机请在连接设置填写电脑的局域网地址，例如 http://192.168.1.100:8080/api。';
   }
   if (error?.message === 'Failed to fetch' || /network request failed|connection refused|load failed/i.test(String(error?.message ?? ''))) {
-    return '后台不可达：请确认电脑上的后端已启动、地址为 192.168.5.10:8080，且手机和电脑连接同一 Wi‑Fi。';
+    return '后台不可达：请确认电脑上的后端已启动，手机填写的是电脑局域网地址，且两者连接同一 Wi‑Fi。';
   }
   if (error?.name === 'TypeError') return friendlyEndpointError(error);
   return error?.message || '操作未完成，请检查服务连接后重试。';

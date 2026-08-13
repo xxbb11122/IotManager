@@ -13,3 +13,5 @@ client/android/**/build/
 **/test-results/
 **/playwright-report/
 deploy/.env
+client/.env.local
+client/.env.*.local
