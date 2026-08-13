@@ -52,6 +52,23 @@
       <div class="stat-card offline"><div><div class="stat-num" id="stat-offline">0</div><div class="stat-label">离线</div></div><div class="stat-icon">🔴</div></div>
     </div>
 
+    <!-- Site weather and environment state -->
+    <section class="weather-panel" id="weather-panel" aria-live="polite">
+      <div class="weather-panel__current">
+        <div><p class="weather-kicker">演示站点 · 站点环境</p><h2 id="weather-condition">天气加载中</h2><div class="weather-temperature" id="weather-temperature">--</div><p id="weather-updated">正在读取天气数据…</p></div>
+        <div class="weather-top-metrics">
+          <div class="weather-top-metric" id="weather-humidity"><span>湿度</span><strong>--</strong></div>
+          <div class="weather-top-metric" id="weather-pressure"><span>气压</span><strong>--</strong></div>
+          <div class="weather-top-metric weather-top-metric--neutral" id="weather-elevation"><span>海拔</span><strong>--</strong></div>
+        </div>
+      </div>
+      <div class="weather-panel__indicators" id="weather-indicators"></div>
+      <div class="weather-panel__forecasts">
+        <div><h3>未来 24 小时</h3><div class="weather-hourly" id="weather-hourly"><span class="muted">等待预报数据</span></div></div>
+        <div><h3>7 天预报</h3><div class="weather-daily" id="weather-daily"><span class="muted">等待预报数据</span></div></div>
+      </div>
+    </section>
+
     <!-- Charts -->
     <div class="charts-row">
       <div class="panel">

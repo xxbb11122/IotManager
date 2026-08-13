@@ -83,3 +83,36 @@ test('default browser fetch keeps the global receiver', async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test('weather API client keeps the site scope and forecast limits explicit', async () => {
+  const requests = [];
+  const api = new ApiClient({
+    baseUrl: 'https://iot.example.test/api',
+    fetchImpl: async (url, init) => {
+      requests.push({ url, init });
+      return new Response(JSON.stringify({ status: 'FRESH' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      });
+    }
+  });
+
+  await api.getSiteWeather('demo site');
+  await api.getSiteWeatherForecast('demo site', { hours: 24, days: 7 });
+  await api.getSiteWeatherSettings('demo site');
+  await api.updateSiteWeatherLocation('demo site', {
+    latitude: 22.5431, longitude: 114.0579, accuracyM: 18, timezone: 'Asia/Shanghai', source: 'MOBILE_GPS'
+  });
+  await api.refreshSiteWeather('demo site');
+
+  assert.equal(requests[0].url, 'https://iot.example.test/api/sites/demo%20site/weather');
+  assert.equal(requests[1].url, 'https://iot.example.test/api/sites/demo%20site/weather/forecast?hours=24&days=7');
+  assert.equal(requests[2].url, 'https://iot.example.test/api/sites/demo%20site/weather-settings');
+  assert.equal(requests[3].url, 'https://iot.example.test/api/sites/demo%20site/weather/location');
+  assert.equal(requests[3].init.method, 'POST');
+  assert.deepEqual(JSON.parse(requests[3].init.body), {
+    latitude: 22.5431, longitude: 114.0579, accuracyM: 18, timezone: 'Asia/Shanghai', source: 'MOBILE_GPS'
+  });
+  assert.equal(requests[4].url, 'https://iot.example.test/api/sites/demo%20site/weather/refresh');
+  assert.equal(requests[4].init.method, 'POST');
+});

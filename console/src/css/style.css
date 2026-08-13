@@ -123,6 +123,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);line-height:
 .status-text{font-size:0.6875rem;font-weight:700;color:var(--blue)}
 .row-actions{display:flex;gap:0.375rem;flex-wrap:wrap}
 
+/* Weather configuration and environment state */
+.weather-current{display:grid;gap:1.25rem}.weather-current__hero{padding:1rem;background:var(--blue-bg);border:1px solid var(--border);border-radius:var(--radius)}.weather-current__hero span,.weather-current__hero strong,.weather-current__hero small{display:block}.weather-current__hero span{color:var(--text2);font-size:.75rem}.weather-current__hero strong{margin:.2rem 0;font-size:2rem;line-height:1.1}.weather-current__hero small{color:var(--text2);font-size:.7rem}.weather-current__metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem}.weather-current__metrics span{padding:.6rem;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text2);font-size:.7rem}.weather-current__metrics strong{display:block;margin-top:.2rem;color:var(--text);font-size:.875rem}.weather-current__indicators{display:grid;gap:0}.weather-current__indicators>div{display:grid;grid-template-columns:72px auto 1fr;align-items:center;gap:.75rem;padding:.6rem 0;border-bottom:1px solid var(--border);font-size:.75rem}.weather-current__indicators>div:last-child{border-bottom:0}.weather-current__indicators>div>span{color:var(--text2)}.weather-current__indicators small{color:var(--text2);font-size:.68rem;line-height:1.35}
+
 @media(max-width:768px){
   .main{grid-template-columns:1fr}
   .nav-panel{display:none}

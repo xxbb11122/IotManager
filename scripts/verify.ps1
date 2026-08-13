@@ -76,6 +76,7 @@ if (-not $SkipWeb) {
             Invoke-Native "$app npm ci" { npm ci }
             if ($app -eq 'client') {
                 Invoke-Native 'client npm test' { npm test }
+                Invoke-Native 'client npm run test:e2e' { npm run test:e2e }
             }
             Invoke-Native "$app npm run build" { npm run build }
         }

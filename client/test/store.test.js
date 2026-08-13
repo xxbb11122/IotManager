@@ -173,3 +173,24 @@ test('stores access route separately from device transport and stale state', () 
   assert.equal(store.getState().devices[0].connections[0].transport, 'LAN_AGENT');
   assert.equal(store.getState().runtime.stale, true);
 });
+
+test('weather realtime updates are site-scoped and retain the server-computed status level', () => {
+  const store = createClientStore();
+  store.setRuntimeContext({ siteCode: 'demo-site' });
+
+  const rejected = store.applyRealtimeEvent({
+    type: 'weather_update', version: 1, timestamp: 1,
+    payload: { siteCode: 'other-site', status: 'FRESH' }
+  });
+  const accepted = store.applyRealtimeEvent({
+    type: 'weather_update', version: 1, timestamp: 2,
+    payload: {
+      siteCode: 'demo-site', status: 'FRESH',
+      indicators: { temperature: { level: 'SUITABLE', label: '适宜' } }
+    }
+  });
+
+  assert.equal(rejected, false);
+  assert.equal(accepted, true);
+  assert.equal(store.getState().weather.indicators.temperature.level, 'SUITABLE');
+});

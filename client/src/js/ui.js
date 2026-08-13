@@ -12,8 +12,10 @@ import {
   CircleAlert,
   CircleCheck,
   CircleHelp,
+  CloudSun,
   Clock3,
   Cpu,
+  Droplets,
   Gauge,
   Info,
   Lightbulb,
@@ -31,7 +33,9 @@ import {
   SearchX,
   ShieldAlert,
   Target,
+  Thermometer,
   TriangleAlert,
+  Wind,
   Workflow,
   X
 } from 'lucide';
@@ -55,8 +59,10 @@ const icons = {
   CircleAlert,
   CircleCheck,
   CircleHelp,
+  CloudSun,
   Clock3,
   Cpu,
+  Droplets,
   Gauge,
   Info,
   Lightbulb,
@@ -74,7 +80,9 @@ const icons = {
   SearchX,
   ShieldAlert,
   Target,
+  Thermometer,
   TriangleAlert,
+  Wind,
   Workflow,
   X
 };
@@ -212,16 +220,35 @@ class ClientUi {
         apiBaseUrl: this.model.endpointProfile?.apiBaseUrl ?? '',
         wsUrl: this.model.endpointProfile?.wsUrl ?? ''
       },
+      weatherLocationDraft: {
+        latitude: '',
+        longitude: '',
+        timezone: browserTimezone()
+      },
       busyActions: new Set(),
-      transientError: null
+      transientError: null,
+      pull: {
+        pointerId: null,
+        startY: 0,
+        distance: 0,
+        armed: false,
+        refreshing: false
+      }
     };
 
     this.onClick = this.onClick.bind(this);
     this.onInput = this.onInput.bind(this);
     this.onChange = this.onChange.bind(this);
+    this.onPointerDown = this.onPointerDown.bind(this);
+    this.onPointerMove = this.onPointerMove.bind(this);
+    this.onPointerUp = this.onPointerUp.bind(this);
     this.root.addEventListener('click', this.onClick);
     this.root.addEventListener('input', this.onInput);
     this.root.addEventListener('change', this.onChange);
+    this.root.addEventListener('pointerdown', this.onPointerDown, { passive: true });
+    this.root.addEventListener('pointermove', this.onPointerMove, { passive: false });
+    this.root.addEventListener('pointerup', this.onPointerUp);
+    this.root.addEventListener('pointercancel', this.onPointerUp);
     this.render(this.model);
   }
 
@@ -232,13 +259,19 @@ class ClientUi {
   render(viewModel = {}) {
     this.model = normalizeViewModel(viewModel);
     this.reconcileLocalState();
+    const previousScroll = window.scrollY;
     this.root.replaceChildren(this.buildShell());
+    if (previousScroll > 0) window.scrollTo(0, previousScroll);
   }
 
   destroy() {
     this.root.removeEventListener('click', this.onClick);
     this.root.removeEventListener('input', this.onInput);
     this.root.removeEventListener('change', this.onChange);
+    this.root.removeEventListener('pointerdown', this.onPointerDown);
+    this.root.removeEventListener('pointermove', this.onPointerMove);
+    this.root.removeEventListener('pointerup', this.onPointerUp);
+    this.root.removeEventListener('pointercancel', this.onPointerUp);
     if (activeUi === this) activeUi = null;
   }
 
@@ -274,12 +307,26 @@ class ClientUi {
     const workspace = element('div', 'workspace');
     workspace.append(this.buildDesktopNav());
     const main = element('main', 'screen-region', { id: 'client-screen', ariaLive: 'polite' });
+    main.append(this.buildPullRefreshIndicator());
     main.append(this.buildCurrentScreen());
     workspace.append(main);
     shell.append(workspace);
     shell.append(this.buildMobileNav());
     shell.append(element('div', 'toast-region', { ariaLive: 'polite', ariaAtomic: 'true' }));
     return shell;
+  }
+
+  buildPullRefreshIndicator() {
+    const pull = this.local.pull;
+    const visible = pull.distance > 0 || pull.refreshing;
+    const label = pull.refreshing ? '正在刷新…' : pull.armed ? '松开即可刷新' : '下拉刷新';
+    const indicator = element('div', `pull-refresh${visible ? ' pull-refresh--visible' : ''}${pull.armed ? ' pull-refresh--armed' : ''}`, {
+      ariaLive: 'polite', ariaHidden: visible ? 'false' : 'true'
+    });
+    indicator.style.setProperty('--pull-distance', `${Math.min(72, pull.distance)}px`);
+    indicator.append(icon(pull.refreshing ? 'LoaderCircle' : 'RefreshCw', 18));
+    indicator.append(element('span', '', { text: label }));
+    return indicator;
   }
 
   buildHeader() {
@@ -295,6 +342,7 @@ class ClientUi {
     header.append(brand);
 
     const actions = element('div', 'header-actions');
+    actions.append(this.buildWeatherHeaderSummary());
     actions.append(actionButton('连接设置', 'open-connection-settings', {
       className: 'button button--quiet button--small',
       iconName: 'Link'
@@ -305,6 +353,30 @@ class ClientUi {
     actions.append(status);
     header.append(actions);
     return header;
+  }
+
+  buildWeatherHeaderSummary() {
+    const weather = this.model.weather;
+    const current = plainObject(weather?.current);
+    const indicators = plainObject(weather?.indicators);
+    const available = Object.keys(current).length > 0;
+    const summary = actionButton('', 'open-weather', {
+      className: 'weather-header-summary',
+      ariaLabel: available
+        ? `站点天气：温度 ${weatherValue(current.temperatureC, '°C')}，湿度 ${weatherValue(current.relativeHumidityPct, '%')}，气压 ${weatherValue(current.surfacePressureHpa, ' hPa')}`
+        : '打开站点天气'
+    });
+    if (!available) {
+      summary.append(icon('CloudSun', 17));
+      summary.append(element('span', 'weather-header-summary__empty', {
+        text: weather?.status === 'UNAVAILABLE' ? '天气未配置' : weather?.status === 'PENDING' ? '等待天气同步' : '天气加载中'
+      }));
+      return summary;
+    }
+    summary.append(weatherHeaderMetric('Thermometer', weatherValue(current.temperatureC, '°C'), indicators.temperature));
+    summary.append(weatherHeaderMetric('Droplets', weatherValue(current.relativeHumidityPct, '%'), indicators.humidity));
+    summary.append(weatherHeaderMetric('Gauge', weatherValue(current.surfacePressureHpa, ' hPa'), indicators.pressure));
+    return summary;
   }
 
   buildDesktopNav() {
@@ -357,6 +429,9 @@ class ClientUi {
         break;
       case 'connections':
         screen.append(this.buildConnectionSettingsScreen());
+        break;
+      case 'weather':
+        screen.append(this.buildWeatherScreen());
         break;
       case 'devices':
       default:
@@ -423,9 +498,188 @@ class ClientUi {
       text: `${this.model.context.organizationName} / ${this.model.context.siteName} / ${this.model.context.spaceName}`
     }));
     row.append(location);
+    const weather = this.model.weather;
+    const current = plainObject(weather?.current);
+    if (Object.keys(current).length > 0) {
+      const weatherLine = actionButton('', 'open-weather', {
+        className: 'context-row__weather',
+        ariaLabel: `查看天气详情：${current.conditionText ?? '天气'}，海拔 ${weatherValue(current.elevationM, ' m')}`
+      });
+      weatherLine.append(icon(weatherIcon(current.iconKey), 18));
+      weatherLine.append(element('span', 'context-row__weather-text', {
+        text: `${current.conditionText ?? '未知'} · 海拔 ${weatherValue(current.elevationM, ' m')}`
+      }));
+      weatherLine.append(environmentChip(indicatorLabel(weather?.indicators?.esdRisk, 'ESD'), weather?.indicators?.esdRisk));
+      weatherLine.append(environmentChip(indicatorLabel(weather?.indicators?.condensationRisk, '结露'), weather?.indicators?.condensationRisk));
+      row.append(weatherLine);
+    } else if (weather?.status === 'UNAVAILABLE' || weather?.status === 'PENDING') {
+      row.append(actionButton(weather.status === 'PENDING' ? '等待天气同步' : '天气未配置', 'open-weather', {
+        className: 'context-row__weather context-row__weather--empty', iconName: 'CloudSun'
+      }));
+    }
     const health = connectionHealth(this.model.connectionHealth);
     row.append(statusChip(health.label, health.tone));
     return row;
+  }
+
+  buildWeatherScreen() {
+    const fragment = document.createDocumentFragment();
+    const weather = this.model.weather;
+    const current = plainObject(weather?.current);
+    const forecast = plainObject(this.model.weatherForecast);
+    fragment.append(screenHeading('园区天气', weatherDescription(weather), backButton('devices')));
+    fragment.append(this.buildWeatherLocationSurface());
+
+    if (weather?.refreshError) {
+      fragment.append(this.buildNotice(weather.refreshError, 'warning', null, '天气同步状态'));
+    }
+
+    if (Object.keys(current).length === 0) {
+      fragment.append(this.buildNotice(weatherUnavailableMessage(weather), ['UNAVAILABLE', 'PENDING'].includes(weather?.status) ? 'info' : 'warning', null, '站点天气'));
+      return fragment;
+    }
+
+    const hero = element('section', 'weather-hero');
+    const heroMain = element('div', 'weather-hero__main');
+    const condition = element('div', 'weather-hero__condition');
+    condition.append(icon(weatherIcon(current.iconKey), 42));
+    const conditionCopy = element('div');
+    conditionCopy.append(element('strong', '', { text: current.conditionText ?? '未知' }));
+    conditionCopy.append(element('span', '', { text: weatherStatusLabel(weather?.status) }));
+    condition.append(conditionCopy);
+    heroMain.append(condition);
+    heroMain.append(element('div', 'weather-hero__temperature', { text: weatherValue(current.temperatureC, '°C') }));
+    heroMain.append(element('p', 'weather-hero__feels', { text: `体感 ${weatherValue(current.apparentTemperatureC, '°C')}` }));
+    hero.append(heroMain);
+    const refresh = element('p', 'weather-hero__updated', { text: weather?.fetchedAt ? `更新于 ${formatDate(weather.fetchedAt)}` : '等待天气数据' });
+    hero.append(refresh);
+    fragment.append(hero);
+
+    const metrics = element('section', 'weather-metrics', { ariaLabel: '当前天气指标' });
+    metrics.append(weatherDetailMetric('Droplets', '湿度', weatherValue(current.relativeHumidityPct, '%'), weather?.indicators?.humidity));
+    metrics.append(weatherDetailMetric('Gauge', '气压', weatherValue(current.surfacePressureHpa, ' hPa'), weather?.indicators?.pressure));
+    metrics.append(weatherDetailMetric('Wind', '风速', weatherValue(current.windSpeedKmh, ' km/h'), null));
+    metrics.append(weatherDetailMetric('MapPin', '海拔', weatherValue(current.elevationM, ' m'), null));
+    fragment.append(metrics);
+
+    const risks = element('section', 'surface surface--padded weather-risks');
+    risks.append(surfaceHeading('环境状态', '颜色反映环境风险，不影响设备连接与控制权限。'));
+    const list = element('div', 'weather-risk-list');
+    list.append(weatherRiskRow('温度', weather?.indicators?.temperature));
+    list.append(weatherRiskRow('湿度', weather?.indicators?.humidity));
+    list.append(weatherRiskRow('气压', weather?.indicators?.pressure));
+    list.append(weatherRiskRow('ESD 风险', weather?.indicators?.esdRisk));
+    list.append(weatherRiskRow('结露风险', weather?.indicators?.condensationRisk));
+    risks.append(list);
+    fragment.append(risks);
+
+    fragment.append(this.buildWeatherForecastSurface('未来 24 小时', arrayOf(forecast.hourly), false));
+    fragment.append(this.buildWeatherForecastSurface('7 天预报', arrayOf(forecast.daily), true));
+    return fragment;
+  }
+
+  buildWeatherLocationSurface() {
+    const settings = plainObject(this.model.weatherSettings);
+    const pendingLocation = plainObject(this.model.pendingWeatherLocation);
+    const hasCoordinates = validCoordinate(settings.latitude, -90, 90) && validCoordinate(settings.longitude, -180, 180);
+    const hasPendingLocation = validCoordinate(pendingLocation.latitude, -90, 90)
+      && validCoordinate(pendingLocation.longitude, -180, 180);
+    const surface = element('section', 'surface surface--padded weather-location');
+    surface.append(surfaceHeading('天气位置', '仅在点击“使用我的位置”时读取一次定位；不会后台追踪。'));
+
+    const summary = element('div', 'weather-location__summary');
+    summary.append(icon('MapPin', 19));
+    const copy = element('div');
+    if (hasCoordinates) {
+      copy.append(element('strong', '', { text: weatherLocationSourceLabel(settings.locationSource) }));
+      const accuracy = Number(settings.locationAccuracyM);
+      const accuracyText = Number.isFinite(accuracy) && accuracy >= 0 ? ` · 精度 ±${Math.round(accuracy)} m` : '';
+      copy.append(element('p', '', {
+        text: `${formatCoordinate(settings.latitude)}, ${formatCoordinate(settings.longitude)}${accuracyText}`
+      }));
+      if (settings.locationUpdatedAt) {
+        copy.append(element('small', '', { text: `位置更新于 ${formatDate(settings.locationUpdatedAt)}` }));
+      }
+    } else {
+      copy.append(element('strong', '', { text: '尚未配置天气位置' }));
+      copy.append(element('p', '', { text: '授权定位后即可获取当前位置的真实天气；也可手动填写坐标。' }));
+    }
+    summary.append(copy);
+    surface.append(summary);
+
+    const refreshError = this.model.weather?.refreshError ?? settings.lastRefreshError;
+    if (refreshError) {
+      surface.append(this.buildNotice(refreshError, 'warning', null, '已保存位置'));
+    }
+
+    if (hasPendingLocation) {
+      surface.append(this.buildNotice(
+        `已获取手机位置 ${formatCoordinate(pendingLocation.latitude)}, ${formatCoordinate(pendingLocation.longitude)}，但后台暂时不可达。恢复连接后可直接保存，无需重新定位。`,
+        'warning',
+        null,
+        '位置等待保存'
+      ));
+    }
+
+    const actions = element('div', 'weather-location__actions');
+    actions.append(actionButton(this.isBusy('weather-device-location') ? '正在定位…' : '使用我的位置', 'update-weather-location', {
+      className: 'button button--primary', iconName: 'MapPin',
+      disabled: this.isBusy('weather-device-location') || this.isBusy('weather-manual-location')
+    }));
+    actions.append(actionButton(this.isBusy('refresh-weather') ? '刷新中…' : '刷新天气', 'refresh-weather', {
+      className: 'button button--secondary', iconName: 'RefreshCw',
+      disabled: this.isBusy('refresh-weather') || this.isBusy('weather-device-location') || this.isBusy('weather-manual-location')
+    }));
+    if (hasPendingLocation) {
+      actions.append(actionButton(this.isBusy('weather-pending-location') ? '保存中…' : '保存已获取的位置', 'retry-pending-weather-location', {
+        className: 'button button--secondary', iconName: 'MapPin',
+        disabled: this.isBusy('weather-pending-location') || this.isBusy('weather-device-location') || this.isBusy('weather-manual-location')
+      }));
+    }
+    surface.append(actions);
+
+    const manual = element('div', 'weather-location__manual');
+    manual.append(element('p', 'weather-location__manual-title', { text: '无法定位？手动填写坐标' }));
+    manual.append(this.textField('纬度', 'weather-latitude', this.local.weatherLocationDraft.latitude, '范围 -90 至 90，例如 22.5431', 'weatherLatitude'));
+    manual.append(this.textField('经度', 'weather-longitude', this.local.weatherLocationDraft.longitude, '范围 -180 至 180，例如 114.0579', 'weatherLongitude'));
+    manual.append(this.textField('时区', 'weather-timezone', this.local.weatherLocationDraft.timezone, '例如 Asia/Shanghai', 'weatherTimezone'));
+    manual.append(actionButton(this.isBusy('weather-manual-location') ? '保存并刷新中…' : '保存手动位置并刷新', 'save-manual-weather-location', {
+      className: 'button button--secondary', iconName: 'MapPin',
+      disabled: this.isBusy('weather-manual-location') || this.isBusy('weather-device-location')
+    }));
+    surface.append(manual);
+    return surface;
+  }
+
+  buildWeatherForecastSurface(title, points, daily) {
+    const surface = element('section', 'surface surface--padded weather-forecast');
+    surface.append(surfaceHeading(title, daily ? '最高/最低温与降水概率。' : '温度、天气与降水概率。'));
+    if (this.model.loading.weatherForecast) {
+      surface.append(element('p', 'empty-inline', { text: '正在加载预报…' }));
+      return surface;
+    }
+    if (!points.length) {
+      surface.append(element('p', 'empty-inline', { text: '预报数据将在下一次天气刷新后可用。' }));
+      return surface;
+    }
+    const list = element('div', daily ? 'weather-daily-list' : 'weather-hourly-list');
+    points.forEach((point) => {
+      const item = element('article', daily ? 'weather-daily-item' : 'weather-hourly-item');
+      item.append(element('span', 'weather-forecast__time', { text: weatherForecastTime(point.forecastAt, daily) }));
+      item.append(icon(weatherIcon(point.iconKey), 19));
+      item.append(element('span', 'weather-forecast__condition', { text: point.conditionText ?? '未知' }));
+      item.append(element('strong', 'weather-forecast__temperature', {
+        text: daily
+          ? `${weatherValue(point.temperatureMaxC, '°')} / ${weatherValue(point.temperatureMinC, '°')}`
+          : weatherValue(point.temperatureC, '°')
+      }));
+      if (point.precipitationProbabilityPct != null) {
+        item.append(element('span', 'weather-forecast__rain', { text: `${point.precipitationProbabilityPct}%` }));
+      }
+      list.append(item);
+    });
+    surface.append(list);
+    return surface;
   }
 
   buildDeviceRow(device) {
@@ -747,8 +1001,11 @@ class ClientUi {
       }));
     }
     surface.append(modes);
-    surface.append(this.textField('API 地址', 'endpoint-api-url', this.local.endpointDraft.apiBaseUrl, '例如：http://10.0.0.8:8080/api', 'endpointApiUrl'));
-    surface.append(this.textField('WebSocket 地址', 'endpoint-ws-url', this.local.endpointDraft.wsUrl, '例如：ws://10.0.0.8:8080/ws/devices', 'endpointWsUrl'));
+    surface.append(this.textField('API 地址', 'endpoint-api-url', this.local.endpointDraft.apiBaseUrl, '真机当前应为：http://192.168.5.10:8080/api', 'endpointApiUrl'));
+    surface.append(this.textField('WebSocket 地址', 'endpoint-ws-url', this.local.endpointDraft.wsUrl, '真机当前应为：ws://192.168.5.10:8080/ws/devices', 'endpointWsUrl'));
+    if (this.local.endpointDraft.accessRoute === 'SITE_API') {
+      surface.append(this.buildNotice('请先在电脑 IDEA 中启动后端，并确保手机与电脑连接同一 Wi‑Fi；保存前必须先通过“测试连接”。', 'info', null, '真机连接要求'));
+    }
     surface.append(actionButton(this.isBusy('test-endpoint') ? '测试中…' : '测试连接', 'test-endpoint', {
       className: 'button button--secondary',
       disabled: this.isBusy('test-endpoint') || this.isBusy('switch-endpoint')
@@ -1296,6 +1553,23 @@ class ClientUi {
       case 'open-device':
         this.openDevice(target.dataset.deviceId);
         break;
+      case 'open-weather':
+        this.local.screen = 'weather';
+        this.invoke('openWeather', {}, { busy: 'open-weather' });
+        this.render(this.model);
+        break;
+      case 'update-weather-location':
+        this.invoke('updateWeatherFromDeviceLocation', {}, { busy: 'weather-device-location' });
+        break;
+      case 'retry-pending-weather-location':
+        this.invoke('retryPendingWeatherLocation', {}, { busy: 'weather-pending-location' });
+        break;
+      case 'save-manual-weather-location':
+        this.invoke('updateWeatherFromManualLocation', { ...this.local.weatherLocationDraft }, { busy: 'weather-manual-location' });
+        break;
+      case 'refresh-weather':
+        this.invoke('refreshWeather', {}, { busy: 'refresh-weather' });
+        break;
       case 'command-power':
         this.sendCommand(target.dataset.deviceId, target.dataset.commandType, { on: target.dataset.nextValue === 'true' }, 'command-power');
         break;
@@ -1391,6 +1665,9 @@ class ClientUi {
     }
     if (field === 'endpointApiUrl') this.local.endpointDraft.apiBaseUrl = target.value;
     if (field === 'endpointWsUrl') this.local.endpointDraft.wsUrl = target.value;
+    if (field === 'weatherLatitude') this.local.weatherLocationDraft.latitude = target.value;
+    if (field === 'weatherLongitude') this.local.weatherLocationDraft.longitude = target.value;
+    if (field === 'weatherTimezone') this.local.weatherLocationDraft.timezone = target.value;
     if (field === 'level') {
       const key = `level:${target.dataset.deviceId}`;
       this.local.commandValues[key] = clampNumber(target.value, 0, 100);
@@ -1419,6 +1696,93 @@ class ClientUi {
       const value = clampRangeValue(target.value, Number(target.min), Number(target.max), Number(target.step));
       this.sendCapabilityCommand(target, value, `command:${target.dataset.capabilityId}`);
     }
+  }
+
+  supportsPullRefresh() {
+    return this.local.screen === 'devices' || this.local.screen === 'weather';
+  }
+
+  onPointerDown(event) {
+    if (!this.supportsPullRefresh() || this.local.pull.refreshing || window.scrollY > 0 || event.pointerType === 'mouse') return;
+    this.local.pull = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      distance: 0,
+      armed: false,
+      refreshing: false
+    };
+  }
+
+  onPointerMove(event) {
+    const pull = this.local.pull;
+    if (pull.pointerId !== event.pointerId || pull.refreshing) return;
+    const distance = Math.max(0, event.clientY - pull.startY);
+    if (distance === 0) return;
+    if (window.scrollY > 0) {
+      this.resetPullRefresh();
+      return;
+    }
+    event.preventDefault();
+    pull.distance = Math.min(100, distance * 0.5);
+    pull.armed = pull.distance >= 72;
+    this.updatePullRefreshIndicator();
+  }
+
+  onPointerUp(event) {
+    const pull = this.local.pull;
+    if (pull.pointerId !== event.pointerId) return;
+    const shouldRefresh = pull.armed && !pull.refreshing;
+    pull.pointerId = null;
+    if (!shouldRefresh) {
+      this.resetPullRefresh();
+      return;
+    }
+    pull.refreshing = true;
+    pull.distance = 72;
+    pull.armed = false;
+    this.updatePullRefreshIndicator();
+    this.invoke('pullRefresh', { screen: this.local.screen }, {
+      busy: 'pull-refresh',
+      onResolved: () => this.notify('已刷新最新数据。', 'success'),
+      onRejected: (error) => { this.local.transientError = errorMessage(error); }
+    });
+    // invoke deliberately returns immediately for Promise handlers. Reset once
+    // the UI finishes its current async refresh state.
+    const waitForCompletion = () => {
+      const busy = this.isBusy('pull-refresh');
+      if (busy) {
+        window.setTimeout(waitForCompletion, 80);
+        return;
+      }
+      this.resetPullRefresh();
+    };
+    window.setTimeout(waitForCompletion, 80);
+  }
+
+  updatePullRefreshIndicator() {
+    const indicator = this.root.querySelector('.pull-refresh');
+    if (!indicator) {
+      this.render(this.model);
+      return;
+    }
+    const pull = this.local.pull;
+    indicator.classList.toggle('pull-refresh--visible', pull.distance > 0 || pull.refreshing);
+    indicator.classList.toggle('pull-refresh--armed', pull.armed);
+    indicator.style.setProperty('--pull-distance', `${Math.min(72, pull.distance)}px`);
+    indicator.setAttribute('aria-hidden', pull.distance > 0 || pull.refreshing ? 'false' : 'true');
+    const label = indicator.querySelector('span');
+    if (label) label.textContent = pull.refreshing ? '正在刷新…' : pull.armed ? '松开即可刷新' : '下拉刷新';
+  }
+
+  resetPullRefresh() {
+    this.local.pull = {
+      pointerId: null,
+      startY: 0,
+      distance: 0,
+      armed: false,
+      refreshing: false
+    };
+    this.updatePullRefreshIndicator();
   }
 
   choosePath(path) {
@@ -1540,6 +1904,10 @@ function normalizeViewModel(viewModel) {
     activeConnection: source.activeConnection ?? source.connection ?? null,
     connectionHealth: source.connectionHealth ?? source.realtime?.health ?? source.wsHealth ?? null,
     runtime: plainObject(source.runtime),
+    weather: plainObject(source.weather),
+    weatherForecast: plainObject(source.weatherForecast),
+    weatherSettings: plainObject(source.weatherSettings),
+    pendingWeatherLocation: plainObject(source.pendingWeatherLocation),
     endpointProfile: plainObject(source.endpointProfile),
     commands: objectValues(commandsById),
     activitiesByDeviceId: plainObject(activitiesByDeviceId),
@@ -1582,6 +1950,129 @@ function connectionHealth(value) {
     return { label: '状态可能过期', tone: 'danger', icon: 'CircleAlert', description: '实时事件连接不可用，设备状态可能已经过期。' };
   }
   return { label: '等待同步', tone: 'info', icon: 'Clock3', description: '正在等待设备连接与状态同步。' };
+}
+
+function weatherHeaderMetric(iconName, value, indicator) {
+  const metric = element('span', `weather-header-metric weather-header-metric--${environmentTone(indicator)}`, {
+    ariaLabel: `${value}，${indicator?.label ?? '状态待定'}`
+  });
+  metric.append(icon(iconName, 16));
+  metric.append(element('strong', '', { text: value }));
+  return metric;
+}
+
+function weatherDetailMetric(iconName, label, value, indicator) {
+  const metric = element('article', `weather-metric weather-metric--${environmentTone(indicator)}`);
+  metric.append(icon(iconName, 19));
+  const copy = element('div');
+  copy.append(element('span', '', { text: label }));
+  copy.append(element('strong', '', { text: value }));
+  if (indicator?.label) copy.append(element('small', '', { text: indicator.label }));
+  metric.append(copy);
+  return metric;
+}
+
+function weatherRiskRow(label, indicator) {
+  const source = plainObject(indicator);
+  const row = element('article', `weather-risk-row weather-risk-row--${environmentTone(source)}`);
+  row.append(element('strong', '', { text: label }));
+  const copy = element('div');
+  copy.append(environmentChip(source.label ?? '待评估', source));
+  if (source.reason) copy.append(element('p', '', { text: source.reason }));
+  row.append(copy);
+  return row;
+}
+
+function environmentChip(label, indicator) {
+  const tone = environmentTone(indicator);
+  const chip = element('span', `environment-chip environment-chip--${tone}`, {
+    ariaLabel: `${label}：${indicator?.reason ?? '状态待定'}`
+  });
+  chip.append(element('span', 'status-dot', { ariaHidden: 'true' }));
+  chip.append(textNode(label));
+  return chip;
+}
+
+function environmentTone(indicator) {
+  switch (String(indicator?.level ?? '').toUpperCase()) {
+    case 'SUITABLE': return 'suitable';
+    case 'OBSERVE': return 'observe';
+    case 'RISK': return 'risk';
+    default: return 'neutral';
+  }
+}
+
+function indicatorLabel(indicator, prefix) {
+  const label = indicator?.label;
+  return label ? `${prefix} ${label}` : `${prefix} 待评估`;
+}
+
+function weatherValue(value, unit) {
+  if (value === null || value === undefined || value === '') return '--';
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return '--';
+  const rounded = Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(1).replace(/\.0$/, '');
+  return `${rounded}${unit}`;
+}
+
+function weatherIcon(iconKey) {
+  return ({
+    sun: 'Circle',
+    'sun-cloud': 'CloudSun',
+    cloud: 'CloudSun',
+    fog: 'CloudSun',
+    drizzle: 'CloudSun',
+    rain: 'CloudSun',
+    snow: 'CloudSun',
+    thunderstorm: 'CloudSun'
+  })[iconKey] ?? 'CloudSun';
+}
+
+function weatherStatusLabel(status) {
+  return ({ FRESH: '天气已更新', STALE: '天气数据待更新', EXPIRED: '天气数据已过期', PENDING: '天气已配置，等待首次同步', UNAVAILABLE: '天气未配置' })[status] ?? '天气加载中';
+}
+
+function weatherDescription(weather) {
+  if (!weather?.current) return weatherUnavailableMessage(weather);
+  return `${weather.current.conditionText ?? '当前天气'} · ${weatherStatusLabel(weather.status)}`;
+}
+
+function browserTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai';
+  } catch {
+    return 'Asia/Shanghai';
+  }
+}
+
+function validCoordinate(value, minimum, maximum) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= minimum && numeric <= maximum;
+}
+
+function formatCoordinate(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric.toFixed(5) : '--';
+}
+
+function weatherLocationSourceLabel(source) {
+  return ({ MOBILE_GPS: '手机当前位置', MANUAL: '手动站点位置' })[String(source ?? '').toUpperCase()] ?? '站点天气位置';
+}
+
+function weatherUnavailableMessage(weather) {
+  if (weather?.status === 'PENDING') return '当前站点已配置天气坐标，正在等待首次成功同步。';
+  if (weather?.status === 'UNAVAILABLE') return '尚未为当前站点配置天气坐标。';
+  if (weather?.status === 'EXPIRED') return '正在显示最近成功天气，请检查网络或数据源。';
+  return '正在获取站点环境天气。';
+}
+
+function weatherForecastTime(value, daily) {
+  if (!value) return '--';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '--';
+  return daily
+    ? new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', weekday: 'short' }).format(date)
+    : new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(date);
 }
 
 function statusChip(label, tone = 'info', spinning = false) {

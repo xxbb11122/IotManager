@@ -25,6 +25,7 @@
       <button class="nav-item" data-page="batches">批量控制</button>
       <button class="nav-item" data-page="alerts">告警</button>
       <button class="nav-item" data-page="audit">命令审计</button>
+      <button class="nav-item" data-page="weather">站点天气</button>
     </nav>
 
     <main class="content">
@@ -151,6 +152,30 @@
           <div class="panel-header"><h2>命令审计</h2><div class="toolbar"><select id="audit-status"><option value="">全部状态</option><option>PENDING</option><option>SENT</option><option>ACKNOWLEDGED</option><option>FAILED</option><option>UNCONFIRMED</option><option>REJECTED</option></select><input id="audit-batch" class="search-input" placeholder="批次 ID"></div></div>
           <div class="panel-body table-wrap"><table class="tbl"><thead><tr><th>时间</th><th>设备</th><th>命令</th><th>批次</th><th>路由</th><th>状态</th><th>结果</th></tr></thead><tbody id="audit-list"></tbody></table></div>
         </section>
+      </section>
+
+      <section class="page" id="page-weather">
+        <div class="two-column">
+          <section class="panel">
+            <div class="panel-header"><h2>站点天气配置</h2><button class="btn btn-ghost btn-sm" id="refresh-weather">立即刷新</button></div>
+            <div class="panel-body padded">
+              <form id="weather-settings-form" class="stack-form">
+                <label class="form-group">天气功能<select id="weather-enabled"><option value="true">启用</option><option value="false">停用</option></select></label>
+                <label class="form-group">纬度<input id="weather-latitude" type="number" min="-90" max="90" step="0.000001" placeholder="例如 22.5431"></label>
+                <label class="form-group">经度<input id="weather-longitude" type="number" min="-180" max="180" step="0.000001" placeholder="例如 114.0579"></label>
+                <label class="form-group">时区<input id="weather-timezone" maxlength="64" placeholder="Asia/Shanghai"></label>
+                <label class="form-group">手动海拔（米，可选）<input id="weather-elevation" type="number" min="-500" max="9000" step="0.1"></label>
+                <label class="form-group">结露温度设备数据库 ID（可选）<input id="weather-condensation-device" type="number" min="1"></label>
+                <label class="form-group">结露温度字段<input id="weather-condensation-field" maxlength="128" placeholder="temperature"></label>
+                <button class="btn btn-primary" type="submit">保存天气配置</button>
+              </form>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-header"><h2>当前环境状态</h2></div>
+            <div class="panel-body padded" id="weather-current"><div class="empty">加载中</div></div>
+          </section>
+        </div>
       </section>
     </main>
   </div>

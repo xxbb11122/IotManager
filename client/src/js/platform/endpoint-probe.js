@@ -27,7 +27,9 @@ export async function probeEndpoint({
   wsUrl,
   organizationCode,
   fetchImpl,
-  timeoutMs = 8000
+  timeoutMs = 8000,
+  verifyWebSocket = false,
+  webSocketFactory = globalThis.WebSocket
 } = {}) {
   let profile;
   try {
@@ -47,11 +49,14 @@ export async function probeEndpoint({
   try {
     const api = new ApiClient({ baseUrl: profile.apiBaseUrl, fetchImpl });
     const devices = await api.listDevices({}, { signal: controller.signal });
+    if (verifyWebSocket) {
+      await probeWebSocket(profile.wsUrl, webSocketFactory, timeoutMs);
+    }
     return {
       ok: true,
       message: Array.isArray(devices) && devices.length > 0
-        ? `连接成功：已获取 ${devices.length} 台设备。`
-        : '连接成功：服务器正常，当前没有设备。'
+        ? `连接成功：API 与实时连接正常，已获取 ${devices.length} 台设备。`
+        : '连接成功：API 与实时连接正常，当前没有设备。'
     };
   } catch (error) {
     if (error?.name === 'AbortError') {
@@ -61,4 +66,32 @@ export async function probeEndpoint({
   } finally {
     clearTimeout(timer);
   }
+}
+
+function probeWebSocket(url, factory, timeoutMs) {
+  if (typeof factory !== 'function') {
+    return Promise.reject(new Error('当前环境不支持实时连接测试。'));
+  }
+  return new Promise((resolve, reject) => {
+    let socket;
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { socket?.close?.(1000, 'endpoint probe complete'); } catch { /* no-op */ }
+      callback(value);
+    };
+    const timer = setTimeout(() => finish(reject, new Error('实时连接超时，请检查 WebSocket 地址和后端状态。')), timeoutMs);
+    try {
+      socket = new factory(url);
+      socket.onopen = () => finish(resolve);
+      socket.onerror = () => finish(reject, new Error('实时连接失败，请检查 WebSocket 地址和后端状态。'));
+      socket.onclose = () => {
+        if (!settled) finish(reject, new Error('实时连接被服务器关闭，请检查 WebSocket 地址和后端状态。'));
+      };
+    } catch (error) {
+      finish(reject, error instanceof Error ? error : new Error(String(error)));
+    }
+  });
 }

@@ -5,6 +5,11 @@ function scopeKey({ endpointId, organizationCode }) {
   return `${endpointId}:${organizationCode}`;
 }
 
+function weatherScopeKey(scope) {
+  if (!scope?.siteCode) throw new TypeError('Weather cache requires site code');
+  return `${scopeKey(scope)}:${scope.siteCode}`;
+}
+
 export class CacheRepository {
   constructor({ databaseName = 'iot-manager-client-v1' } = {}) {
     this.databaseName = databaseName;
@@ -12,13 +17,18 @@ export class CacheRepository {
   }
 
   db() {
-    this.dbPromise ??= openDB(this.databaseName, 1, {
-      upgrade(db) {
-        const devices = db.createObjectStore('platformDevices', { keyPath: 'key' });
-        devices.createIndex('scopeKey', 'scopeKey');
-        db.createObjectStore('localBindings', { keyPath: 'key' });
-        const activity = db.createObjectStore('localActivity', { keyPath: 'id' });
-        activity.createIndex('bindingKey', 'bindingKey');
+    this.dbPromise ??= openDB(this.databaseName, 2, {
+      upgrade(db, oldVersion) {
+        if (oldVersion < 1) {
+          const devices = db.createObjectStore('platformDevices', { keyPath: 'key' });
+          devices.createIndex('scopeKey', 'scopeKey');
+          db.createObjectStore('localBindings', { keyPath: 'key' });
+          const activity = db.createObjectStore('localActivity', { keyPath: 'id' });
+          activity.createIndex('bindingKey', 'bindingKey');
+        }
+        if (oldVersion < 2) {
+          db.createObjectStore('platformWeather', { keyPath: 'key' });
+        }
       }
     });
     return this.dbPromise;
@@ -57,6 +67,17 @@ export class CacheRepository {
 
   async listLocalBindings() {
     return (await this.db()).getAll('localBindings');
+  }
+
+  async putPlatformWeather(scope, weather) {
+    const key = weatherScopeKey(scope);
+    const value = { key, weather, cachedAt: Date.now() };
+    await (await this.db()).put('platformWeather', value);
+    return value;
+  }
+
+  async getPlatformWeather(scope) {
+    return (await this.db()).get('platformWeather', weatherScopeKey(scope)) ?? null;
   }
 
   async removeLocalBinding(appInstallId, pluginDeviceId) {

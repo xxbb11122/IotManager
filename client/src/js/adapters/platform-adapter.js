@@ -26,6 +26,15 @@ export class PlatformAdapter {
   }
   getCommand(commandId, options = {}) { return this.api.getCommand(commandId, options); }
   listActivity(deviceId, options = {}) { return this.api.listActivity(deviceId, options); }
+  getSiteWeather(siteCode, options = {}) { return this.api.getSiteWeather(siteCode, options); }
+  getSiteWeatherForecast(siteCode, query = {}, options = {}) {
+    return this.api.getSiteWeatherForecast(siteCode, query, options);
+  }
+  getSiteWeatherSettings(siteCode, options = {}) { return this.api.getSiteWeatherSettings(siteCode, options); }
+  updateSiteWeatherLocation(siteCode, location, options = {}) {
+    return this.api.updateSiteWeatherLocation(siteCode, location, options);
+  }
+  refreshSiteWeather(siteCode, options = {}) { return this.api.refreshSiteWeather(siteCode, options); }
   subscribe(listener) { return this.realtime.subscribe(listener); }
   subscribeStatus(listener, options) { return this.realtime.subscribeStatus(listener, options); }
   connect() { return this.realtime.connect(); }

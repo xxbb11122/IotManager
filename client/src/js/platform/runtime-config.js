@@ -8,6 +8,7 @@ export const ACCESS_ROUTES = Object.freeze({
 });
 
 const STORAGE_KEY = 'iot-manager.active-endpoint.v1';
+const LEGACY_NATIVE_DEVELOPMENT_HOSTS = new Set(['10.0.2.2', '192.168.5.38']);
 
 function endpointId(value) {
   const id = String(value ?? '').trim();
@@ -31,6 +32,30 @@ export function normalizeEndpointProfile(input = {}) {
     wsUrl: ws.href.replace(/\/$/, ''),
     organizationCode: String(input.organizationCode ?? '').trim() || null
   });
+}
+
+/**
+ * Migrates only the two known development-only addresses that were shipped in
+ * earlier builds. A real operator-selected LAN or cloud endpoint is never
+ * changed. This makes an upgrade recover from the old emulator address and
+ * the previously saved, unreachable LAN address without a manual reset.
+ */
+export function repairLegacyNativeEndpoint(profile, nativeDefaults) {
+  if (!profile || !nativeDefaults?.apiBaseUrl || !nativeDefaults?.wsUrl) return profile;
+  try {
+    const apiHost = new URL(profile.apiBaseUrl).hostname;
+    const wsHost = new URL(profile.wsUrl).hostname;
+    if (!LEGACY_NATIVE_DEVELOPMENT_HOSTS.has(apiHost) && !LEGACY_NATIVE_DEVELOPMENT_HOSTS.has(wsHost)) {
+      return profile;
+    }
+    return {
+      ...profile,
+      apiBaseUrl: nativeDefaults.apiBaseUrl,
+      wsUrl: nativeDefaults.wsUrl
+    };
+  } catch {
+    return profile;
+  }
 }
 
 export class RuntimeConfigRepository {

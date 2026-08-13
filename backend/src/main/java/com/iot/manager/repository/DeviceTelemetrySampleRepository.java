@@ -14,4 +14,6 @@ public interface DeviceTelemetrySampleRepository extends JpaRepository<DeviceTel
     List<DeviceTelemetrySample> findByDeviceIdAndSampledAtBetweenOrderBySampledAtAsc(
             Long deviceId, LocalDateTime from, LocalDateTime to
     );
+
+    Optional<DeviceTelemetrySample> findTopByDeviceIdOrderBySampledAtDesc(Long deviceId);
 }

@@ -1,6 +1,5 @@
 package com.iot.manager.controller;
 
-import com.iot.manager.entity.Alert;
 import com.iot.manager.dto.AlertView;
 import com.iot.manager.dto.PageResponse;
 import com.iot.manager.service.AlertService;
@@ -21,14 +20,14 @@ public class AlertController {
 
     /** 活跃告警 */
     @GetMapping("/active")
-    public List<Alert> activeAlerts() {
-        return deviceService.getActiveAlerts();
+    public List<AlertView> activeAlerts() {
+        return alertService.active();
     }
 
     /** 最近告警 */
     @GetMapping
-    public List<Alert> recentAlerts() {
-        return deviceService.getRecentAlerts();
+    public List<AlertView> recentAlerts() {
+        return alertService.recent();
     }
 
     @GetMapping("/search")
@@ -48,9 +47,10 @@ public class AlertController {
 
     /** 解决告警 */
     @PutMapping("/{id}/resolve")
-    public ResponseEntity<Alert> resolve(@PathVariable Long id) {
+    public ResponseEntity<AlertView> resolve(@PathVariable Long id) {
         try {
-            return ResponseEntity.ok(deviceService.resolveAlert(id));
+            deviceService.resolveAlert(id);
+            return ResponseEntity.ok(alertService.getView(id));
         } catch (NoSuchElementException e) {
             return ResponseEntity.notFound().build();
         }

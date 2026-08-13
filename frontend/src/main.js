@@ -10,6 +10,10 @@ let currentFilter = 'all';
 let currentTypeFilter = null;
 let searchQuery = '';
 let alertRefreshTimer = null;
+let weather = null;
+let weatherForecast = null;
+let weatherLoadError = false;
+const SITE_CODE = 'demo-site';
 
 /* ── Clock ── */
 function updateClock() {
@@ -33,7 +37,92 @@ async function loadAll() {
     const tbody = document.getElementById('device-tbody');
     if (tbody) tbody.innerHTML = '<tr><td colspan="9"><div class="empty">加载失败 — 请确认后端已启动 (http://localhost:8080)</div></td></tr>';
   }
+  await loadWeather();
   await loadAlerts();
+}
+
+async function loadWeather() {
+  try {
+    const [weatherData, forecastData] = await Promise.all([
+      api(`/api/sites/${SITE_CODE}/weather`),
+      api(`/api/sites/${SITE_CODE}/weather/forecast?hours=24&days=7`)
+    ]);
+    weather = weatherData;
+    weatherForecast = forecastData;
+    weatherLoadError = false;
+  } catch (error) {
+    // Weather is supplementary information. A provider/API outage must never blank the device console.
+    console.warn('加载天气失败:', error);
+    weather = null;
+    weatherForecast = null;
+    weatherLoadError = true;
+  }
+  renderWeather();
+}
+
+function environmentTone(indicator) {
+  return ({ SUITABLE: 'green', OBSERVE: 'amber', RISK: 'red' })[String(indicator?.level || '').toUpperCase()] || 'neutral';
+}
+
+function weatherNumber(value, unit) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '--';
+  const numeric = Number(value);
+  return `${Number.isInteger(numeric) ? numeric : numeric.toFixed(1)}${unit}`;
+}
+
+function weatherDate(value, daily = false) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '--';
+  return daily
+    ? date.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric', weekday: 'short' })
+    : date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+function weatherStatus(status) {
+  return ({ FRESH: '天气已更新', STALE: '天气数据待更新', EXPIRED: '天气数据已过期', PENDING: '天气已配置，等待首次同步', UNAVAILABLE: '天气未配置' })[status] || '天气加载中';
+}
+
+function renderWeather() {
+  const panel = document.getElementById('weather-panel');
+  if (!panel) return;
+  const current = weather?.current;
+  if (!current) {
+    panel.className = 'weather-panel weather-panel--unavailable';
+    document.getElementById('weather-condition').textContent = weatherLoadError ? '天气服务暂不可用' : weatherStatus(weather?.status);
+    document.getElementById('weather-temperature').textContent = '--';
+    document.getElementById('weather-updated').textContent = weatherLoadError
+      ? '天气接口暂时不可用，设备状态和控制不受影响。'
+      : weather?.status === 'PENDING'
+        ? '站点已配置，等待首次成功同步天气数据。'
+        : '尚未为该站点配置天气数据，设备状态不受影响。';
+    document.getElementById('weather-indicators').innerHTML = '';
+    return;
+  }
+  panel.className = `weather-panel weather-panel--${String(weather?.status || '').toLowerCase()}`;
+  document.getElementById('weather-condition').textContent = current.conditionText || '未知天气';
+  document.getElementById('weather-temperature').textContent = weatherNumber(current.temperatureC, '°C');
+  document.getElementById('weather-updated').textContent = `${weatherStatus(weather?.status)} · ${weather?.fetchedAt ? new Date(weather.fetchedAt).toLocaleString('zh-CN', { hour12: false }) : '等待更新'}`;
+  const metric = (id, value, indicator) => {
+    const element = document.getElementById(id);
+    element.className = `weather-top-metric weather-top-metric--${environmentTone(indicator)}`;
+    element.querySelector('strong').textContent = value;
+  };
+  metric('weather-humidity', weatherNumber(current.relativeHumidityPct, '%'), weather?.indicators?.humidity);
+  metric('weather-pressure', weatherNumber(current.surfacePressureHpa, ' hPa'), weather?.indicators?.pressure);
+  document.getElementById('weather-elevation').querySelector('strong').textContent = weatherNumber(current.elevationM, ' m');
+  const indicators = [
+    ['温度', weather?.indicators?.temperature], ['湿度', weather?.indicators?.humidity],
+    ['气压', weather?.indicators?.pressure], ['ESD', weather?.indicators?.esdRisk], ['结露', weather?.indicators?.condensationRisk]
+  ];
+  document.getElementById('weather-indicators').innerHTML = indicators.map(([label, indicator]) => `
+    <div class="weather-indicator weather-indicator--${environmentTone(indicator)}"><span>${label}</span><strong>${indicator?.label || '待评估'}</strong><small>${indicator?.reason || '暂无数据'}</small></div>
+  `).join('');
+  document.getElementById('weather-hourly').innerHTML = (weatherForecast?.hourly || []).map((point) => `
+    <div class="weather-hour"><span>${weatherDate(point.forecastAt)}</span><strong>${weatherNumber(point.temperatureC, '°')}</strong><small>${point.conditionText || '未知'} · ${point.precipitationProbabilityPct ?? '--'}%</small></div>
+  `).join('') || '<span class="muted">预报数据将在下一次天气刷新后可用</span>';
+  document.getElementById('weather-daily').innerHTML = (weatherForecast?.daily || []).map((point) => `
+    <div class="weather-day"><span>${weatherDate(point.forecastAt, true)}</span><span>${point.conditionText || '未知'}</span><strong>${weatherNumber(point.temperatureMaxC, '°')} / ${weatherNumber(point.temperatureMinC, '°')}</strong></div>
+  `).join('') || '<span class="muted">预报数据将在下一次天气刷新后可用</span>';
 }
 
 async function loadAlerts() {
@@ -111,6 +200,12 @@ wsService.on('device_archived', removeRealtimeDevice);
 
 wsService.on('alert', scheduleAlertRefresh);
 wsService.on('alert_update', scheduleAlertRefresh);
+wsService.on('weather_update', (payload) => {
+  if (payload?.siteCode !== SITE_CODE) return;
+  weather = payload;
+  weatherLoadError = false;
+  renderWeather();
+});
 
 wsService.on('connected', loadAll);
 

@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DevicePlatformMigrationCompatibilityTest {
 
     @Test
-    void migratesLegacyV1DeviceAndDuplicateCommandsThroughV7AndValidatesJpaSchema() {
+    void migratesLegacyV1DeviceAndDuplicateCommandsThroughV11AndValidatesJpaSchema() {
         String url = "jdbc:h2:mem:legacy-device-" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE";
 
         Flyway.configure()
@@ -60,11 +60,11 @@ class DevicePlatformMigrationCompatibilityTest {
         Flyway latest = Flyway.configure()
                 .dataSource(url, "sa", "")
                 .locations("classpath:db/migration")
-                .target("7")
+                .target("11")
                 .load();
         latest.migrate();
 
-        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("7");
+        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("11");
         assertThat(jdbcTemplate.queryForObject("""
                 SELECT command_id
                 FROM device_commands
@@ -125,6 +125,18 @@ class DevicePlatformMigrationCompatibilityTest {
         assertThat(migrated.organizationId()).isPositive();
         assertThat(migrated.siteId()).isPositive();
         assertThat(migrated.spaceId()).isPositive();
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT location_source
+                FROM site_weather_settings
+                WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+                LIMIT 1
+                """, String.class)).isEqualTo("MANUAL");
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT weather_retry_count
+                FROM site_weather_settings
+                WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+                LIMIT 1
+                """, Integer.class)).isZero();
 
         assertHibernateValidationPasses(dataSource);
     }

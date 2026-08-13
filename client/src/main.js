@@ -10,9 +10,10 @@ import { NativeBleAdapter } from './js/adapters/native-ble-adapter.js';
 import { attachAppLifecycle } from './js/platform/app-lifecycle.js';
 import { CacheRepository } from './js/platform/cache-repository.js';
 import { createCommandDispatcher } from './js/platform/command-dispatcher.js';
+import { deviceLocationErrorMessage, getCurrentDeviceLocation } from './js/platform/device-location.js';
 import { friendlyEndpointError, probeEndpoint } from './js/platform/endpoint-probe.js';
 import { createPlatformAdapter } from './js/platform/platform-adapter-factory.js';
-import { ACCESS_ROUTES, RuntimeConfigRepository } from './js/platform/runtime-config.js';
+import { ACCESS_ROUTES, repairLegacyNativeEndpoint, RuntimeConfigRepository } from './js/platform/runtime-config.js';
 import { store } from './js/store.js';
 import { createClientUi } from './js/ui.js';
 
@@ -25,6 +26,20 @@ const DEMO_CONTEXT = Object.freeze({
   spacePath: '/operations/field'
 });
 
+// The real Android device is on the same Wi-Fi as the development backend.
+// 10.0.2.2 is intentionally not used because it only works inside an emulator.
+const DEFAULT_NATIVE_ENDPOINT = Object.freeze({
+  apiBaseUrl: 'http://192.168.5.10:8080/api',
+  wsUrl: 'ws://192.168.5.10:8080/ws/devices'
+});
+const WEATHER_READ_CACHE_MS = 10 * 60 * 1000;
+const WEATHER_FORECAST_CACHE_MS = 30 * 60 * 1000;
+const FOREGROUND_RESYNC_AFTER_MS = 5 * 60 * 1000;
+const REALTIME_RESYNC_COOLDOWN_MS = 2 * 60 * 1000;
+const PULL_REFRESH_COOLDOWN_MS = 60 * 1000;
+const LIVE_RENDER_MIN_INTERVAL_MS = 2 * 1000;
+const PENDING_WEATHER_LOCATION_KEY = 'iot-manager.pending-weather-location.v1';
+
 const nativeRuntime = Capacitor.isNativePlatform();
 const runtimeConfigRepository = new RuntimeConfigRepository();
 const cacheRepository = new CacheRepository();
@@ -35,7 +50,15 @@ let ble = nativeRuntime ? new NativeBleAdapter() : new BleAdapter();
 let platformUnsubscribers = [];
 let lifecycleHandle = null;
 let appInstallId = null;
-let resyncPromise = null;
+let deviceResyncPromise = null;
+let lastWeatherReadAt = 0;
+let lastForecastReadAt = 0;
+let lastDeviceResyncAt = 0;
+let lastPullRefreshAt = 0;
+let appBackgroundedAt = null;
+let realtimeState = 'idle';
+let liveRenderTimer = null;
+let lastLiveRenderAt = 0;
 
 let clientState = {
   context: DEMO_CONTEXT,
@@ -53,6 +76,8 @@ let clientState = {
     native: nativeRuntime
   },
   loading: {},
+  weatherSettings: null,
+  pendingWeatherLocation: null,
   error: null
 };
 
@@ -60,6 +85,12 @@ const ui = createClientUi(document.getElementById('app'), {
   setTab: () => {},
   openAddDevice: () => setClientState({ error: null }),
   chooseAddPath: () => setClientState({ error: null }),
+  openWeather,
+  refreshWeather: forceRefreshWeather,
+  pullRefresh,
+  updateWeatherFromDeviceLocation,
+  updateWeatherFromManualLocation,
+  retryPendingWeatherLocation,
   requestBle,
   stopBleScan,
   selectBleCandidate,
@@ -73,19 +104,26 @@ const ui = createClientUi(document.getElementById('app'), {
   sendCommand,
   retryCommand,
   reconnectRealtime,
-  switchEndpoint: activateEndpoint,
+  switchEndpoint,
   testEndpoint: (draft) => probeEndpoint({
     accessRoute: draft?.accessRoute,
     apiBaseUrl: draft?.apiBaseUrl,
     wsUrl: draft?.wsUrl,
-    organizationCode: clientState.context.organizationCode
+    organizationCode: clientState.context.organizationCode,
+    verifyWebSocket: true
   }),
   openBleAppSettings: () => ble.openAppSettings?.(),
   openBluetoothSettings: () => ble.openBluetoothSettings?.(),
   dismissError: () => setClientState({ error: null })
 });
 
-store.subscribe(() => render(), { emitCurrent: true });
+store.subscribe((_state, metadata) => {
+  if (metadata?.origin === 'realtime') {
+    scheduleLiveRender();
+    return;
+  }
+  render();
+}, { emitCurrent: true });
 
 const unsubscribeBle = ble.subscribe((event) => {
   if (event.type !== 'connection_update') {
@@ -137,7 +175,22 @@ function viewModel() {
 }
 
 function render() {
+  if (liveRenderTimer) {
+    clearTimeout(liveRenderTimer);
+    liveRenderTimer = null;
+  }
   ui.render(viewModel());
+  lastLiveRenderAt = Date.now();
+}
+
+function scheduleLiveRender() {
+  if (liveRenderTimer) return;
+  const delay = Math.max(0, lastLiveRenderAt + LIVE_RENDER_MIN_INTERVAL_MS - Date.now());
+  liveRenderTimer = setTimeout(() => {
+    liveRenderTimer = null;
+    ui.render(viewModel());
+    lastLiveRenderAt = Date.now();
+  }, delay);
 }
 
 function setClientState(patch = {}) {
@@ -156,7 +209,12 @@ function setLoading(key, value) {
 }
 
 function describeError(error) {
-  if (error?.message === 'Failed to fetch') return '平台连接失败，请在连接设置中检查 API 地址。';
+  if (nativeRuntime && endpointProfile?.apiBaseUrl?.includes('://10.0.2.2')) {
+    return '当前地址 10.0.2.2 仅适用于 Android 模拟器；真机请在连接设置填写本机局域网地址 http://192.168.5.10:8080/api。';
+  }
+  if (error?.message === 'Failed to fetch' || /network request failed|connection refused|load failed/i.test(String(error?.message ?? ''))) {
+    return '后台不可达：请确认电脑上的后端已启动、地址为 192.168.5.10:8080，且手机和电脑连接同一 Wi‑Fi。';
+  }
   if (error?.name === 'TypeError') return friendlyEndpointError(error);
   return error?.message || '操作未完成，请检查服务连接后重试。';
 }
@@ -168,17 +226,26 @@ function isBlePickerCancellation(error) {
 function platformCacheScope() {
   return {
     endpointId: endpointProfile?.id,
-    organizationCode: endpointProfile?.organizationCode ?? clientState.context.organizationCode
+    organizationCode: endpointProfile?.organizationCode ?? clientState.context.organizationCode,
+    siteCode: clientState.context.siteCode
   };
 }
 
 function bindPlatformEvents(adapter) {
   for (const unsubscribe of platformUnsubscribers) unsubscribe();
   platformUnsubscribers = [
-    adapter.subscribe((event) => store.applyRealtimeEvent(event)),
+    adapter.subscribe((event) => {
+      const applied = store.applyRealtimeEvent(event);
+      if (applied && event?.type === 'weather_update') {
+        void cacheRepository.putPlatformWeather(platformCacheScope(), event.payload);
+        lastWeatherReadAt = Date.now();
+      }
+    }),
     adapter.subscribeStatus((health) => {
+      const justConnected = health.state === 'connected' && realtimeState !== 'connected';
+      realtimeState = health.state;
       store.setConnectionHealth(health);
-      if (health.state === 'connected') void resyncAfterRealtimeConnect();
+      if (justConnected) void resyncAfterRealtimeConnect();
     }, { emitCurrent: true })
   ];
 }
@@ -190,18 +257,34 @@ async function activateEndpoint(profile) {
   endpointProfile = await runtimeConfigRepository.save(profile);
   platformSession = createPlatformAdapter({ endpointProfile });
   platform = platformSession.adapter;
+  realtimeState = 'idle';
   clientState = { ...clientState, endpointProfile, lanCandidates: [] };
   bindPlatformEvents(platform);
   store.setRuntimeContext({
     accessRoute: endpointProfile.accessRoute,
     endpointId: endpointProfile.id,
+    siteCode: clientState.context.siteCode,
     stale: true,
     lastSyncedAt: null
   });
+  await hydrateCachedWeather();
   await refreshDevices();
+  await refreshWeather({ includeSettings: false });
   platform.connect();
   render();
   return endpointProfile;
+}
+
+async function switchEndpoint(profile) {
+  const result = await probeEndpoint({
+    accessRoute: profile?.accessRoute,
+    apiBaseUrl: profile?.apiBaseUrl,
+    wsUrl: profile?.wsUrl,
+    organizationCode: clientState.context.organizationCode,
+    verifyWebSocket: true
+  });
+  if (!result.ok) throw new Error(result.message);
+  return activateEndpoint(profile);
 }
 
 async function refreshDevices({ refreshActiveActivity = true } = {}) {
@@ -213,6 +296,7 @@ async function refreshDevices({ refreshActiveActivity = true } = {}) {
     const merged = mergePlatformAndLocalDevices(decorated, store.getState().devices);
     store.setDevices(merged);
     await cacheRepository.replacePlatformDevices({ ...scope, devices: decorated });
+    lastDeviceResyncAt = Date.now();
     store.setRuntimeContext({ stale: false, lastSyncedAt: Date.now() });
     setClientState({ error: null });
 
@@ -236,12 +320,251 @@ async function loadActivity(device) {
   return activity;
 }
 
-async function resyncAfterRealtimeConnect() {
-  if (resyncPromise) return resyncPromise;
-  resyncPromise = refreshDevices({ refreshActiveActivity: true }).finally(() => {
-    resyncPromise = null;
+function cacheIsRecent(cachedAt, maxAgeMs) {
+  const timestamp = Number(cachedAt);
+  return Number.isFinite(timestamp) && timestamp > 0 && Date.now() - timestamp < maxAgeMs;
+}
+
+async function hydrateCachedWeather() {
+  const cached = await cacheRepository.getPlatformWeather(platformCacheScope());
+  if (!cached?.weather) return null;
+  const age = Date.now() - Number(cached.cachedAt ?? 0);
+  const weather = age > WEATHER_READ_CACHE_MS
+    ? { ...cached.weather, status: cached.weather.status === 'EXPIRED' ? 'EXPIRED' : 'STALE' }
+    : cached.weather;
+  store.setWeather(weather);
+  lastWeatherReadAt = Number(cached.cachedAt) || 0;
+  return weather;
+}
+
+async function refreshWeatherSettings() {
+  if (!platform) return null;
+  const weatherSettings = await platform.getSiteWeatherSettings(clientState.context.siteCode);
+  setClientState({ weatherSettings });
+  return weatherSettings;
+}
+
+async function refreshWeather({ forceRead = false, includeSettings = false } = {}) {
+  const scope = platformCacheScope();
+  const existingWeather = store.getState().weather;
+  if (!forceRead && cacheIsRecent(lastWeatherReadAt, WEATHER_READ_CACHE_MS)) {
+    if (includeSettings && !clientState.weatherSettings) await refreshWeatherSettings();
+    return existingWeather;
+  }
+  try {
+    if (!platform) throw new Error('Platform endpoint is unavailable');
+    const weather = await platform.getSiteWeather(clientState.context.siteCode);
+    store.setWeather(weather);
+    await cacheRepository.putPlatformWeather(scope, weather);
+    lastWeatherReadAt = Date.now();
+    if (includeSettings) await refreshWeatherSettings();
+    return weather;
+  } catch (error) {
+    const cached = await cacheRepository.getPlatformWeather(scope);
+    if (cached?.weather) {
+      const weather = { ...cached.weather, status: cached.weather.status === 'EXPIRED' ? 'EXPIRED' : 'STALE' };
+      store.setWeather(weather);
+      return weather;
+    }
+    const unavailable = { siteCode: clientState.context.siteCode, status: 'UNAVAILABLE', current: null };
+    store.setWeather(unavailable);
+    return unavailable;
+  }
+}
+
+async function openWeather() {
+  await Promise.all([
+    refreshWeather({ includeSettings: true }),
+    loadWeatherForecast()
+  ]);
+}
+
+function clientTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai';
+  } catch {
+    return 'Asia/Shanghai';
+  }
+}
+
+function validPendingWeatherLocation(value) {
+  return value
+    && Number.isFinite(Number(value.latitude))
+    && Number(value.latitude) >= -90
+    && Number(value.latitude) <= 90
+    && Number.isFinite(Number(value.longitude))
+    && Number(value.longitude) >= -180
+    && Number(value.longitude) <= 180;
+}
+
+function weatherLocationRequest(location = {}) {
+  return {
+    latitude: Number(location.latitude),
+    longitude: Number(location.longitude),
+    accuracyM: Number.isFinite(Number(location.accuracyM)) ? Number(location.accuracyM) : null,
+    timezone: String(location.timezone || clientTimezone()).trim() || clientTimezone(),
+    source: location.source === 'MANUAL' ? 'MANUAL' : 'MOBILE_GPS'
+  };
+}
+
+async function loadPendingWeatherLocation() {
+  try {
+    const { value } = await Preferences.get({ key: PENDING_WEATHER_LOCATION_KEY });
+    if (!value) return null;
+    const parsed = JSON.parse(value);
+    return validPendingWeatherLocation(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function setPendingWeatherLocation(location) {
+  const value = validPendingWeatherLocation(location) ? { ...location } : null;
+  clientState = { ...clientState, pendingWeatherLocation: value };
+  render();
+  try {
+    if (value) {
+      await Preferences.set({ key: PENDING_WEATHER_LOCATION_KEY, value: JSON.stringify(value) });
+    } else {
+      await Preferences.remove({ key: PENDING_WEATHER_LOCATION_KEY });
+    }
+  } catch {
+    // The in-memory retry remains available if local preference storage is
+    // temporarily unavailable. Do not discard a successfully acquired GPS fix.
+  }
+  return value;
+}
+
+async function applyWeatherLocation(location, { retainOnFailure = false } = {}) {
+  if (!platform) throw new Error('平台连接不可用，无法更新天气位置。');
+  const siteCode = clientState.context.siteCode;
+  let weather;
+  try {
+    weather = await platform.updateSiteWeatherLocation(siteCode, weatherLocationRequest(location));
+  } catch (error) {
+    if (retainOnFailure) await setPendingWeatherLocation(location);
+    throw new Error(`位置已获取，但无法提交到后台：${describeError(error)}`, { cause: error });
+  }
+  if (retainOnFailure) await setPendingWeatherLocation(null);
+  store.setWeather(weather);
+  await cacheRepository.putPlatformWeather(platformCacheScope(), weather);
+  lastWeatherReadAt = Date.now();
+  try {
+    const weatherSettings = await platform.getSiteWeatherSettings(siteCode);
+    setClientState({ weatherSettings, error: null });
+  } catch {
+    // The weather response already proves the location was accepted. Do not
+    // turn a supplementary settings read into a false location failure.
+    setClientState({ error: null });
+  }
+  await loadWeatherForecast({ forceRead: true });
+  return weather;
+}
+
+async function updateWeatherFromDeviceLocation() {
+  let location;
+  try {
+    location = await getCurrentDeviceLocation();
+  } catch (error) {
+    const message = deviceLocationErrorMessage(error);
+    setClientState({ error: message });
+    throw new Error(message, { cause: error });
+  }
+  return applyWeatherLocation({
+    latitude: location.latitude,
+    longitude: location.longitude,
+    accuracyM: location.accuracyM,
+    timezone: clientTimezone(),
+    source: 'MOBILE_GPS',
+    capturedAt: location.capturedAt,
+    precision: location.precision
+  }, { retainOnFailure: true });
+}
+
+async function updateWeatherFromManualLocation({ latitude, longitude, timezone } = {}) {
+  const parsedLatitude = Number(latitude);
+  const parsedLongitude = Number(longitude);
+  if (!Number.isFinite(parsedLatitude) || parsedLatitude < -90 || parsedLatitude > 90
+    || !Number.isFinite(parsedLongitude) || parsedLongitude < -180 || parsedLongitude > 180) {
+    throw new Error('请填写有效的纬度（-90 至 90）和经度（-180 至 180）。');
+  }
+  return applyWeatherLocation({
+    latitude: parsedLatitude,
+    longitude: parsedLongitude,
+    accuracyM: null,
+    timezone: String(timezone || clientTimezone()).trim() || clientTimezone(),
+    source: 'MANUAL'
   });
-  return resyncPromise;
+}
+
+async function retryPendingWeatherLocation() {
+  const pending = clientState.pendingWeatherLocation;
+  if (!validPendingWeatherLocation(pending)) {
+    throw new Error('没有可保存的位置，请重新使用“我的位置”定位。');
+  }
+  return applyWeatherLocation(pending, { retainOnFailure: true });
+}
+
+async function forceRefreshWeather() {
+  if (!platform) throw new Error('平台连接不可用，无法刷新天气。');
+  try {
+    const weather = await platform.refreshSiteWeather(clientState.context.siteCode);
+    store.setWeather(weather);
+    await cacheRepository.putPlatformWeather(platformCacheScope(), weather);
+    lastWeatherReadAt = Date.now();
+    await Promise.all([refreshWeatherSettings(), loadWeatherForecast({ forceRead: true })]);
+    return weather;
+  } catch (error) {
+    if (error?.status === 429) {
+      throw new Error(error.message || '天气刚刚已刷新，请稍后再试。', { cause: error });
+    }
+    throw new Error(`天气刷新失败：${describeError(error)}`, { cause: error });
+  }
+}
+
+async function loadWeatherForecast({ forceRead = false } = {}) {
+  if (!platform) return null;
+  if (!forceRead && cacheIsRecent(lastForecastReadAt, WEATHER_FORECAST_CACHE_MS)
+      && store.getState().weatherForecast) {
+    return store.getState().weatherForecast;
+  }
+  setLoading('weatherForecast', true);
+  try {
+    const forecast = await platform.getSiteWeatherForecast(clientState.context.siteCode, { hours: 24, days: 7 });
+    store.setWeatherForecast(forecast);
+    lastForecastReadAt = Date.now();
+    return forecast;
+  } catch {
+    // Keep the previously rendered forecast. Current weather and device
+    // controls remain usable even when this supplementary request fails.
+    return store.getState().weatherForecast;
+  } finally {
+    setLoading('weatherForecast', false);
+  }
+}
+
+async function resyncAfterRealtimeConnect() {
+  if (Date.now() - lastDeviceResyncAt < REALTIME_RESYNC_COOLDOWN_MS) return null;
+  if (deviceResyncPromise) return deviceResyncPromise;
+  deviceResyncPromise = refreshDevices({ refreshActiveActivity: true }).finally(() => {
+    deviceResyncPromise = null;
+  });
+  return deviceResyncPromise;
+}
+
+async function pullRefresh({ screen } = {}) {
+  const now = Date.now();
+  if (now - lastPullRefreshAt < PULL_REFRESH_COOLDOWN_MS) {
+    ui.notify('刚刚已刷新，已保留当前数据。', 'default');
+    return screen === 'weather' ? store.getState().weather : store.getState().devices;
+  }
+  lastPullRefreshAt = now;
+  if (screen === 'weather') return forceRefreshWeather();
+  const [devices, weather] = await Promise.all([
+    refreshDevices({ refreshActiveActivity: false }),
+    refreshWeather({ forceRead: true })
+  ]);
+  return { devices, weather };
 }
 
 async function loadAppInstallId(preferences = Preferences) {
@@ -306,10 +629,12 @@ async function persistLocalCommandActivity(bindingKey, command) {
 async function bootstrapRuntime() {
   appInstallId = await loadAppInstallId();
   await restoreLocalBindings();
-  const saved = await runtimeConfigRepository.load();
+  clientState = { ...clientState, pendingWeatherLocation: await loadPendingWeatherLocation() };
+  const savedProfile = await runtimeConfigRepository.load();
   const defaults = nativeRuntime
-    ? { apiBaseUrl: 'http://10.0.2.2:8080/api', wsUrl: 'ws://10.0.2.2:8080/ws/devices' }
+    ? DEFAULT_NATIVE_ENDPOINT
     : resolveClientConfig();
+  const saved = nativeRuntime ? repairLegacyNativeEndpoint(savedProfile, DEFAULT_NATIVE_ENDPOINT) : savedProfile;
   const profile = saved ?? {
     id: 'local-site',
     accessRoute: ACCESS_ROUTES.SITE_API,
@@ -320,6 +645,7 @@ async function bootstrapRuntime() {
   await activateEndpoint(profile);
   lifecycleHandle = await attachAppLifecycle({
     onBackground: async () => {
+      appBackgroundedAt = Date.now();
       await stopBleScan();
       platform?.disconnect();
       store.setRuntimeContext({ stale: true });
@@ -327,7 +653,19 @@ async function bootstrapRuntime() {
     onForeground: async () => {
       ble.availability();
       await ble.verifyConnection?.();
-      await refreshDevices();
+      const backgroundDuration = appBackgroundedAt == null ? 0 : Date.now() - appBackgroundedAt;
+      appBackgroundedAt = null;
+      if (backgroundDuration >= FOREGROUND_RESYNC_AFTER_MS) {
+        await Promise.all([
+          refreshDevices({ refreshActiveActivity: true }),
+          refreshWeather({ includeSettings: false })
+        ]);
+      } else {
+        // A short interruption (for example answering a call) should not make
+        // the device list jump into a blocking stale state or trigger REST
+        // traffic. The WebSocket will reconnect in the background.
+        store.setRuntimeContext({ stale: false });
+      }
       platform?.connect();
     }
   });

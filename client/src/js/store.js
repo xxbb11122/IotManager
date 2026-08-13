@@ -61,9 +61,12 @@ function normalizeState(candidate = {}) {
     commandsById: isRecord(source.commandsById) ? copyValue(source.commandsById) : {},
     activitiesByDeviceId: normalizeCollectionByDevice(source.activitiesByDeviceId),
     alertsByDeviceId: normalizeCollectionByDevice(source.alertsByDeviceId),
+    weather: isRecord(source.weather) ? copyValue(source.weather) : null,
+    weatherForecast: isRecord(source.weatherForecast) ? copyValue(source.weatherForecast) : null,
     runtime: {
       accessRoute: null,
       endpointId: null,
+      siteCode: null,
       stale: true,
       lastSyncedAt: null,
       ...(isRecord(source.runtime) ? copyValue(source.runtime) : {})
@@ -202,13 +205,25 @@ function connectionFromPayload(payload) {
 export function createClientStore(initialState = {}) {
   let currentState = freezeDeep(normalizeState(initialState));
   const listeners = new Set();
+  let publicationOrigin = 'local';
 
-  function publish(next) {
+  function publish(next, metadata = {}) {
     currentState = freezeDeep(normalizeState(next));
+    const eventMetadata = { origin: publicationOrigin, ...metadata };
     for (const listener of listeners) {
-      listener(currentState);
+      listener(currentState, eventMetadata);
     }
     return currentState;
+  }
+
+  function withPublicationOrigin(origin, operation) {
+    const previousOrigin = publicationOrigin;
+    publicationOrigin = origin;
+    try {
+      return operation();
+    } finally {
+      publicationOrigin = previousOrigin;
+    }
   }
 
   function getState() {
@@ -306,6 +321,17 @@ export function createClientStore(initialState = {}) {
     return next.runtime;
   }
 
+  function setWeather(weather) {
+    return publish({ ...currentState, weather: isRecord(weather) ? copyValue(weather) : null });
+  }
+
+  function setWeatherForecast(weatherForecast) {
+    return publish({
+      ...currentState,
+      weatherForecast: isRecord(weatherForecast) ? copyValue(weatherForecast) : null
+    });
+  }
+
   function upsertCommand(command) {
     if (!isRecord(command) || !command.commandId) {
       return null;
@@ -397,30 +423,39 @@ export function createClientStore(initialState = {}) {
       return false;
     }
 
-    const { type, payload } = event;
-    switch (type) {
-      case 'device_update':
-        upsertDevice(payload);
-        return true;
-      case 'telemetry_update':
-        return applyTelemetryUpdate(payload);
-      case 'connection_update':
-        return isRecord(payload) && applyConnectionUpdate(payload);
-      case 'command_update':
-        return Boolean(upsertCommand(payload));
-      case 'activity_update':
-        addActivity(payloadDeviceReference(payload), payload);
-        return true;
-      case 'alert':
-      case 'alert_update':
-        upsertAlert(payloadDeviceReference(payload), payload);
-        return true;
-      case 'device_updates':
-        // The legacy batch event can race the singular normalized events.
-        return true;
-      default:
-        return false;
-    }
+    return withPublicationOrigin('realtime', () => {
+      const { type, payload } = event;
+      switch (type) {
+        case 'device_update':
+          upsertDevice(payload);
+          return true;
+        case 'telemetry_update':
+          return applyTelemetryUpdate(payload);
+        case 'connection_update':
+          return isRecord(payload) && applyConnectionUpdate(payload);
+        case 'command_update':
+          return Boolean(upsertCommand(payload));
+        case 'activity_update':
+          addActivity(payloadDeviceReference(payload), payload);
+          return true;
+        case 'alert':
+        case 'alert_update':
+          upsertAlert(payloadDeviceReference(payload), payload);
+          return true;
+        case 'device_updates':
+          // The legacy batch event can race the singular normalized events.
+          return true;
+        case 'weather_update':
+          if (!isRecord(payload)) return false;
+          if (currentState.runtime.siteCode && String(payload.siteCode) !== String(currentState.runtime.siteCode)) {
+            return false;
+          }
+          setWeather(payload);
+          return true;
+        default:
+          return false;
+      }
+    });
   }
 
   return Object.freeze({
@@ -436,6 +471,8 @@ export function createClientStore(initialState = {}) {
     setActiveConnection,
     setConnectionHealth,
     setRuntimeContext,
+    setWeather,
+    setWeatherForecast,
     upsertCommand,
     addActivity,
     upsertAlert,

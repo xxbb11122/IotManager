@@ -161,6 +161,34 @@ export class ApiClient {
   listActivity(deviceId, options = {}) {
     return this.request(`/devices/${encodeURIComponent(deviceId)}/activity`, options);
   }
+
+  getSiteWeather(siteCode, options = {}) {
+    return this.request(`/sites/${encodeURIComponent(siteCode)}/weather`, options);
+  }
+
+  getSiteWeatherForecast(siteCode, { hours = 24, days = 7 } = {}, options = {}) {
+    const params = new URLSearchParams({ hours: String(hours), days: String(days) });
+    return this.request(`/sites/${encodeURIComponent(siteCode)}/weather/forecast?${params}`, options);
+  }
+
+  getSiteWeatherSettings(siteCode, options = {}) {
+    return this.request(`/sites/${encodeURIComponent(siteCode)}/weather-settings`, options);
+  }
+
+  updateSiteWeatherLocation(siteCode, location, options = {}) {
+    return this.request(`/sites/${encodeURIComponent(siteCode)}/weather/location`, {
+      ...options,
+      method: 'POST',
+      body: location
+    });
+  }
+
+  refreshSiteWeather(siteCode, options = {}) {
+    return this.request(`/sites/${encodeURIComponent(siteCode)}/weather/refresh`, {
+      ...options,
+      method: 'POST'
+    });
+  }
 }
 
 export function createIdempotencyKey(prefix = 'client') {

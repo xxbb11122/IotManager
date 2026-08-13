@@ -11,4 +11,6 @@ import java.util.Optional;
 public interface SiteRepository extends JpaRepository<Site, Long> {
 
     Optional<Site> findByOrganizationAndCode(Organization organization, String code);
+
+    Optional<Site> findFirstByCode(String code);
 }

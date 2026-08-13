@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   ACCESS_ROUTES,
+  repairLegacyNativeEndpoint,
   RuntimeConfigRepository,
   normalizeEndpointProfile
 } from '../src/js/platform/runtime-config.js';
@@ -37,4 +38,29 @@ test('persists and reloads the active endpoint profile', async () => {
     wsUrl: 'wss://iot.example.test/ws/devices'
   });
   assert.equal((await repository.load()).id, 'cloud');
+});
+
+test('repairs only legacy native development endpoints after an app upgrade', () => {
+  const repaired = repairLegacyNativeEndpoint({
+    id: 'site',
+    accessRoute: ACCESS_ROUTES.SITE_API,
+    apiBaseUrl: 'http://192.168.5.38:8080/api',
+    wsUrl: 'ws://192.168.5.38:8080/ws/devices'
+  }, {
+    apiBaseUrl: 'http://192.168.5.10:8080/api',
+    wsUrl: 'ws://192.168.5.10:8080/ws/devices'
+  });
+  assert.equal(repaired.apiBaseUrl, 'http://192.168.5.10:8080/api');
+  assert.equal(repaired.wsUrl, 'ws://192.168.5.10:8080/ws/devices');
+
+  const untouched = repairLegacyNativeEndpoint({
+    id: 'remote',
+    accessRoute: ACCESS_ROUTES.CLOUD_API,
+    apiBaseUrl: 'https://iot.example.test/api',
+    wsUrl: 'wss://iot.example.test/ws/devices'
+  }, {
+    apiBaseUrl: 'http://192.168.5.10:8080/api',
+    wsUrl: 'ws://192.168.5.10:8080/ws/devices'
+  });
+  assert.equal(untouched.apiBaseUrl, 'https://iot.example.test/api');
 });

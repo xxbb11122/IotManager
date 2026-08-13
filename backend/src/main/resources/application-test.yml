@@ -15,3 +15,6 @@ iot:
 
   simulator:
     enabled: false
+
+  weather:
+    scheduler-enabled: false

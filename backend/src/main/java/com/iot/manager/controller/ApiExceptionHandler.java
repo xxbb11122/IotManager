@@ -5,6 +5,9 @@ import com.iot.manager.service.CommandValidationException;
 import com.iot.manager.service.LanCandidateAlreadyClaimedException;
 import com.iot.manager.service.IdempotencyConflictException;
 import com.iot.manager.service.GroupVersionConflictException;
+import com.iot.manager.weather.WeatherRefreshInProgressException;
+import com.iot.manager.weather.WeatherRefreshRateLimitedException;
+import com.iot.manager.weather.WeatherProviderException;
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -84,6 +87,21 @@ public class ApiExceptionHandler {
     @ExceptionHandler(GroupVersionConflictException.class)
     public ResponseEntity<ApiProblem> handleStateConflict(GroupVersionConflictException exception) {
         return problem(HttpStatus.CONFLICT, exception.getMessage(), Map.of());
+    }
+
+    @ExceptionHandler(WeatherRefreshInProgressException.class)
+    public ResponseEntity<ApiProblem> handleWeatherRefreshConflict(WeatherRefreshInProgressException exception) {
+        return problem(HttpStatus.CONFLICT, exception.getMessage(), Map.of());
+    }
+
+    @ExceptionHandler(WeatherRefreshRateLimitedException.class)
+    public ResponseEntity<ApiProblem> handleWeatherRefreshRateLimit(WeatherRefreshRateLimitedException exception) {
+        return problem(HttpStatus.TOO_MANY_REQUESTS, exception.getMessage(), Map.of());
+    }
+
+    @ExceptionHandler(WeatherProviderException.class)
+    public ResponseEntity<ApiProblem> handleWeatherProviderFailure(WeatherProviderException exception) {
+        return problem(HttpStatus.BAD_GATEWAY, exception.getMessage(), Map.of());
     }
 
     private ResponseEntity<ApiProblem> problem(HttpStatus status, String message, Map<String, String> fieldErrors) {

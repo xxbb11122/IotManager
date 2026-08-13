@@ -21,6 +21,38 @@ test('probe reports success with a device count when the API responds', async ()
   assert.match(result.message, /已获取 2 台设备/);
 });
 
+test('probe verifies the realtime endpoint when requested', async () => {
+  const result = await probeEndpoint({
+    accessRoute: 'SITE_API',
+    apiBaseUrl: 'http://192.168.5.10:8080/api',
+    wsUrl: 'ws://192.168.5.10:8080/ws/devices',
+    fetchImpl: fakeFetch(200, []),
+    verifyWebSocket: true,
+    webSocketFactory: class {
+      constructor() { queueMicrotask(() => this.onopen?.()); }
+      close() {}
+    }
+  });
+  assert.equal(result.ok, true);
+  assert.match(result.message, /API 与实时连接正常/);
+});
+
+test('probe reports a readable realtime failure when the WebSocket cannot open', async () => {
+  const result = await probeEndpoint({
+    accessRoute: 'SITE_API',
+    apiBaseUrl: 'http://192.168.5.10:8080/api',
+    wsUrl: 'ws://192.168.5.10:8080/ws/devices',
+    fetchImpl: fakeFetch(200, []),
+    verifyWebSocket: true,
+    webSocketFactory: class {
+      constructor() { queueMicrotask(() => this.onerror?.()); }
+      close() {}
+    }
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /实时连接失败/);
+});
+
 test('probe reports success with an empty inventory message', async () => {
   const result = await probeEndpoint({
     accessRoute: 'CLOUD_API',

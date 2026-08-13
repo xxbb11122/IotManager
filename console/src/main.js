@@ -10,7 +10,9 @@ const state = {
   selectedGroup: null,
   selectedBatch: null,
   selectedBatchCommands: [],
-  chart: null
+  chart: null,
+  weather: null,
+  weatherSettings: null
 };
 
 const SITE_CODE = 'demo-site';
@@ -39,6 +41,59 @@ function badge(status) {
         ? 'badge-offline'
         : 'badge-maintenance';
   return `<span class="badge ${style}">${esc(normalized)}</span>`;
+}
+
+function environmentBadge(indicator) {
+  const level = String(indicator?.level || 'UNAVAILABLE').toUpperCase();
+  const style = level === 'SUITABLE' ? 'badge-online' : level === 'OBSERVE' ? 'badge-warning' : level === 'RISK' ? 'badge-offline' : 'badge-maintenance';
+  return `<span class="badge ${style}" title="${esc(indicator?.reason || '')}">${esc(indicator?.label || '待评估')}</span>`;
+}
+
+function weatherValue(value, unit) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '--';
+  const number = Number(value);
+  return `${Number.isInteger(number) ? number : number.toFixed(1)}${unit}`;
+}
+
+function renderWeather() {
+  const current = document.getElementById('weather-current');
+  const weather = state.weather;
+  if (!weather?.current) {
+    const message = weather?.status === 'PENDING'
+      ? '天气坐标已配置，等待首次成功同步'
+      : weather?.status === 'UNAVAILABLE'
+        ? '当前站点尚未配置天气坐标或天气已停用'
+        : '尚无天气快照';
+    current.innerHTML = `<div class="empty">${esc(message)}</div>`;
+    return;
+  }
+  const value = weather.current;
+  const indicators = weather.indicators || {};
+  current.innerHTML = `
+    <div class="weather-current"><div class="weather-current__hero"><span>${esc(value.conditionText || '未知')}</span><strong>${weatherValue(value.temperatureC, '°C')}</strong><small>体感 ${weatherValue(value.apparentTemperatureC, '°C')} · 更新于 ${esc(formatDate(weather.fetchedAt))}</small></div>
+    <div class="weather-current__metrics"><span>湿度 <strong>${weatherValue(value.relativeHumidityPct, '%')}</strong></span><span>气压 <strong>${weatherValue(value.surfacePressureHpa, ' hPa')}</strong></span><span>海拔 <strong>${weatherValue(value.elevationM, ' m')}</strong></span></div>
+    <div class="weather-current__indicators">${[['温度', indicators.temperature], ['湿度', indicators.humidity], ['气压', indicators.pressure], ['ESD', indicators.esdRisk], ['结露', indicators.condensationRisk]].map(([name, indicator]) => `<div><span>${name}</span>${environmentBadge(indicator)}<small>${esc(indicator?.reason || '')}</small></div>`).join('')}</div></div>`;
+}
+
+function populateWeatherSettings(settings) {
+  state.weatherSettings = settings;
+  document.getElementById('weather-enabled').value = String(settings?.enabled ?? true);
+  document.getElementById('weather-latitude').value = settings?.latitude ?? '';
+  document.getElementById('weather-longitude').value = settings?.longitude ?? '';
+  document.getElementById('weather-timezone').value = settings?.timezone ?? '';
+  document.getElementById('weather-elevation').value = settings?.manualElevationM ?? '';
+  document.getElementById('weather-condensation-device').value = settings?.condensationTemperatureDeviceId ?? '';
+  document.getElementById('weather-condensation-field').value = settings?.condensationTemperatureField ?? '';
+}
+
+async function loadWeather() {
+  const [weather, settings] = await Promise.all([
+    api(`/api/sites/${encodeURIComponent(SITE_CODE)}/weather`),
+    api(`/api/sites/${encodeURIComponent(SITE_CODE)}/weather-settings`)
+  ]);
+  state.weather = weather;
+  populateWeatherSettings(settings);
+  renderWeather();
 }
 
 function selectedDeviceIds() {
@@ -289,7 +344,7 @@ async function loadAudit() {
 
 async function refreshCurrentPage() {
   const active = document.querySelector('.page.active')?.id?.replace('page-', '') || 'dashboard';
-  const loaders = { dashboard: loadDashboard, devices: loadDevices, groups: loadGroups, batches: loadBatches, alerts: loadAlerts, audit: loadAudit };
+  const loaders = { dashboard: loadDashboard, devices: loadDevices, groups: loadGroups, batches: loadBatches, alerts: loadAlerts, audit: loadAudit, weather: loadWeather };
   await loaders[active]();
 }
 
@@ -317,7 +372,8 @@ const flushRealtimeRefresh = debounce(() => {
     groups: ['device_group_update'],
     batches: ['command_batch_update', 'command_update'],
     alerts: ['alert', 'alert_update'],
-    audit: ['command_update']
+    audit: ['command_update'],
+    weather: ['weather_update']
   };
   const shouldRefresh = [...pendingRealtimeTypes].some((type) => relevant[page]?.includes(type));
   pendingRealtimeTypes.clear();
@@ -459,6 +515,35 @@ document.getElementById('alerts-list').addEventListener('click', async (event) =
 });
 document.getElementById('audit-status').addEventListener('change', () => loadAudit().catch((error) => toast(error.message, true)));
 document.getElementById('audit-batch').addEventListener('input', debounce(() => loadAudit().catch(() => {})));
+document.getElementById('weather-settings-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const optionalNumber = (id) => {
+    const value = document.getElementById(id).value.trim();
+    return value === '' ? null : Number(value);
+  };
+  const body = {
+    enabled: document.getElementById('weather-enabled').value === 'true',
+    providerCode: 'OPEN_METEO',
+    latitude: optionalNumber('weather-latitude'),
+    longitude: optionalNumber('weather-longitude'),
+    timezone: document.getElementById('weather-timezone').value.trim() || null,
+    manualElevationM: optionalNumber('weather-elevation'),
+    condensationTemperatureDeviceId: optionalNumber('weather-condensation-device'),
+    condensationTemperatureField: document.getElementById('weather-condensation-field').value.trim() || null
+  };
+  try {
+    const settings = await api(`/api/sites/${encodeURIComponent(SITE_CODE)}/weather-settings`, { method: 'PUT', body: JSON.stringify(body) });
+    populateWeatherSettings(settings);
+    toast('天气配置已保存');
+  } catch (error) { toast(`天气配置保存失败：${error.message}`, true); }
+});
+document.getElementById('refresh-weather').addEventListener('click', async () => {
+  try {
+    state.weather = await api(`/api/sites/${encodeURIComponent(SITE_CODE)}/weather/refresh`, { method: 'POST' });
+    renderWeather();
+    toast('天气已刷新');
+  } catch (error) { toast(`天气刷新失败：${error.message}`, true); }
+});
 
 function updateClock() { document.getElementById('clock').textContent = new Date().toLocaleString('zh-CN', { hour12: false }); }
 updateClock();

@@ -54,6 +54,32 @@ public class AlertService {
         );
     }
 
+    /**
+     * The legacy dashboard endpoints must never expose JPA entities directly:
+     * Alert.device is lazy and Jackson would otherwise traverse Hibernate
+     * proxies once a device belongs to an organization/site hierarchy.
+     */
+    @Transactional(readOnly = true)
+    public List<AlertView> active() {
+        return alertRepository.findByResolvedFalseOrderByCreatedAtDesc().stream()
+                .map(this::toView)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<AlertView> recent() {
+        return alertRepository.findTop20ByOrderByCreatedAtDesc().stream()
+                .map(this::toView)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public AlertView getView(Long id) {
+        return alertRepository.findById(id)
+                .map(this::toView)
+                .orElseThrow(() -> new java.util.NoSuchElementException("Alert not found"));
+    }
+
     private AlertView toView(Alert alert) {
         return new AlertView(
                 alert.getId(),

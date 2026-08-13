@@ -11,6 +11,7 @@
         <relativePath/>
     </parent>
 
+
     <groupId>com.iot</groupId>
     <artifactId>iot-manager</artifactId>
     <version>1.0.0</version>
@@ -19,6 +20,11 @@
 
     <properties>
         <java.version>17</java.version>
+        <!-- Spring Boot 3.2 manages an older Lombok release that cannot run
+             inside the JDK 23/24 javac used by the local IDEA installation. -->
+        <lombok.version>1.18.44</lombok.version>
+        <!-- Used by Mockito in tests; 1.14.10 only supports class files through JDK 22. -->
+        <byte-buddy.version>1.17.7</byte-buddy.version>
     </properties>
 
     <dependencies>
@@ -50,11 +56,23 @@
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
+            <version>${lombok.version}</version>
             <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>net.bytebuddy</groupId>
+            <artifactId>byte-buddy</artifactId>
+            <version>${byte-buddy.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>net.bytebuddy</groupId>
+            <artifactId>byte-buddy-agent</artifactId>
+            <version>${byte-buddy.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -73,6 +91,21 @@
             </resource>
         </resources>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <release>${java.version}</release>
+                    <!-- Required by Lombok when javac runs on JDK 23 or newer. -->
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>

@@ -64,6 +64,10 @@ public class WebSocketService {
         broadcastEvent("telemetry_update", updates);
     }
 
+    public void sendWeatherUpdate(Object weather) {
+        broadcastEvent("weather_update", weather);
+    }
+
     public void sendAlert(Object alert) {
         Object payload = alert instanceof Alert storedAlert
                 ? alertPayload(storedAlert)
