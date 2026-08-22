@@ -1,5 +1,6 @@
 package com.iot.manager.migration;
 
+import com.iot.manager.config.PostgresRandomUuidCompatibilityCallback;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -28,6 +29,7 @@ class PostgresFlywaySmokeTest {
         Flyway flyway = Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .locations("classpath:db/migration")
+                .callbacks(new PostgresRandomUuidCompatibilityCallback())
                 .load();
 
         assertThat(flyway.migrate().migrationsExecuted).isEqualTo(18);
@@ -43,6 +45,13 @@ class PostgresFlywaySmokeTest {
                 """)) {
             assertThat(result.next()).isTrue();
             assertThat(result.getInt(1)).isEqualTo(2);
+        }
+
+        try (var connection = DriverManager.getConnection(
+                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword()
+        ); var statement = connection.createStatement(); var result = statement.executeQuery("SELECT public.random_uuid()")) {
+            assertThat(result.next()).isTrue();
+            assertThat(result.getObject(1)).isNotNull();
         }
     }
 }
