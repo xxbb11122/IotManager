@@ -1,6 +1,4 @@
 package com.iot.manager.migration;
-
-import com.iot.manager.config.PostgresRandomUuidCompatibilityCallback;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -28,12 +26,22 @@ class PostgresFlywaySmokeTest {
     void latestFlywayMigrationsApplyToPostgres16() throws Exception {
         Flyway flyway = Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
-                .locations("classpath:db/migration")
-                .callbacks(new PostgresRandomUuidCompatibilityCallback())
+                .locations("classpath:db/migration", "classpath:db/migration-postgresql")
                 .load();
 
         assertThat(flyway.migrate().migrationsExecuted).isEqualTo(18);
         assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("18");
+
+        try (var connection = DriverManager.getConnection(
+                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword()
+        ); var statement = connection.createStatement(); var result = statement.executeQuery("""
+                INSERT INTO devices (name, device_id, profile_id, profile_version)
+                VALUES ('PostgreSQL migration smoke device', 'postgres-migration-smoke', 'smoke-v1', 1)
+                RETURNING public_id
+                """)) {
+            assertThat(result.next()).isTrue();
+            assertThat(result.getString(1)).startsWith("device-");
+        }
 
         try (var connection = DriverManager.getConnection(
                 POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword()
@@ -47,11 +55,27 @@ class PostgresFlywaySmokeTest {
             assertThat(result.getInt(1)).isEqualTo(2);
         }
 
+        assertColumnUsesTextType("device_profiles", "definition_json");
+        assertColumnUsesTextType("edge_agents", "metadata_json");
+        assertColumnUsesTextType("site_weather_snapshots", "raw_payload_json");
+    }
+
+    private void assertColumnUsesTextType(String tableName, String columnName) throws Exception {
         try (var connection = DriverManager.getConnection(
                 POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword()
-        ); var statement = connection.createStatement(); var result = statement.executeQuery("SELECT public.random_uuid()")) {
-            assertThat(result.next()).isTrue();
-            assertThat(result.getObject(1)).isNotNull();
+        ); var statement = connection.prepareStatement("""
+                SELECT data_type
+                FROM information_schema.columns
+                WHERE table_schema = current_schema()
+                  AND table_name = ?
+                  AND column_name = ?
+                """)) {
+            statement.setString(1, tableName);
+            statement.setString(2, columnName);
+            try (var result = statement.executeQuery()) {
+                assertThat(result.next()).isTrue();
+                assertThat(result.getString(1)).isEqualTo("text");
+            }
         }
     }
 }

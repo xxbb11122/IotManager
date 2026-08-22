@@ -19,6 +19,11 @@ spring:
       enabled: false
   flyway:
     baseline-on-migrate: false
+    # PostgreSQL uses equivalent V2/V5/V6/V8 scripts for syntax and TEXT
+    # handling that differ from the long-lived H2 development history.
+    locations:
+      - classpath:db/migration
+      - classpath:db/migration-postgresql
   security:
     oauth2:
       resourceserver:

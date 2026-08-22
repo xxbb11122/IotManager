@@ -10,6 +10,11 @@ spring:
 
   flyway:
     enabled: true
+    # The legacy H2 scripts retain their original checksums. Production swaps
+    # only the database-specific versions in application-prod.yml.
+    locations:
+      - classpath:db/migration
+      - classpath:db/migration-h2
 
   jpa:
     hibernate:

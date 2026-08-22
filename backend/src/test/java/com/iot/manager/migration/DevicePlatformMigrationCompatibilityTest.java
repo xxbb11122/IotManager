@@ -16,13 +16,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class DevicePlatformMigrationCompatibilityTest {
 
+    private static final String[] H2_MIGRATION_LOCATIONS = {
+            "classpath:db/migration",
+            "classpath:db/migration-h2"
+    };
+
     @Test
     void migratesLegacyV1DeviceAndDuplicateCommandsThroughLatestSchemaAndValidatesJpaSchema() {
         String url = "jdbc:h2:mem:legacy-device-" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE";
 
         Flyway.configure()
                 .dataSource(url, "sa", "")
-                .locations("classpath:db/migration")
+                .locations(H2_MIGRATION_LOCATIONS)
                 .target("1")
                 .load()
                 .migrate();
@@ -43,7 +48,7 @@ class DevicePlatformMigrationCompatibilityTest {
 
         Flyway.configure()
                 .dataSource(url, "sa", "")
-                .locations("classpath:db/migration")
+                .locations(H2_MIGRATION_LOCATIONS)
                 .target("2")
                 .load()
                 .migrate();
@@ -59,7 +64,7 @@ class DevicePlatformMigrationCompatibilityTest {
 
         Flyway throughV14 = Flyway.configure()
                 .dataSource(url, "sa", "")
-                .locations("classpath:db/migration")
+                .locations(H2_MIGRATION_LOCATIONS)
                 .target("14")
                 .load();
         throughV14.migrate();
@@ -78,7 +83,7 @@ class DevicePlatformMigrationCompatibilityTest {
 
         Flyway latest = Flyway.configure()
                 .dataSource(url, "sa", "")
-                .locations("classpath:db/migration")
+                .locations(H2_MIGRATION_LOCATIONS)
                 .load();
         latest.migrate();
 
