@@ -1,0 +1,59 @@
+{
+  "realm": "iot-manager",
+  "enabled": true,
+  "displayName": "IoT Manager",
+  "registrationAllowed": false,
+  "registrationEmailAsUsername": false,
+  "rememberMe": false,
+  "verifyEmail": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "bruteForceProtected": true,
+  "failureFactor": 5,
+  "waitIncrementSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "roles": {
+    "realm": [
+      { "name": "OWNER", "description": "Platform owner" },
+      { "name": "ADMIN", "description": "Platform administrator" },
+      { "name": "OPERATOR", "description": "Device operator" },
+      { "name": "VIEWER", "description": "Read-only operator" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "iot-web",
+      "name": "IoT Manager Web",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["${IOT_WEB_REDIRECT_URI}"],
+      "webOrigins": ["${IOT_WEB_ORIGIN}"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "${IOT_WEB_REDIRECT_URI}"
+      }
+    },
+    {
+      "clientId": "iot-mobile",
+      "name": "IoT Manager Android",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["${IOT_MOBILE_REDIRECT_URI}"],
+      "webOrigins": ["capacitor://localhost", "http://localhost"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "${IOT_MOBILE_REDIRECT_URI}"
+      }
+    }
+  ]
+}

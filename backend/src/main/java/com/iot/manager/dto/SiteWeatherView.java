@@ -4,6 +4,7 @@ import java.time.Instant;
 
 public record SiteWeatherView(
         String siteCode,
+        Long siteId,
         String status,
         String source,
         Instant observedAt,

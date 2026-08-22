@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -35,7 +36,22 @@ public class CommandAuditService {
             Long deviceId, String batchId, String status, String type, String deliveryRoute,
             String requestOrigin, LocalDateTime from, LocalDateTime to, int page, int size
     ) {
+        return search(deviceId, batchId, status, type, deliveryRoute, requestOrigin, from, to, page, size, null);
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<DeviceCommandView> search(
+            Long deviceId, String batchId, String status, String type, String deliveryRoute,
+            String requestOrigin, LocalDateTime from, LocalDateTime to, int page, int size,
+            Collection<Long> allowedSiteIds
+    ) {
         Specification<DeviceCommand> specification = Specification.where(null);
+        if (allowedSiteIds != null) {
+            specification = specification.and((root, query, builder) -> {
+                if (allowedSiteIds.isEmpty()) return builder.disjunction();
+                return root.get("device").get("site").get("id").in(allowedSiteIds);
+            });
+        }
         if (deviceId != null) specification = specification.and((root, query, builder) -> builder.equal(root.get("device").get("id"), deviceId));
         if (hasText(batchId)) specification = specification.and((root, query, builder) -> builder.equal(root.get("batchId"), batchId.trim()));
         if (hasText(status)) specification = specification.and((root, query, builder) -> builder.equal(root.get("status"), status.trim().toUpperCase()));
@@ -67,7 +83,8 @@ public class CommandAuditService {
     private CommandEventView toView(CommandEvent event) {
         return new CommandEventView(
                 event.getId(), event.getFromStatus(), event.getToStatus(), event.getEventType(),
-                event.getDetail(), readJson(event.getPayloadJson()), event.getOccurredAt()
+                event.getDetail(), readJson(event.getPayloadJson()), event.getOccurredAt(),
+                event.getActorId(), event.getOrganizationId(), event.getSiteId()
         );
     }
 

@@ -20,5 +20,5 @@ test('creates one platform session bound to one immutable endpoint', async () =>
   });
   await session.adapter.listDevices();
   assert.equal(session.accessRoute, 'SITE_API');
-  assert.equal(requests[0], 'http://10.0.0.8:8080/api/devices');
+  assert.equal(requests[0], 'http://10.0.0.8:8080/api/v1/devices');
 });

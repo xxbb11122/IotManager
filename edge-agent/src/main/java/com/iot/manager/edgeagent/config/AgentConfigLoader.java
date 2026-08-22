@@ -37,7 +37,10 @@ public final class AgentConfigLoader {
                 seconds(properties, "discovery.interval.seconds", 60),
                 seconds(properties, "reconnect.delay.seconds", 5),
                 seconds(properties, "request.timeout.seconds", 5),
-                uris(properties.getProperty("shelly.endpoints", ""))
+                uris(properties.getProperty("shelly.endpoints", "")),
+                properties.getProperty("backend.websocket.access-token"),
+                properties.getProperty("backend.websocket.credential-id"),
+                properties.getProperty("backend.websocket.credential-token")
         );
     }
 

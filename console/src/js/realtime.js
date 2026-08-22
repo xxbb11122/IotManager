@@ -1,10 +1,15 @@
 const handlers = new Set();
 let socket = null;
 let reconnectTimer = null;
+let activeSiteCode = null;
+let accessTokenProvider = () => null;
+let shouldReconnect = true;
 
 function endpoint() {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${location.host}/ws/devices`;
+  const url = new URL(`${protocol}//${location.host}/ws/devices`);
+  if (activeSiteCode) url.searchParams.set('siteCode', activeSiteCode);
+  return url.toString();
 }
 
 function notify(message) {
@@ -13,7 +18,9 @@ function notify(message) {
 
 function connect() {
   if (socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) return;
-  socket = new WebSocket(endpoint());
+  shouldReconnect = true;
+  const token = String(accessTokenProvider?.() ?? '').trim();
+  socket = token ? new WebSocket(endpoint(), [`iot-bearer.${token}`]) : new WebSocket(endpoint());
   socket.onmessage = (event) => {
     try {
       const message = JSON.parse(event.data);
@@ -24,7 +31,7 @@ function connect() {
   };
   socket.onclose = () => {
     socket = null;
-    if (!reconnectTimer) reconnectTimer = window.setTimeout(() => {
+    if (shouldReconnect && !reconnectTimer) reconnectTimer = window.setTimeout(() => {
       reconnectTimer = null;
       connect();
     }, 3000);
@@ -33,10 +40,21 @@ function connect() {
 }
 
 function disconnect() {
+  shouldReconnect = false;
   if (reconnectTimer) window.clearTimeout(reconnectTimer);
   reconnectTimer = null;
   socket?.close();
   socket = null;
+}
+
+function setSiteCode(siteCode) {
+  activeSiteCode = siteCode === null || siteCode === undefined || String(siteCode).trim() === ''
+    ? null
+    : String(siteCode).trim();
+}
+
+function setAccessTokenProvider(provider) {
+  accessTokenProvider = typeof provider === 'function' ? provider : () => null;
 }
 
 function on(handler) {
@@ -44,4 +62,4 @@ function on(handler) {
   return () => handlers.delete(handler);
 }
 
-export const realtime = { connect, disconnect, on };
+export const realtime = { connect, disconnect, setSiteCode, setAccessTokenProvider, on };

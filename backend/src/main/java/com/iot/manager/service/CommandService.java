@@ -7,11 +7,8 @@ import com.iot.manager.dto.DeviceCommandRequest;
 import com.iot.manager.dto.DeviceCommandView;
 import com.iot.manager.dto.RealtimeEvent;
 import com.iot.manager.entity.ActivityEvent;
-import com.iot.manager.entity.CommandEvent;
 import com.iot.manager.entity.Device;
 import com.iot.manager.entity.DeviceCommand;
-import com.iot.manager.repository.ActivityEventRepository;
-import com.iot.manager.repository.CommandEventRepository;
 import com.iot.manager.repository.DeviceCommandRepository;
 import com.iot.manager.repository.DeviceConnectionRepository;
 import com.iot.manager.repository.DeviceRepository;
@@ -55,13 +52,14 @@ public class CommandService {
     private final DeviceRepository deviceRepository;
     private final DeviceCommandRepository commandRepository;
     private final DeviceConnectionRepository connectionRepository;
-    private final ActivityEventRepository activityEventRepository;
-    private final CommandEventRepository commandEventRepository;
+    private final AuditEventService auditEventService;
+    private final AuditContextService auditContextService;
     private final ObjectMapper objectMapper;
     private final WebSocketService webSocketService;
     private final PlatformTransactionManager transactionManager;
     private final DeviceProfileService profileService;
     private final CommandBatchSummaryService batchSummaryService;
+    private final PlatformMetricsService platformMetricsService;
 
     @Transactional
     public DeviceCommandView submit(Long deviceId, DeviceCommandRequest request) {
@@ -75,7 +73,8 @@ public class CommandService {
                 .map(existing -> toView(existing, device))
                 .orElseGet(() -> {
                     preflightAcknowledgement(device, spec);
-                    return createPending(device, request, spec, parametersJson, SubmissionMetadata.api());
+                    return createPending(device, request, spec, parametersJson,
+                            SubmissionMetadata.api(auditContextService.currentSubjectOrAnonymous()));
                 });
     }
 
@@ -97,7 +96,13 @@ public class CommandService {
         String parametersJson = writeBoundedJson(parameters, "parameters");
         preflightAcknowledgement(device, spec);
         return createPending(device, request, spec, parametersJson,
-                new SubmissionMetadata(batchId, requestFingerprint, "BATCH", "anonymous", expiresAt));
+                new SubmissionMetadata(
+                        batchId,
+                        requestFingerprint,
+                        "BATCH",
+                        auditContextService.currentSubjectOrAnonymous(),
+                        expiresAt
+                ));
     }
 
     @Transactional
@@ -127,7 +132,7 @@ public class CommandService {
                 .sequenceNo(nextSequence)
                 .requestFingerprint(requestFingerprint)
                 .requestOrigin("BATCH")
-                .requestedBy("anonymous")
+                .requestedBy(auditContextService.currentSubjectOrAnonymous())
                 .failureCode("PROFILE_UNSUPPORTED")
                 .errorMessage(boundedReason)
                 .resultJson(writeBoundedJson(Map.of("applied", false, "reason", boundedReason), "result"))
@@ -431,22 +436,15 @@ public class CommandService {
             String activityType,
             String detail
     ) {
-        commandEventRepository.save(CommandEvent.builder()
-                .command(command)
-                .fromStatus(previousStatus)
-                .toStatus(command.getStatus())
-                .eventType(activityType.toUpperCase(Locale.ROOT))
-                .detail(detail)
-                .payloadJson(compactActivityPayload(command, device))
-                .occurredAt(LocalDateTime.now())
-                .build());
-        ActivityEvent activity = activityEventRepository.save(ActivityEvent.builder()
-                .device(device)
-                .eventType(activityType)
-                .detail(detail)
-                .payloadJson(compactActivityPayload(command, device))
-                .occurredAt(LocalDateTime.now())
-                .build());
+        ActivityEvent activity = auditEventService.recordCommandTransition(
+                command,
+                device,
+                previousStatus,
+                activityType,
+                detail,
+                compactActivityPayload(command, device)
+        );
+        platformMetricsService.commandTransition(command.getStatus());
         DeviceCommandView view = toView(command, device);
         webSocketService.broadcastEvent(new RealtimeEvent("command_update", view));
         webSocketService.sendActivityUpdate(activity);
@@ -586,8 +584,8 @@ public class CommandService {
             String requestedBy,
             LocalDateTime expiresAt
     ) {
-        private static SubmissionMetadata api() {
-            return new SubmissionMetadata(null, null, "API", "anonymous", LocalDateTime.now().plusMinutes(5));
+        private static SubmissionMetadata api(String requestedBy) {
+            return new SubmissionMetadata(null, null, "API", requestedBy, LocalDateTime.now().plusMinutes(5));
         }
     }
 

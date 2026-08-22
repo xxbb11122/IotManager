@@ -1,15 +1,113 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${IOT_DB_DATABASE:?set IOT_DB_DATABASE}
+      POSTGRES_USER: ${IOT_DB_USERNAME:?set IOT_DB_USERNAME}
+      POSTGRES_PASSWORD: ${IOT_DB_PASSWORD:?set IOT_DB_PASSWORD}
+      KEYCLOAK_DB_DATABASE: ${KEYCLOAK_DB_DATABASE:?set KEYCLOAK_DB_DATABASE}
+      KEYCLOAK_DB_USERNAME: ${KEYCLOAK_DB_USERNAME:?set KEYCLOAK_DB_USERNAME}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init-keycloak.sh:/docker-entrypoint-initdb.d/10-create-keycloak.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [internal]
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.1
+    restart: unless-stopped
+    command:
+      - start
+      - --import-realm
+      - --http-enabled=true
+      - --http-relative-path=/auth
+      - --hostname=https://${DOMAIN:?set DOMAIN}/auth
+      - --hostname-strict=true
+      - --proxy-headers=xforwarded
+      - --health-enabled=true
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME:?set KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD:?set KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD}
+      KC_DB: postgres
+      KC_DB_URL_HOST: postgres
+      KC_DB_URL_DATABASE: ${KEYCLOAK_DB_DATABASE:?set KEYCLOAK_DB_DATABASE}
+      KC_DB_USERNAME: ${KEYCLOAK_DB_USERNAME:?set KEYCLOAK_DB_USERNAME}
+      # KCRAW preserves a '$' in a high-entropy password instead of letting
+      # Keycloak's expression resolver interpret it.
+      KCRAW_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD}
+      KC_METRICS_ENABLED: "true"
+      IOT_WEB_REDIRECT_URI: ${IOT_WEB_REDIRECT_URI:?set IOT_WEB_REDIRECT_URI}
+      IOT_WEB_ORIGIN: ${IOT_WEB_ORIGIN:?set IOT_WEB_ORIGIN}
+      IOT_MOBILE_REDIRECT_URI: ${IOT_MOBILE_REDIRECT_URI:?set IOT_MOBILE_REDIRECT_URI}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./keycloak/iot-manager-realm.json:/opt/keycloak/data/import/iot-manager-realm.json:ro
+    networks: [internal]
+
   backend:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
     restart: unless-stopped
     environment:
-      - DOMAIN=${DOMAIN:?set DOMAIN to your public domain, e.g. iot.example.com}
-    volumes:
-      - backend-data:/app/data
+      SPRING_PROFILES_ACTIVE: prod
+      IOT_DB_URL: ${IOT_DB_URL:?set IOT_DB_URL}
+      IOT_DB_USERNAME: ${IOT_DB_USERNAME:?set IOT_DB_USERNAME}
+      IOT_DB_PASSWORD: ${IOT_DB_PASSWORD:?set IOT_DB_PASSWORD}
+      IOT_SECURITY_ISSUER_URI: https://${DOMAIN:?set DOMAIN}/auth/realms/${KEYCLOAK_REALM:?set KEYCLOAK_REALM}
+      IOT_SECURITY_JWK_SET_URI: http://keycloak:8080/auth/realms/${KEYCLOAK_REALM:?set KEYCLOAK_REALM}/protocol/openid-connect/certs
+      IOT_WEB_ALLOWED_ORIGINS: ${IOT_WEB_ORIGIN:?set IOT_WEB_ORIGIN}
+      IOT_BOOTSTRAP_OWNER_SUBJECT: ${IOT_BOOTSTRAP_OWNER_SUBJECT:?set IOT_BOOTSTRAP_OWNER_SUBJECT}
+      IOT_BOOTSTRAP_OWNER_USERNAME: ${IOT_BOOTSTRAP_OWNER_USERNAME:?set IOT_BOOTSTRAP_OWNER_USERNAME}
+      IOT_BOOTSTRAP_OWNER_DISPLAY_NAME: ${IOT_BOOTSTRAP_OWNER_DISPLAY_NAME:-}
+      IOT_BOOTSTRAP_OWNER_EMAIL: ${IOT_BOOTSTRAP_OWNER_EMAIL:-}
+      IOT_BOOTSTRAP_ORGANIZATION_CODE: ${IOT_BOOTSTRAP_ORGANIZATION_CODE:?set IOT_BOOTSTRAP_ORGANIZATION_CODE}
+      IOT_BOOTSTRAP_ORGANIZATION_NAME: ${IOT_BOOTSTRAP_ORGANIZATION_NAME:?set IOT_BOOTSTRAP_ORGANIZATION_NAME}
+      IOT_BOOTSTRAP_SITE_CODE: ${IOT_BOOTSTRAP_SITE_CODE:?set IOT_BOOTSTRAP_SITE_CODE}
+      IOT_BOOTSTRAP_SITE_NAME: ${IOT_BOOTSTRAP_SITE_NAME:?set IOT_BOOTSTRAP_SITE_NAME}
+      IOT_BOOTSTRAP_SPACE_PATH: ${IOT_BOOTSTRAP_SPACE_PATH:-/operations}
+      IOT_BOOTSTRAP_SPACE_NAME: ${IOT_BOOTSTRAP_SPACE_NAME:-Operations}
+      IOT_RATE_LIMIT_READS_PER_MINUTE: ${IOT_RATE_LIMIT_READS_PER_MINUTE:-120}
+      IOT_RATE_LIMIT_COMMANDS_PER_MINUTE: ${IOT_RATE_LIMIT_COMMANDS_PER_MINUTE:-30}
+      IOT_WEATHER_FINGERPRINT_SECRET: ${IOT_WEATHER_FINGERPRINT_SECRET:?set IOT_WEATHER_FINGERPRINT_SECRET}
+      TZ: ${TZ:-Asia/Shanghai}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
     expose:
       - "8080"
+    networks: [internal, egress]
+
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    command: ["/bin/sh", "/scripts/backup-loop.sh"]
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: ${IOT_DB_DATABASE:?set IOT_DB_DATABASE}
+      PGUSER: ${IOT_DB_USERNAME:?set IOT_DB_USERNAME}
+      PGPASSWORD: ${IOT_DB_PASSWORD:?set IOT_DB_PASSWORD}
+      BACKUP_DIR: /backups
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - postgres-backups:/backups
+      - ./backup:/scripts:ro
+    networks: [internal]
 
   caddy:
     build:
@@ -18,16 +116,28 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
+      - keycloak
     environment:
-      - DOMAIN=${DOMAIN:?set DOMAIN to your public domain}
+      DOMAIN: ${DOMAIN:?set DOMAIN to your public domain}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - caddy-data:/data
       - caddy-config:/config
+    networks: [internal, egress]
+
+networks:
+  internal:
+    internal: true
+  # Only Caddy and the backend need outbound access (ACME and Open-Meteo).
+  # Backend still has no published port and is reverse-proxied through the
+  # private internal network only.
+  egress:
 
 volumes:
-  backend-data:
+  postgres-data:
+  postgres-backups:
   caddy-data:
   caddy-config:

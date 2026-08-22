@@ -23,6 +23,25 @@ test('local BLE bindings use install and plugin identities without becoming plat
   assert.deepEqual((await cache.listLocalActivity(binding.key)).map((event) => event.id), ['event-1']);
 });
 
+test('clearing a platform scope removes server data but preserves other scopes and local bindings', async () => {
+  const cache = new CacheRepository({ databaseName: `iot-test-${Date.now()}-signout` });
+  const orgA = { endpointId: 'site', organizationCode: 'org-a', siteCode: 'site-a' };
+  const orgB = { endpointId: 'site', organizationCode: 'org-b', siteCode: 'site-b' };
+  await cache.replacePlatformDevices({ ...orgA, devices: [{ id: 1 }] });
+  await cache.putPlatformWeather(orgA, { status: 'FRESH' });
+  await cache.replacePlatformDevices({ ...orgB, devices: [{ id: 2 }] });
+  await cache.putPlatformWeather(orgB, { status: 'FRESH' });
+  await cache.putLocalBinding({ appInstallId: 'install-1', pluginDeviceId: 'ble-1' });
+
+  await cache.clearPlatformScope(orgA);
+
+  assert.deepEqual((await cache.getPlatformSnapshot(orgA)).devices, []);
+  assert.equal(await cache.getPlatformWeather(orgA), null);
+  assert.deepEqual((await cache.getPlatformSnapshot(orgB)).devices, [{ id: 2 }]);
+  assert.deepEqual((await cache.getPlatformWeather(orgB)).weather, { status: 'FRESH' });
+  assert.equal((await cache.listLocalBindings()).length, 1);
+});
+
 test('forgetting a local BLE binding removes its local activity trail', async () => {
   const cache = new CacheRepository({ databaseName: `iot-test-${Date.now()}-forget` });
   const binding = await cache.putLocalBinding({ appInstallId: 'install-1', pluginDeviceId: 'ble-1', displayName: 'Switch' });

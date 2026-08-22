@@ -342,11 +342,24 @@ class ClientUi {
     header.append(brand);
 
     const actions = element('div', 'header-actions');
+    actions.append(actionButton(this.model.context.siteName, 'open-site-switcher', {
+      className: 'button button--quiet button--small',
+      iconName: 'MapPin',
+      ariaLabel: '切换站点'
+    }));
     actions.append(this.buildWeatherHeaderSummary());
     actions.append(actionButton('连接设置', 'open-connection-settings', {
       className: 'button button--quiet button--small',
       iconName: 'Link'
     }));
+    const auth = authenticationState(this.model.auth);
+    if (auth.configured) {
+      actions.append(actionButton(auth.authenticated ? '退出登录' : '登录', auth.authenticated ? 'sign-out' : 'sign-in', {
+        className: 'button button--quiet button--small',
+        iconName: auth.authenticated ? 'LockKeyhole' : 'ShieldAlert',
+        ariaLabel: auth.authenticated ? '退出当前账号' : '使用身份提供方登录'
+      }));
+    }
     const health = connectionHealth(this.model.connectionHealth);
     const status = statusChip(accessRouteLabel(this.model.runtime.accessRoute), health.tone, health.icon === 'RefreshCw');
     status.classList.add('header-status');
@@ -429,6 +442,9 @@ class ClientUi {
         break;
       case 'connections':
         screen.append(this.buildConnectionSettingsScreen());
+        break;
+      case 'sites':
+        screen.append(this.buildSiteSelectionScreen());
         break;
       case 'weather':
         screen.append(this.buildWeatherScreen());
@@ -520,6 +536,40 @@ class ClientUi {
     const health = connectionHealth(this.model.connectionHealth);
     row.append(statusChip(health.label, health.tone));
     return row;
+  }
+
+  buildSiteSelectionScreen() {
+    const fragment = document.createDocumentFragment();
+    fragment.append(screenHeading('选择站点', '只显示当前账号有权限访问的站点。', backButton('devices')));
+    const sites = this.model.sites;
+    const surface = element('section', 'surface surface--padded', { ariaLabel: '可访问站点' });
+    if (!sites.length) {
+      surface.append(element('div', 'loading-row', { text: '正在同步站点列表…' }));
+      fragment.append(surface);
+      return fragment;
+    }
+    const list = element('div', 'path-grid');
+    sites.forEach((site) => {
+      const selected = String(site.siteCode) === String(this.model.context.siteCode);
+      const choice = actionButton('', 'select-site', {
+        className: `path-choice${selected ? ' path-choice--selected' : ''}`,
+        data: { siteCode: site.siteCode },
+        disabled: selected || this.isBusy('switch-site'),
+        ariaLabel: `${site.organizationName ?? ''} / ${site.siteName ?? site.siteCode}`
+      });
+      const iconWrap = element('span', 'path-choice__icon path-choice__icon--lan', { ariaHidden: 'true' });
+      iconWrap.append(icon('MapPin', 21));
+      choice.append(iconWrap);
+      const copy = element('span');
+      copy.append(element('h3', '', { text: site.siteName ?? site.siteCode }));
+      copy.append(element('p', '', { text: `${site.organizationName ?? site.organizationCode ?? ''} / ${site.siteCode}` }));
+      choice.append(copy);
+      choice.append(selected ? statusChip('当前', 'success') : icon('ChevronRight', 18));
+      list.append(choice);
+    });
+    surface.append(list);
+    fragment.append(surface);
+    return fragment;
   }
 
   buildWeatherScreen() {
@@ -621,14 +671,30 @@ class ClientUi {
       ));
     }
 
+    const refreshRetryAt = Number(this.model.weatherRefreshRetryAt);
+    const refreshCooldownSeconds = Number.isFinite(refreshRetryAt) && refreshRetryAt > Date.now()
+      ? Math.max(1, Math.ceil((refreshRetryAt - Date.now()) / 1000))
+      : 0;
+    if (refreshCooldownSeconds > 0) {
+      surface.append(this.buildNotice(
+        `天气刷新冷却中，${refreshCooldownSeconds} 秒后可再次刷新。`,
+        'info',
+        null,
+        '刷新冷却'
+      ));
+    }
+
     const actions = element('div', 'weather-location__actions');
     actions.append(actionButton(this.isBusy('weather-device-location') ? '正在定位…' : '使用我的位置', 'update-weather-location', {
       className: 'button button--primary', iconName: 'MapPin',
       disabled: this.isBusy('weather-device-location') || this.isBusy('weather-manual-location')
     }));
-    actions.append(actionButton(this.isBusy('refresh-weather') ? '刷新中…' : '刷新天气', 'refresh-weather', {
+    actions.append(actionButton(
+      this.isBusy('refresh-weather') ? '刷新中…' : refreshCooldownSeconds > 0 ? `${refreshCooldownSeconds} 秒后可刷新` : '刷新天气',
+      'refresh-weather', {
       className: 'button button--secondary', iconName: 'RefreshCw',
-      disabled: this.isBusy('refresh-weather') || this.isBusy('weather-device-location') || this.isBusy('weather-manual-location')
+      disabled: refreshCooldownSeconds > 0 || this.isBusy('refresh-weather')
+        || this.isBusy('weather-device-location') || this.isBusy('weather-manual-location')
     }));
     if (hasPendingLocation) {
       actions.append(actionButton(this.isBusy('weather-pending-location') ? '保存中…' : '保存已获取的位置', 'retry-pending-weather-location', {
@@ -1001,10 +1067,15 @@ class ClientUi {
       }));
     }
     surface.append(modes);
-    surface.append(this.textField('API 地址', 'endpoint-api-url', this.local.endpointDraft.apiBaseUrl, '真机示例：http://192.168.1.100:8080/api', 'endpointApiUrl'));
+    surface.append(this.textField('API 地址', 'endpoint-api-url', this.local.endpointDraft.apiBaseUrl, '真机示例：http://192.168.1.100:8080/api/v1', 'endpointApiUrl'));
     surface.append(this.textField('WebSocket 地址', 'endpoint-ws-url', this.local.endpointDraft.wsUrl, '真机示例：ws://192.168.1.100:8080/ws/devices', 'endpointWsUrl'));
     if (this.local.endpointDraft.accessRoute === 'SITE_API') {
-      surface.append(this.buildNotice('请先在电脑 IDEA 中启动后端，并确保手机与电脑连接同一 Wi‑Fi；保存前必须先通过“测试连接”。', 'info', null, '真机连接要求'));
+      surface.append(this.buildNotice('请先在电脑 IDEA 中启动后端，并确保手机与电脑连接同一 Wi-Fi；保存前必须先通过“测试连接”。', 'info', null, '真机连接要求'));
+    } else {
+      surface.append(this.textField('OIDC Issuer URL', 'endpoint-oidc-issuer-url', this.local.endpointDraft.oidcIssuerUrl ?? '', '例如：https://iot.example.com/auth/realms/iot-manager', 'endpointOidcIssuerUrl'));
+      surface.append(this.textField('OIDC Client ID', 'endpoint-oidc-client-id', this.local.endpointDraft.oidcClientId ?? '', 'Keycloak 中创建的 public client，例如 iot-mobile。', 'endpointOidcClientId'));
+      surface.append(this.textField('OIDC 回调地址', 'endpoint-oidc-redirect-uri', this.local.endpointDraft.oidcRedirectUri ?? '', 'Android 固定为：com.iot.manager.client://oauth/callback', 'endpointOidcRedirectUri'));
+      surface.append(this.buildNotice('远程生产连接使用 Authorization Code + PKCE 登录。此处只保存公开的 Issuer、Client ID 与回调地址，不会保存 Access Token 或 Refresh Token。', 'info', null, '安全登录'));
     }
     surface.append(actionButton(this.isBusy('test-endpoint') ? '测试中…' : '测试连接', 'test-endpoint', {
       className: 'button button--secondary',
@@ -1558,6 +1629,16 @@ class ClientUi {
         this.invoke('openWeather', {}, { busy: 'open-weather' });
         this.render(this.model);
         break;
+      case 'open-site-switcher':
+        this.local.screen = 'sites';
+        this.render(this.model);
+        break;
+      case 'select-site':
+        this.invoke('switchSite', { siteCode: target.dataset.siteCode }, {
+          busy: 'switch-site',
+          onResolved: () => { this.local.screen = 'devices'; }
+        });
+        break;
       case 'update-weather-location':
         this.invoke('updateWeatherFromDeviceLocation', {}, { busy: 'weather-device-location' });
         break;
@@ -1608,7 +1689,11 @@ class ClientUi {
         this.local.endpointDraft = {
           accessRoute: this.model.runtime.accessRoute ?? 'SITE_API',
           apiBaseUrl: this.model.endpointProfile?.apiBaseUrl ?? '',
-          wsUrl: this.model.endpointProfile?.wsUrl ?? ''
+          wsUrl: this.model.endpointProfile?.wsUrl ?? '',
+          oidcIssuerUrl: this.model.endpointProfile?.oidcIssuerUrl ?? '',
+          oidcClientId: this.model.endpointProfile?.oidcClientId ?? '',
+          oidcRedirectUri: this.model.endpointProfile?.oidcRedirectUri ?? '',
+          oidcScope: this.model.endpointProfile?.oidcScope ?? ''
         };
         this.local.endpointTest = null;
         this.local.screen = 'connections';
@@ -1636,8 +1721,18 @@ class ClientUi {
           accessRoute: this.local.endpointDraft.accessRoute,
           apiBaseUrl: this.local.endpointDraft.apiBaseUrl,
           wsUrl: this.local.endpointDraft.wsUrl,
+          oidcIssuerUrl: this.local.endpointDraft.oidcIssuerUrl,
+          oidcClientId: this.local.endpointDraft.oidcClientId,
+          oidcRedirectUri: this.local.endpointDraft.oidcRedirectUri,
+          oidcScope: this.local.endpointDraft.oidcScope,
           organizationCode: this.model.context.organizationCode
         }, { busy: 'switch-endpoint' });
+        break;
+      case 'sign-in':
+        this.invoke('signIn', {}, { busy: 'sign-in' });
+        break;
+      case 'sign-out':
+        this.invoke('signOut', {}, { busy: 'sign-out' });
         break;
       case 'open-app-settings':
         this.invoke('openBleAppSettings');
@@ -1665,6 +1760,9 @@ class ClientUi {
     }
     if (field === 'endpointApiUrl') this.local.endpointDraft.apiBaseUrl = target.value;
     if (field === 'endpointWsUrl') this.local.endpointDraft.wsUrl = target.value;
+    if (field === 'endpointOidcIssuerUrl') this.local.endpointDraft.oidcIssuerUrl = target.value;
+    if (field === 'endpointOidcClientId') this.local.endpointDraft.oidcClientId = target.value;
+    if (field === 'endpointOidcRedirectUri') this.local.endpointDraft.oidcRedirectUri = target.value;
     if (field === 'weatherLatitude') this.local.weatherLocationDraft.latitude = target.value;
     if (field === 'weatherLongitude') this.local.weatherLocationDraft.longitude = target.value;
     if (field === 'weatherTimezone') this.local.weatherLocationDraft.timezone = target.value;
@@ -1899,6 +1997,7 @@ function normalizeViewModel(viewModel) {
 
   return {
     context,
+    sites: arrayOf(source.sites),
     devices: arrayOf(source.devices),
     activeDeviceId: source.activeDeviceId ?? source.currentDeviceId ?? source.currentDevice?.id ?? null,
     activeConnection: source.activeConnection ?? source.connection ?? null,
@@ -1909,6 +2008,7 @@ function normalizeViewModel(viewModel) {
     weatherSettings: plainObject(source.weatherSettings),
     pendingWeatherLocation: plainObject(source.pendingWeatherLocation),
     endpointProfile: plainObject(source.endpointProfile),
+    auth: plainObject(source.auth ?? source.authentication),
     commands: objectValues(commandsById),
     activitiesByDeviceId: plainObject(activitiesByDeviceId),
     activities: arrayOf(source.activities ?? source.activity),
@@ -1916,6 +2016,15 @@ function normalizeViewModel(viewModel) {
     ble: plainObject(source.ble ?? source.bleState ?? {}),
     loading: plainObject(source.loading ?? source.loadingState ?? {}),
     error: source.error ?? source.lastError ?? null
+  };
+}
+
+function authenticationState(value) {
+  const source = plainObject(value);
+  return {
+    configured: source.configured === true,
+    authenticated: source.authenticated === true,
+    status: String(source.status ?? 'not_configured')
   };
 }
 
@@ -2056,7 +2165,11 @@ function formatCoordinate(value) {
 }
 
 function weatherLocationSourceLabel(source) {
-  return ({ MOBILE_GPS: '手机当前位置', MANUAL: '手动站点位置' })[String(source ?? '').toUpperCase()] ?? '站点天气位置';
+  return ({
+    MOBILE_GPS: '手机当前位置',
+    MANUAL: '手动站点位置',
+    COARSENED: '站点级概略位置（隐私保护）'
+  })[String(source ?? '').toUpperCase()] ?? '站点天气位置';
 }
 
 function weatherUnavailableMessage(weather) {

@@ -84,7 +84,10 @@ public class DeviceMapper {
                 event.getEventType(),
                 event.getDetail(),
                 parseObject(event.getPayloadJson()),
-                event.getOccurredAt()
+                event.getOccurredAt(),
+                event.getActorId(),
+                event.getOrganizationId(),
+                event.getSiteId()
         );
     }
 

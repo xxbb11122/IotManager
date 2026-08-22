@@ -19,6 +19,9 @@ public interface DeviceRepository extends JpaRepository<Device, Long> {
     Optional<Device> findByDeviceId(String deviceId);
 
     @EntityGraph(attributePaths = {"organization", "site", "space"})
+    Optional<Device> findByPublicId(String publicId);
+
+    @EntityGraph(attributePaths = {"organization", "site", "space"})
     List<Device> findByStatusAndArchivedAtIsNull(String status);
 
     @EntityGraph(attributePaths = {"organization", "site", "space"})

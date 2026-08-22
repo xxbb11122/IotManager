@@ -3,7 +3,6 @@ package com.iot.manager.service;
 import com.iot.manager.entity.ActivityEvent;
 import com.iot.manager.entity.Alert;
 import com.iot.manager.entity.Device;
-import com.iot.manager.repository.ActivityEventRepository;
 import com.iot.manager.repository.AlertRepository;
 import com.iot.manager.repository.DeviceRepository;
 import lombok.RequiredArgsConstructor;
@@ -26,7 +25,7 @@ public class DeviceSimulator {
 
     private final DeviceRepository deviceRepo;
     private final AlertRepository alertRepo;
-    private final ActivityEventRepository activityEventRepo;
+    private final AuditEventService auditEventService;
     private final WebSocketService wsService;
     private final DeviceService deviceService;
 
@@ -234,13 +233,12 @@ public class DeviceSimulator {
             return null;
         }
 
-        return activityEventRepo.save(ActivityEvent.builder()
-                .device(device)
-                .eventType("DEVICE_" + status)
-                .detail("Device entered " + status + " status")
-                .payloadJson("{\"status\":\"" + status + "\"}")
-                .occurredAt(LocalDateTime.now())
-                .build());
+        return auditEventService.recordActivity(
+                device,
+                "DEVICE_" + status,
+                "Device entered " + status + " status",
+                "{\"status\":\"" + status + "\"}"
+        );
     }
 
     private Map<String, Object> toTelemetryUpdate(Device device) {

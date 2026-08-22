@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DevicePlatformMigrationCompatibilityTest {
 
     @Test
-    void migratesLegacyV1DeviceAndDuplicateCommandsThroughV11AndValidatesJpaSchema() {
+    void migratesLegacyV1DeviceAndDuplicateCommandsThroughLatestSchemaAndValidatesJpaSchema() {
         String url = "jdbc:h2:mem:legacy-device-" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE";
 
         Flyway.configure()
@@ -57,14 +57,32 @@ class DevicePlatformMigrationCompatibilityTest {
         insertCommand(jdbcTemplate, "legacy-command-null-first", legacyDeviceId, null);
         insertCommand(jdbcTemplate, "legacy-command-null-second", legacyDeviceId, null);
 
+        Flyway throughV14 = Flyway.configure()
+                .dataSource(url, "sa", "")
+                .locations("classpath:db/migration")
+                .target("14")
+                .load();
+        throughV14.migrate();
+
+        Long legacyCommandId = jdbcTemplate.queryForObject("""
+                SELECT id FROM device_commands WHERE command_id = 'legacy-command-first'
+                """, Long.class);
+        jdbcTemplate.update("""
+                INSERT INTO activity_events (device_id, event_type, detail, payload_json, occurred_at)
+                VALUES (?, 'LEGACY_ACTIVITY', 'Legacy activity', '{}', CURRENT_TIMESTAMP)
+                """, legacyDeviceId);
+        jdbcTemplate.update("""
+                INSERT INTO command_events (command_id, to_status, event_type, detail, payload_json, occurred_at)
+                VALUES (?, 'REQUESTED', 'LEGACY_COMMAND_EVENT', 'Legacy command event', '{}', CURRENT_TIMESTAMP)
+                """, legacyCommandId);
+
         Flyway latest = Flyway.configure()
                 .dataSource(url, "sa", "")
                 .locations("classpath:db/migration")
-                .target("11")
                 .load();
         latest.migrate();
 
-        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("11");
+        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("18");
         assertThat(jdbcTemplate.queryForObject("""
                 SELECT command_id
                 FROM device_commands
@@ -126,6 +144,18 @@ class DevicePlatformMigrationCompatibilityTest {
         assertThat(migrated.siteId()).isPositive();
         assertThat(migrated.spaceId()).isPositive();
         assertThat(jdbcTemplate.queryForObject("""
+                SELECT organization_id FROM activity_events WHERE event_type = 'LEGACY_ACTIVITY'
+                """, Long.class)).isEqualTo(migrated.organizationId());
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT site_id FROM activity_events WHERE event_type = 'LEGACY_ACTIVITY'
+                """, Long.class)).isEqualTo(migrated.siteId());
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT organization_id FROM command_events WHERE event_type = 'LEGACY_COMMAND_EVENT'
+                """, Long.class)).isEqualTo(migrated.organizationId());
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT site_id FROM command_events WHERE event_type = 'LEGACY_COMMAND_EVENT'
+                """, Long.class)).isEqualTo(migrated.siteId());
+        assertThat(jdbcTemplate.queryForObject("""
                 SELECT location_source
                 FROM site_weather_settings
                 WHERE latitude IS NOT NULL AND longitude IS NOT NULL
@@ -137,6 +167,14 @@ class DevicePlatformMigrationCompatibilityTest {
                 WHERE latitude IS NOT NULL AND longitude IS NOT NULL
                 LIMIT 1
                 """, Integer.class)).isZero();
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_name = 'SITE_WEATHER_SETTINGS' AND column_name = 'LAST_REFRESH_OUTCOME'
+                """, Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.tables
+                WHERE table_name = 'WEATHER_PROVIDER_ACCESS_EVENTS'
+                """, Integer.class)).isEqualTo(1);
 
         assertHibernateValidationPasses(dataSource);
     }

@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 
 public record DeviceGroupView(
         String groupId,
+        Long siteId,
         String siteCode,
         String name,
         String description,

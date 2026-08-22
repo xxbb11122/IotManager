@@ -77,7 +77,27 @@ export class CacheRepository {
   }
 
   async getPlatformWeather(scope) {
-    return (await this.db()).get('platformWeather', weatherScopeKey(scope)) ?? null;
+    return (await (await this.db()).get('platformWeather', weatherScopeKey(scope))) ?? null;
+  }
+
+  /**
+   * Removes server-backed data for one endpoint/organization when its user
+   * signs out. Local BLE bindings intentionally remain on the device because
+   * they are not platform identities and have their own explicit forget flow.
+   */
+  async clearPlatformScope(scope) {
+    const key = scopeKey(scope);
+    const db = await this.db();
+    const tx = db.transaction(['platformDevices', 'platformWeather'], 'readwrite');
+    const devices = tx.objectStore('platformDevices');
+    for (const deviceKey of await devices.index('scopeKey').getAllKeys(key)) {
+      await devices.delete(deviceKey);
+    }
+    const weather = tx.objectStore('platformWeather');
+    for (const weatherKey of await weather.getAllKeys()) {
+      if (String(weatherKey).startsWith(`${key}:`)) await weather.delete(weatherKey);
+    }
+    await tx.done;
   }
 
   async removeLocalBinding(appInstallId, pluginDeviceId) {

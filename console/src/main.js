@@ -1,7 +1,8 @@
 import './css/style.css';
 import Chart from 'chart.js/auto';
-import { api, esc } from './js/api.js';
+import { api, esc, configureApiAuthentication } from './js/api.js';
 import { realtime } from './js/realtime.js';
+import { BrowserOidcSession, resolveBrowserOidcConfig } from '../../shared/browser-oidc.js';
 
 const state = {
   devices: [],
@@ -12,10 +13,44 @@ const state = {
   selectedBatchCommands: [],
   chart: null,
   weather: null,
-  weatherSettings: null
+  weatherSettings: null,
+  sites: [],
+  siteCode: 'demo-site',
+  siteName: '演示站点'
 };
 
-const SITE_CODE = 'demo-site';
+const SITE_STORAGE_KEY = 'iot-manager.console.site.v1';
+
+const browserAuth = new BrowserOidcSession({
+  config: resolveBrowserOidcConfig(),
+  onStateChange: (authState) => {
+    updateAuthenticationUi(authState);
+    if (authState.configured && !authState.authenticated) realtime.disconnect();
+  }
+});
+
+function updateAuthenticationUi(authState = browserAuth.getState()) {
+  const button = document.getElementById('auth-action');
+  if (!button) return;
+  button.hidden = !authState.configured;
+  button.textContent = authState.authenticated ? '退出登录' : '登录';
+  button.disabled = false;
+}
+
+async function initializeAuthentication() {
+  if (!browserAuth.isConfigured()) {
+    updateAuthenticationUi(browserAuth.getState());
+    return true;
+  }
+  configureApiAuthentication({
+    tokenProvider: () => browserAuth.getAccessToken(),
+    onUnauthorized: () => browserAuth.tryRefresh()
+  });
+  realtime.setAccessTokenProvider(() => browserAuth.getAccessToken());
+  const authState = await browserAuth.initialize();
+  updateAuthenticationUi(authState);
+  return authState.authenticated;
+}
 
 function toast(message, isError = false) {
   const element = document.getElementById('toast');
@@ -88,8 +123,8 @@ function populateWeatherSettings(settings) {
 
 async function loadWeather() {
   const [weather, settings] = await Promise.all([
-    api(`/api/sites/${encodeURIComponent(SITE_CODE)}/weather`),
-    api(`/api/sites/${encodeURIComponent(SITE_CODE)}/weather-settings`)
+    api(`/api/sites/${encodeURIComponent(state.siteCode)}/weather`),
+    api(`/api/sites/${encodeURIComponent(state.siteCode)}/weather-settings`)
   ]);
   state.weather = weather;
   populateWeatherSettings(settings);
@@ -100,10 +135,70 @@ function selectedDeviceIds() {
   return [...document.querySelectorAll('.device-select:checked')].map((element) => Number(element.value));
 }
 
+function updateSiteUi() {
+  const selector = document.getElementById('site-selector');
+  if (selector) selector.value = state.siteCode;
+  const label = document.getElementById('site-label');
+  if (label) label.textContent = state.siteName || state.siteCode;
+}
+
+async function selectSite(site, { reload = true } = {}) {
+  if (!site?.siteCode) return;
+  state.siteCode = String(site.siteCode);
+  state.siteName = String(site.siteName || site.siteCode);
+  state.selectedGroup = null;
+  state.selectedBatch = null;
+  state.selectedBatchCommands = [];
+  state.weather = null;
+  state.weatherSettings = null;
+  realtime.setSiteCode(state.siteCode);
+  try { localStorage.setItem(SITE_STORAGE_KEY, state.siteCode); } catch { /* browser persistence is optional */ }
+  updateSiteUi();
+  if (!reload) return;
+
+  realtime.disconnect();
+  try {
+    await Promise.all([loadDashboard(), loadGroups()]);
+    const page = activePage();
+    if (!['dashboard', 'groups'].includes(page)) await refreshCurrentPage();
+  } finally {
+    realtime.connect();
+  }
+}
+
+async function loadSites() {
+  const selector = document.getElementById('site-selector');
+  try {
+    const sites = await api('/api/v1/sites');
+    if (!Array.isArray(sites) || sites.length === 0) throw new Error('No accessible sites');
+    state.sites = sites;
+    let savedCode = null;
+    try { savedCode = localStorage.getItem(SITE_STORAGE_KEY); } catch { /* browser persistence is optional */ }
+    const selected = sites.find((site) => String(site.siteCode) === String(savedCode))
+      || sites.find((site) => String(site.siteCode) === state.siteCode)
+      || sites[0];
+    if (selector) {
+      selector.replaceChildren(...sites.map((site) => {
+        const option = document.createElement('option');
+        option.value = site.siteCode;
+        option.textContent = `${site.organizationName || site.organizationCode || ''} / ${site.siteName || site.siteCode}`;
+        return option;
+      }));
+      selector.disabled = false;
+    }
+    await selectSite(selected, { reload: false });
+  } catch (error) {
+    realtime.setSiteCode(state.siteCode);
+    updateSiteUi();
+    if (selector) selector.disabled = true;
+    console.warn('Unable to load authorized sites:', error);
+  }
+}
+
 async function loadDashboard() {
   const [stats, batches] = await Promise.all([
-    api('/api/devices/stats'),
-    api(`/api/command-batches?siteCode=${encodeURIComponent(SITE_CODE)}`)
+    api(`/api/devices/stats?siteCode=${encodeURIComponent(state.siteCode)}`),
+    api(`/api/command-batches?siteCode=${encodeURIComponent(state.siteCode)}`)
   ]);
   state.batches = batches;
   document.getElementById('d-total').textContent = stats.total ?? 0;
@@ -217,7 +312,9 @@ async function selectBatch(batchId) {
 
 async function loadDevices() {
   const query = document.getElementById('dev-search').value.trim();
-  state.devices = await api(`/api/devices${query ? `?search=${encodeURIComponent(query)}` : ''}`);
+  const params = new URLSearchParams({ siteCode: state.siteCode });
+  if (query) params.set('search', query);
+  state.devices = await api(`/api/devices?${params}`);
   const body = document.getElementById('dev-table-body');
   if (!state.devices.length) {
     body.innerHTML = '<tr><td colspan="7" class="empty">没有匹配的设备</td></tr>';
@@ -265,7 +362,7 @@ async function archiveDevice(id) {
 }
 
 async function loadGroups() {
-  state.groups = await api(`/api/device-groups?siteCode=${encodeURIComponent(SITE_CODE)}`);
+  state.groups = await api(`/api/device-groups?siteCode=${encodeURIComponent(state.siteCode)}`);
   renderGroups();
   const selector = document.getElementById('batch-group');
   selector.innerHTML = '<option value="">选择设备组</option>' + state.groups.map((group) => `<option value="${esc(group.groupId)}">${esc(group.name)} (${group.memberCount})</option>`).join('');
@@ -295,7 +392,7 @@ function parseIds(value) {
 }
 
 async function loadBatches() {
-  state.batches = await api(`/api/command-batches?siteCode=${encodeURIComponent(SITE_CODE)}`);
+  state.batches = await api(`/api/command-batches?siteCode=${encodeURIComponent(state.siteCode)}`);
   const container = document.getElementById('batch-list');
   if (!state.batches.length) {
     container.innerHTML = '<div class="empty">暂无批量命令</div>';
@@ -319,6 +416,7 @@ async function loadAlerts() {
   const resolved = document.getElementById('alert-resolved').value;
   const query = document.getElementById('alert-query').value.trim();
   const params = new URLSearchParams({ page: '0', size: '50' });
+  params.set('siteCode', state.siteCode);
   if (resolved) params.set('resolved', resolved);
   if (query) params.set('q', query);
   const result = await api(`/api/alerts/search?${params}`);
@@ -331,6 +429,7 @@ async function loadAlerts() {
 
 async function loadAudit() {
   const params = new URLSearchParams({ page: '0', size: '50' });
+  params.set('siteCode', state.siteCode);
   const status = document.getElementById('audit-status').value;
   const batchId = document.getElementById('audit-batch').value.trim();
   if (status) params.set('status', status);
@@ -382,6 +481,8 @@ const flushRealtimeRefresh = debounce(() => {
 }, 300);
 
 function refreshForRealtimeEvent(event) {
+  const eventSiteCode = event?.payload?.siteCode || event?.siteCode;
+  if (eventSiteCode && String(eventSiteCode) !== state.siteCode) return;
   pendingRealtimeTypes.add(event.type);
   flushRealtimeRefresh();
 }
@@ -397,6 +498,28 @@ async function navigate(page) {
 }
 
 document.querySelectorAll('.nav-item').forEach((element) => element.addEventListener('click', () => navigate(element.dataset.page)));
+document.getElementById('site-selector').addEventListener('change', async (event) => {
+  const site = state.sites.find((candidate) => String(candidate.siteCode) === String(event.target.value));
+  try {
+    await selectSite(site || { siteCode: event.target.value }, { reload: true });
+  } catch (error) {
+    toast(`切换站点失败：${error.message}`, true);
+    updateSiteUi();
+  }
+});
+document.getElementById('auth-action').addEventListener('click', async () => {
+  const authState = browserAuth.getState();
+  if (!authState.configured) return;
+  const button = document.getElementById('auth-action');
+  button.disabled = true;
+  try {
+    if (authState.authenticated) await browserAuth.logout();
+    else await browserAuth.beginLogin();
+  } catch (error) {
+    button.disabled = false;
+    toast(`登录操作失败：${error.message}`, true);
+  }
+});
 document.getElementById('refresh-all').addEventListener('click', () => refreshCurrentPage().catch((error) => toast(error.message, true)));
 document.getElementById('load-devices').addEventListener('click', () => loadDevices().catch((error) => toast(error.message, true)));
 document.getElementById('dev-search').addEventListener('input', debounce(() => loadDevices().catch(() => {})));
@@ -421,7 +544,8 @@ document.getElementById('device-form').addEventListener('submit', async (event) 
     status: document.getElementById('f-status').value
   };
   try {
-    await api(id ? `/api/devices/${id}` : '/api/devices', { method: id ? 'PUT' : 'POST', body: JSON.stringify(body) });
+    const endpoint = id ? `/api/devices/${id}` : `/api/devices?siteCode=${encodeURIComponent(state.siteCode)}`;
+    await api(endpoint, { method: id ? 'PUT' : 'POST', body: JSON.stringify(body) });
     toast(id ? '设备已更新' : '设备已登记');
     resetDeviceForm();
     await loadDevices();
@@ -431,7 +555,7 @@ document.getElementById('device-form').addEventListener('submit', async (event) 
 document.getElementById('group-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   try {
-    await api('/api/device-groups', { method: 'POST', body: JSON.stringify({ siteCode: SITE_CODE, name: document.getElementById('group-name').value, description: document.getElementById('group-description').value || null }) });
+    await api('/api/device-groups', { method: 'POST', body: JSON.stringify({ siteCode: state.siteCode, name: document.getElementById('group-name').value, description: document.getElementById('group-description').value || null }) });
     event.target.reset();
     await loadGroups();
     toast('设备组已创建');
@@ -468,7 +592,7 @@ document.getElementById('batch-form').addEventListener('submit', async (event) =
     if (groupId && deviceIds.length) throw new Error('设备组和设备 ID 只能选择一个');
     const batch = await api('/api/command-batches', {
       method: 'POST',
-      body: JSON.stringify({ siteCode: SITE_CODE, target: { groupId, deviceIds }, type: document.getElementById('batch-type').value, parameters, idempotencyKey: crypto.randomUUID(), expiresInSeconds: Number(document.getElementById('batch-expiry').value || 300) })
+      body: JSON.stringify({ siteCode: state.siteCode, target: { groupId, deviceIds }, type: document.getElementById('batch-type').value, parameters, idempotencyKey: crypto.randomUUID(), expiresInSeconds: Number(document.getElementById('batch-expiry').value || 300) })
     });
     await loadBatches();
     await selectBatch(batch.batchId);
@@ -490,7 +614,7 @@ document.getElementById('batch-detail-actions').addEventListener('click', async 
     const batch = await api('/api/command-batches', {
       method: 'POST',
       body: JSON.stringify({
-        siteCode: SITE_CODE,
+        siteCode: state.siteCode,
         target: { deviceIds: commands.map((command) => command.deviceId) },
         type: state.selectedBatch.type,
         parameters,
@@ -532,14 +656,14 @@ document.getElementById('weather-settings-form').addEventListener('submit', asyn
     condensationTemperatureField: document.getElementById('weather-condensation-field').value.trim() || null
   };
   try {
-    const settings = await api(`/api/sites/${encodeURIComponent(SITE_CODE)}/weather-settings`, { method: 'PUT', body: JSON.stringify(body) });
+    const settings = await api(`/api/sites/${encodeURIComponent(state.siteCode)}/weather-settings`, { method: 'PUT', body: JSON.stringify(body) });
     populateWeatherSettings(settings);
     toast('天气配置已保存');
   } catch (error) { toast(`天气配置保存失败：${error.message}`, true); }
 });
 document.getElementById('refresh-weather').addEventListener('click', async () => {
   try {
-    state.weather = await api(`/api/sites/${encodeURIComponent(SITE_CODE)}/weather/refresh`, { method: 'POST' });
+    state.weather = await api(`/api/sites/${encodeURIComponent(state.siteCode)}/weather/refresh`, { method: 'POST' });
     renderWeather();
     toast('天气已刷新');
   } catch (error) { toast(`天气刷新失败：${error.message}`, true); }
@@ -549,6 +673,14 @@ function updateClock() { document.getElementById('clock').textContent = new Date
 updateClock();
 window.setInterval(updateClock, 1000);
 realtime.on(refreshForRealtimeEvent);
-realtime.connect();
 window.addEventListener('beforeunload', () => realtime.disconnect());
-Promise.all([loadDashboard(), loadGroups()]).catch((error) => toast(`初始化失败：${error.message}`, true));
+void (async () => {
+  try {
+    if (!await initializeAuthentication()) return;
+    await loadSites();
+    await Promise.all([loadDashboard(), loadGroups()]);
+    realtime.connect();
+  } catch (error) {
+    toast(`初始化失败：${error.message}`, true);
+  }
+})();

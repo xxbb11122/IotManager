@@ -1,8 +1,9 @@
 import './css/style.css';
-import { api } from './js/api.js';
+import { api, configureApiAuthentication } from './js/api.js';
 import { wsService } from './js/websocket.js';
 import { renderDevices, renderAlerts, renderStats, applyFilter, patchDevice } from './js/device-list.js';
 import { loadCharts } from './js/charts.js';
+import { BrowserOidcSession, resolveBrowserOidcConfig } from '../../shared/browser-oidc.js';
 
 /* ── State ── */
 let devices = [];
@@ -13,7 +14,45 @@ let alertRefreshTimer = null;
 let weather = null;
 let weatherForecast = null;
 let weatherLoadError = false;
-const SITE_CODE = 'demo-site';
+let skipNextConnectedSync = false;
+let currentSite = {
+  siteCode: 'demo-site',
+  siteName: '演示站点',
+  organizationCode: 'demo-org',
+  organizationName: '演示组织'
+};
+const SITE_STORAGE_KEY = 'iot-manager.console-site.v1';
+
+const browserAuth = new BrowserOidcSession({
+  config: resolveBrowserOidcConfig(),
+  onStateChange: (authState) => {
+    updateAuthenticationUi(authState);
+    if (authState.configured && !authState.authenticated) wsService.disconnect();
+  }
+});
+
+function updateAuthenticationUi(authState = browserAuth.getState()) {
+  const button = document.getElementById('auth-action');
+  if (!button) return;
+  button.hidden = !authState.configured;
+  button.textContent = authState.authenticated ? '退出登录' : '登录';
+  button.disabled = false;
+}
+
+async function initializeAuthentication() {
+  if (!browserAuth.isConfigured()) {
+    updateAuthenticationUi(browserAuth.getState());
+    return true;
+  }
+  configureApiAuthentication({
+    tokenProvider: () => browserAuth.getAccessToken(),
+    onUnauthorized: () => browserAuth.tryRefresh()
+  });
+  wsService.setAccessTokenProvider(() => browserAuth.getAccessToken());
+  const authState = await browserAuth.initialize();
+  updateAuthenticationUi(authState);
+  return authState.authenticated;
+}
 
 /* ── Clock ── */
 function updateClock() {
@@ -22,11 +61,11 @@ function updateClock() {
 }
 
 /* ── Load all data ── */
-async function loadAll() {
+async function loadAll({ includeWeather = true } = {}) {
   try {
     const [deviceList, statsData] = await Promise.all([
-      api('/api/devices'),
-      api('/api/devices/stats')
+      api(`/api/devices?siteCode=${encodeURIComponent(currentSite.siteCode)}`),
+      api(`/api/devices/stats?siteCode=${encodeURIComponent(currentSite.siteCode)}`)
     ]);
     devices = deviceList;
     renderStats(statsData);
@@ -37,15 +76,18 @@ async function loadAll() {
     const tbody = document.getElementById('device-tbody');
     if (tbody) tbody.innerHTML = '<tr><td colspan="9"><div class="empty">加载失败 — 请确认后端已启动 (http://localhost:8080)</div></td></tr>';
   }
-  await loadWeather();
+  // Weather has its own server-side refresh cadence and WebSocket update.
+  // Device fallback reconciliation runs much more often when realtime is
+  // disconnected, so it must not turn into a weather polling loop.
+  if (includeWeather) await loadWeather();
   await loadAlerts();
 }
 
 async function loadWeather() {
   try {
     const [weatherData, forecastData] = await Promise.all([
-      api(`/api/sites/${SITE_CODE}/weather`),
-      api(`/api/sites/${SITE_CODE}/weather/forecast?hours=24&days=7`)
+      api(`/api/sites/${encodeURIComponent(currentSite.siteCode)}/weather`),
+      api(`/api/sites/${encodeURIComponent(currentSite.siteCode)}/weather/forecast?hours=24&days=7`)
     ]);
     weather = weatherData;
     weatherForecast = forecastData;
@@ -127,7 +169,7 @@ function renderWeather() {
 
 async function loadAlerts() {
   try {
-    const alerts = await api('/api/alerts/active');
+    const alerts = await api(`/api/alerts/active?siteCode=${encodeURIComponent(currentSite.siteCode)}`);
     renderAlerts(alerts);
   } catch (e) { /* An alert refresh must not replace a healthy device view. */ }
 }
@@ -154,6 +196,7 @@ function mergeRealtimeDevices(updates) {
   const changed = [];
   for (const update of updates) {
     if (!update?.deviceId) continue;
+    if (update.siteCode && String(update.siteCode) !== String(currentSite.siteCode)) continue;
     const index = devices.findIndex((device) => device.deviceId === update.deviceId);
     const merged = index >= 0 ? { ...devices[index], ...update } : update;
     if (index >= 0) devices[index] = merged;
@@ -171,6 +214,7 @@ function mergeRealtimeDevices(updates) {
 
 function removeRealtimeDevice(payload) {
   if (!payload?.deviceId) return;
+  if (payload.siteCode && String(payload.siteCode) !== String(currentSite.siteCode)) return;
   const index = devices.findIndex((device) => device.deviceId === payload.deviceId);
   if (index < 0) return;
   const [removed] = devices.splice(index, 1);
@@ -201,13 +245,19 @@ wsService.on('device_archived', removeRealtimeDevice);
 wsService.on('alert', scheduleAlertRefresh);
 wsService.on('alert_update', scheduleAlertRefresh);
 wsService.on('weather_update', (payload) => {
-  if (payload?.siteCode !== SITE_CODE) return;
+  if (payload?.siteCode !== currentSite.siteCode) return;
   weather = payload;
   weatherLoadError = false;
   renderWeather();
 });
 
-wsService.on('connected', loadAll);
+wsService.on('connected', () => {
+  if (skipNextConnectedSync) {
+    skipNextConnectedSync = false;
+    return;
+  }
+  void loadAll({ includeWeather: true });
+});
 
 /* ── Sidebar ── */
 document.querySelectorAll('.sidebar-item[data-filter]').forEach(el => {
@@ -253,12 +303,106 @@ window.addEventListener('refresh-alerts', async () => {
   await loadAlerts();
 });
 
+function updateSiteUi() {
+  const selector = document.getElementById('site-selector');
+  if (selector) selector.value = currentSite.siteCode;
+  const label = document.getElementById('site-label');
+  if (label) label.textContent = currentSite.siteName || currentSite.siteCode;
+}
+
+async function selectSite(site, { reload = true } = {}) {
+  if (!site?.siteCode) return;
+  currentSite = {
+    siteCode: String(site.siteCode),
+    siteName: String(site.siteName || site.siteCode),
+    organizationCode: site.organizationCode || currentSite.organizationCode,
+    organizationName: site.organizationName || currentSite.organizationName
+  };
+  try {
+    localStorage.setItem(SITE_STORAGE_KEY, JSON.stringify({ siteCode: currentSite.siteCode }));
+  } catch { /* optional browser persistence */ }
+  wsService.setSiteCode(currentSite.siteCode);
+  updateSiteUi();
+  if (!reload) return;
+  devices = [];
+  weather = null;
+  weatherForecast = null;
+  weatherLoadError = false;
+  renderStats(localStats());
+  renderFiltered();
+  renderWeather();
+  renderAlerts([]);
+  wsService.disconnect();
+  await loadAll({ includeWeather: true });
+  skipNextConnectedSync = true;
+  wsService.connect();
+}
+
+async function loadSites() {
+  const selector = document.getElementById('site-selector');
+  try {
+    const sites = await api('/api/v1/sites');
+    if (!Array.isArray(sites) || sites.length === 0) throw new Error('No accessible sites');
+    let savedCode = null;
+    try { savedCode = JSON.parse(localStorage.getItem(SITE_STORAGE_KEY) || 'null')?.siteCode; } catch { /* ignore */ }
+    const selected = sites.find((site) => String(site.siteCode) === String(savedCode))
+      || sites.find((site) => String(site.siteCode) === String(currentSite.siteCode))
+      || sites[0];
+    if (selector) {
+      selector.replaceChildren(...sites.map((site) => {
+        const option = document.createElement('option');
+        option.value = site.siteCode;
+        option.textContent = `${site.organizationName || site.organizationCode || ''} / ${site.siteName || site.siteCode}`;
+        return option;
+      }));
+      selector.disabled = false;
+    }
+    await selectSite(selected, { reload: false });
+  } catch (error) {
+    if (selector) selector.disabled = false;
+    wsService.setSiteCode(currentSite.siteCode);
+    updateSiteUi();
+    console.warn('站点列表加载失败:', error);
+  }
+}
+
+document.getElementById('site-selector')?.addEventListener('change', async (event) => {
+  const siteCode = event.target.value;
+  try {
+    const option = event.target.selectedOptions?.[0];
+    await selectSite({ siteCode, siteName: option?.textContent?.split(' / ').pop() || siteCode });
+  } catch (error) {
+    console.error('切换站点失败:', error);
+    updateSiteUi();
+  }
+});
+
+document.getElementById('auth-action')?.addEventListener('click', async () => {
+  const authState = browserAuth.getState();
+  if (!authState.configured) return;
+  const button = document.getElementById('auth-action');
+  if (button) button.disabled = true;
+  try {
+    if (authState.authenticated) await browserAuth.logout();
+    else await browserAuth.beginLogin();
+  } catch (error) {
+    if (button) button.disabled = false;
+    console.error('OIDC authentication action failed:', error);
+  }
+});
+
 /* ── Init ── */
 updateClock();
 setInterval(updateClock, 1000);
-wsService.connect();
+void (async () => {
+  if (!await initializeAuthentication()) return;
+  await loadSites();
+  await loadAll({ includeWeather: true });
+  skipNextConnectedSync = true;
+  wsService.connect();
+})();
 setInterval(() => {
   // Reconcile from REST only while realtime is unavailable; connected clients
   // already receive committed device, command, and alert events.
-  if (!wsService.isConnected()) void loadAll();
+  if (!wsService.isConnected()) void loadAll({ includeWeather: false });
 }, 30000);

@@ -13,6 +13,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -29,6 +30,11 @@ public class ApiExceptionHandler {
     @ExceptionHandler(NoSuchElementException.class)
     public ResponseEntity<ApiProblem> handleNotFound(NoSuchElementException exception) {
         return problem(HttpStatus.NOT_FOUND, exception.getMessage(), Map.of());
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiProblem> handleAccessDenied(AccessDeniedException exception) {
+        return problem(HttpStatus.FORBIDDEN, "Access denied", Map.of());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -96,7 +102,9 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(WeatherRefreshRateLimitedException.class)
     public ResponseEntity<ApiProblem> handleWeatherRefreshRateLimit(WeatherRefreshRateLimitedException exception) {
-        return problem(HttpStatus.TOO_MANY_REQUESTS, exception.getMessage(), Map.of());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", Long.toString(exception.getRemainingSeconds()))
+                .body(problemBody(HttpStatus.TOO_MANY_REQUESTS, exception.getMessage(), Map.of()));
     }
 
     @ExceptionHandler(WeatherProviderException.class)
@@ -105,13 +113,16 @@ public class ApiExceptionHandler {
     }
 
     private ResponseEntity<ApiProblem> problem(HttpStatus status, String message, Map<String, String> fieldErrors) {
-        ApiProblem body = new ApiProblem(
+        return ResponseEntity.status(status).body(problemBody(status, message, fieldErrors));
+    }
+
+    private ApiProblem problemBody(HttpStatus status, String message, Map<String, String> fieldErrors) {
+        return new ApiProblem(
                 Instant.now(),
                 status.value(),
                 status.getReasonPhrase(),
                 message,
                 fieldErrors
         );
-        return ResponseEntity.status(status).body(body);
     }
 }

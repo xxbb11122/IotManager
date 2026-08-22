@@ -37,6 +37,36 @@ test('probe verifies the realtime endpoint when requested', async () => {
   assert.match(result.message, /API 与实时连接正常/);
 });
 
+test('probe forwards a bearer token to REST and the restricted WebSocket handshake', async () => {
+  let requestOptions;
+  let socketUrl;
+  let socketProtocols;
+  const result = await probeEndpoint({
+    accessRoute: 'CLOUD_API',
+    apiBaseUrl: 'https://iot.example.test/api',
+    wsUrl: 'wss://iot.example.test/ws/devices',
+    siteCode: 'site-a',
+    accessToken: 'probe-token',
+    fetchImpl: async (_url, options) => {
+      requestOptions = options;
+      return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+    },
+    verifyWebSocket: true,
+    webSocketFactory: class {
+      constructor(url, protocols) {
+        socketUrl = url;
+        socketProtocols = protocols;
+        queueMicrotask(() => this.onopen?.());
+      }
+      close() {}
+    }
+  });
+  assert.equal(result.ok, true);
+  assert.equal(requestOptions.headers.authorization, 'Bearer probe-token');
+  assert.deepEqual(socketProtocols, ['iot-bearer.probe-token']);
+  assert.equal(new URL(socketUrl).searchParams.get('siteCode'), 'site-a');
+});
+
 test('probe reports a readable realtime failure when the WebSocket cannot open', async () => {
   const result = await probeEndpoint({
     accessRoute: 'SITE_API',

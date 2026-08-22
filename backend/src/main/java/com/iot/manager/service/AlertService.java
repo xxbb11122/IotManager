@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 
 @Service
@@ -26,7 +27,22 @@ public class AlertService {
             Boolean resolved, List<String> levels, String groupId, Long deviceId,
             LocalDateTime from, LocalDateTime to, String query, int page, int size
     ) {
+        return search(resolved, levels, groupId, deviceId, from, to, query, page, size, null);
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<AlertView> search(
+            Boolean resolved, List<String> levels, String groupId, Long deviceId,
+            LocalDateTime from, LocalDateTime to, String query, int page, int size,
+            Collection<Long> allowedSiteIds
+    ) {
         Specification<Alert> specification = Specification.where(null);
+        if (allowedSiteIds != null) {
+            specification = specification.and((root, criteriaQuery, builder) -> {
+                if (allowedSiteIds.isEmpty()) return builder.disjunction();
+                return root.get("device").get("site").get("id").in(allowedSiteIds);
+            });
+        }
         if (resolved != null) specification = specification.and((root, criteriaQuery, builder) -> builder.equal(root.get("resolved"), resolved));
         if (levels != null && !levels.isEmpty()) specification = specification.and((root, criteriaQuery, builder) -> root.get("level").in(levels));
         if (deviceId != null) specification = specification.and((root, criteriaQuery, builder) -> builder.equal(root.get("device").get("id"), deviceId));
@@ -61,14 +77,26 @@ public class AlertService {
      */
     @Transactional(readOnly = true)
     public List<AlertView> active() {
+        return active(null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AlertView> active(Collection<Long> allowedSiteIds) {
         return alertRepository.findByResolvedFalseOrderByCreatedAtDesc().stream()
+                .filter(alert -> isAllowed(alert, allowedSiteIds))
                 .map(this::toView)
                 .toList();
     }
 
     @Transactional(readOnly = true)
     public List<AlertView> recent() {
+        return recent(null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AlertView> recent(Collection<Long> allowedSiteIds) {
         return alertRepository.findTop20ByOrderByCreatedAtDesc().stream()
+                .filter(alert -> isAllowed(alert, allowedSiteIds))
                 .map(this::toView)
                 .toList();
     }
@@ -89,5 +117,12 @@ public class AlertService {
                 alert.getLevel(), alert.getStatus(), alert.getAlertCode(), alert.getMessage(), alert.getCreatedAt(),
                 alert.getAcknowledgedAt(), alert.getResolvedAt()
         );
+    }
+
+    private boolean isAllowed(Alert alert, Collection<Long> allowedSiteIds) {
+        if (allowedSiteIds == null) return true;
+        return alert.getDevice() != null
+                && alert.getDevice().getSite() != null
+                && allowedSiteIds.contains(alert.getDevice().getSite().getId());
     }
 }

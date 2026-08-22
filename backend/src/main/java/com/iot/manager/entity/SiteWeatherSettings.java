@@ -56,6 +56,12 @@ public class SiteWeatherSettings {
     @Column(name = "last_refresh_error", length = 512)
     private String lastRefreshError;
 
+    @Column(name = "last_refresh_outcome", length = 32)
+    private String lastRefreshOutcome;
+
+    @Column(name = "last_refresh_duration_ms")
+    private Long lastRefreshDurationMs;
+
     @Column(name = "retry_after")
     private Instant retryAfter;
 

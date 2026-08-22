@@ -63,19 +63,20 @@ See the bilingual [weather feature development guide](docs/weather-feature-devel
 
 ## 当前状态 / Current status
 
-**中文：** 当前版本是可运行的 MVP 与受控试点基础，不是生产级企业部署；生产级认证、RBAC、租户授权、密钥管理、PostgreSQL、备份恢复和高可用仍属于后续阶段。
+**中文：** 当前版本是可运行的 MVP 与受控试点基础，仍不是已审批的生产发布版。生产代码与部署资产已包含 JWT/RBAC、组织/站点授权、三端 Authorization Code + PKCE、Android Keystore 令牌存储、PostgreSQL 16、备份脚本、Actuator/Prometheus、结构化日志、限流和严格 WSS 边界。真实 Compose/Keycloak 部署、独立恢复演练、供应商审查和真实设备 Gate 证据仍需完成。
 
-**English:** This is a functional MVP and controlled-pilot foundation, **not a
-production enterprise deployment**. The current release deliberately defers
-authentication, RBAC, tenant authorization, Agent authentication, secrets
-management, PostgreSQL, backup/recovery, rate limiting, and high-availability
-coordination. Only the nRF52840 reference switch and Shelly Plus Plug S Gen2
-have concrete adapter implementations; physical-device acceptance testing
-remains required before operating real equipment.
+**English:** This is a functional MVP and controlled-pilot foundation, **not an
+approved production release**. The production code and deployment assets now
+include JWT/RBAC, organization/site scoping, Authorization Code + PKCE on all
+three operator surfaces, Android Keystore token storage, PostgreSQL 16,
+backup scripts, Actuator/Prometheus, structured logging, rate limiting, and a
+strict WSS boundary. A live Compose/Keycloak deployment, independent restore
+rehearsal, supplier review, and physical-device Gate evidence still remain.
 
 See [Device Profiles](profiles/README.md), [Edge Agent](edge-agent/README.md),
-and [release verification](docs/VERIFICATION.md) for the supported contracts
-and acceptance checks.
+the [project progress overview](docs/PROJECT-PROGRESS-OVERVIEW.md), and
+[release verification](docs/VERIFICATION.md) for the supported contracts and
+acceptance checks.
 
 ## Prerequisites
 
@@ -99,7 +100,12 @@ mvn spring-boot:run
 
 The default `dev` profile uses a local file-backed H2 database at `backend/data/iotdb` and exposes the H2 console at `http://localhost:8080/h2-console`. H2 and its console are development-only; do not use either for a production deployment.
 
-Flyway V1 creates the current `devices` and `alerts` foundation schema for a new database. The dev profile uses `baseline-on-migrate` so an existing local H2 database is registered at V1 and then checked by Hibernate validation, rather than being recreated or mutated by Hibernate.
+Flyway migrations V1–V18 build the current device, command, agent, site-weather, reliability,
+identity, membership, per-agent credential, and immutable audit-context schema for a new database. The dev profile uses `baseline-on-migrate`
+so an existing local H2 database is registered at its current baseline and then checked by
+Hibernate validation, rather than being recreated or mutated by Hibernate. Future production
+migrations continue at V19; see `docs/PROJECT-IMPROVEMENT-PLAN.md` for the reserved version
+ranges and Gate 2 requirements.
 
 ### Mobile/web client (`http://localhost:5175`)
 
@@ -112,7 +118,7 @@ npm run dev
 For the local Vite proxy, no environment values are required. When the PDA client needs to connect to a backend endpoint explicitly, use the API prefix and the complete WebSocket endpoint:
 
 ```powershell
-$env:VITE_API_BASE_URL = 'http://localhost:8080/api'
+$env:VITE_API_BASE_URL = 'http://localhost:8080/api/v1'
 $env:VITE_WS_URL = 'ws://localhost:8080/ws/devices'
 npm run dev
 ```
@@ -121,7 +127,7 @@ The Android App uses the native Capacitor BLE adapter. When the same client is o
 
 ### Basic prototype loop
 
-- **Simulated LAN:** list candidates with `GET /api/discovery/lan?siteCode=demo-site`, claim one with `POST /api/discovery/lan/{candidateId}/claim`, then submit a command with `POST /api/devices/{id}/commands`. Command state progresses through `PENDING`, `SENT`, then `ACKNOWLEDGED` or `FAILED`; the client receives updates from `/ws/devices` and can query `GET /api/commands/{commandId}`.
+- **Simulated LAN:** list candidates with `GET /api/v1/discovery/lan?siteCode=demo-site`, claim one with `POST /api/v1/discovery/lan/{candidateId}/claim`, then submit a command with `POST /api/v1/devices/{id}/commands`. Command state progresses through `PENDING`, `SENT`, then `ACKNOWLEDGED` or `FAILED`; the client receives updates from `/ws/devices` and can query `GET /api/v1/commands/{commandId}`.
 - **BLE:** the Android App scans and connects through the native BLE plugin; the browser build retains a Web Bluetooth fallback. BLE bindings remain local to the App installation and are separate from simulated LAN discovery, so a local BLE device is not automatically registered as a backend LAN device.
 
 ### Device Profiles and operations
@@ -163,11 +169,21 @@ repository and set `backend.websocket.url` to
 [edge-agent/README.md](edge-agent/README.md) for the supported driver and
 configuration details.
 
-## Prototype Security Boundary
+## Security boundary / 安全边界
 
-The first delivery prioritizes the device lifecycle, simulated LAN flow, BLE connection shell, command acknowledgement, activity history, and replaceable adapter boundaries. Authentication, RBAC, tenant enforcement, secret storage, production TLS/WSS, rate limits, and production hardening are deliberately deferred.
+The development profile intentionally uses open CORS, an open WebSocket endpoint,
+the H2 console, and demo data. Keep it on a controlled LAN and never expose it
+as a public service. The production profile requires explicit HTTPS origins and
+Keycloak-issued JWTs for user APIs; `/ws/devices` is site-scoped and
+`/ws/edge/v1` requires the per-agent `X-Iot-Agent-Credential` and
+`X-Iot-Agent-Token` headers. Production also requires WSS (or a trusted proxy
+forwarding `X-Forwarded-Proto: https`).
 
-The development profile currently uses open CORS, an open WebSocket endpoint, the H2 console, and global demo events. Keep it in a controlled local or demonstration environment; do not expose it as an enterprise production service. Organization, site, space, command-source, activity, and adapter seams remain in place for the later security milestone.
+Provision an agent credential through the admin-only
+`POST /api/v1/edge-agents/credentials` endpoint. The secret is returned once;
+only its BCrypt digest and rotation/revocation audit are stored. The current
+implementation is the R1 credential foundation, not a substitute for a live
+deployment, backup/restore evidence, mTLS, and Gate acceptance work.
 
 ### Operations frontend (`http://localhost:5173`)
 
@@ -209,7 +225,8 @@ Build the other Vite applications with `npm run build` from `frontend` or `conso
 
 The first full-stack deployment serves the monitoring dashboard at `/`, the
 operations console at `/console/`, and keeps the mobile API/WebSocket paths at
-`/api` and `/ws/devices`. See [deploy/DEPLOYMENT.md](deploy/DEPLOYMENT.md) for
+`/api/v1` and `/ws/devices` (`/api` remains a deprecated compatibility alias).
+See [deploy/DEPLOYMENT.md](deploy/DEPLOYMENT.md) for
 the Docker/Caddy setup and acceptance checks.
 
 ## Android enterprise client
@@ -247,7 +264,7 @@ $adb = "$env:ANDROID_SDK_ROOT\platform-tools\adb.exe"
 Open **连接设置** in the App to select a site API or cloud API profile. An Android emulator reaches services running on the host through these addresses:
 
 ```text
-API:       http://10.0.2.2:8080/api
+API:       http://10.0.2.2:8080/api/v1
 WebSocket: ws://10.0.2.2:8080/ws/devices
 ```
 
@@ -263,7 +280,7 @@ never contains a personal network address.
 Choose **互联网远程** in **连接设置** to operate platform devices through an internet-accessible Spring Boot backend:
 
 ```text
-API:       https://your-server.example/api
+API:       https://your-server.example/api/v1
 WebSocket: wss://your-server.example/ws/devices
 ```
 
@@ -286,4 +303,9 @@ Plain HTTP, WS, and WebView mixed content are enabled only when the Android pack
 
 The API 36 emulator flow has been exercised for install, launch, navigation, and connection settings. Physical BLE permission, scan, connect, reconnect, known-profile command, and unknown-profile read-only checks still require compatible BLE hardware before production acceptance. The nRF52840 reference firmware is in [firmware/nrf52840-reference-switch](firmware/nrf52840-reference-switch); build it with Zephyr and validate it using a low-voltage load or board LED before controlling physical equipment.
 
-Authentication, RBAC, tenant enforcement, PostgreSQL, backup/recovery, background BLE, mini-program delivery, release signing, managed distribution, rate limits, and broader security hardening remain deferred milestones.
+Live Keycloak/PostgreSQL deployment, independent backup/recovery rehearsal,
+background BLE, mini-program delivery, release signing, managed distribution,
+mTLS, and broader production hardening remain deferred milestones. The
+production code path already contains PKCE, JWT/RBAC, site authorization,
+per-agent credentials, and rate limiting; these still require deployment and
+Gate evidence.

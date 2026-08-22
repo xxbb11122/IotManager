@@ -32,11 +32,13 @@ export function normalizeRealtimeEvent(value) {
   };
 }
 
-function defaultWebSocketFactory(url) {
+function defaultWebSocketFactory(url, protocols) {
   if (typeof globalThis.WebSocket !== 'function') {
     throw new Error('WebSocket is unavailable in this environment');
   }
-  return new globalThis.WebSocket(url);
+  return protocols?.length > 0
+    ? new globalThis.WebSocket(url, protocols)
+    : new globalThis.WebSocket(url);
 }
 
 function connectionHealth(patch = {}) {
@@ -59,6 +61,10 @@ export class RealtimeClient {
   constructor({
     url = resolveClientConfig().wsUrl,
     webSocketFactory = defaultWebSocketFactory,
+    accessToken = null,
+    accessTokenProvider = null,
+    siteCode = null,
+    siteCodeProvider = null,
     scheduler = globalThis,
     reconnectBaseDelayMs = 500,
     reconnectMaxDelayMs = 10_000,
@@ -66,6 +72,10 @@ export class RealtimeClient {
   } = {}) {
     this.url = url;
     this.webSocketFactory = webSocketFactory;
+    this.accessToken = accessToken;
+    this.accessTokenProvider = accessTokenProvider;
+    this.siteCode = siteCode;
+    this.siteCodeProvider = siteCodeProvider;
     this.scheduler = scheduler;
     this.reconnectBaseDelayMs = reconnectBaseDelayMs;
     this.reconnectMaxDelayMs = reconnectMaxDelayMs;
@@ -139,6 +149,12 @@ export class RealtimeClient {
     return true;
   }
 
+  setSiteCode(siteCode) {
+    this.siteCode = siteCode === null || siteCode === undefined || String(siteCode).trim() === ''
+      ? null
+      : String(siteCode).trim();
+  }
+
   openSocket() {
     this.updateHealth({
       state: this.reconnectAttempt > 0 ? 'reconnecting' : 'connecting',
@@ -149,7 +165,13 @@ export class RealtimeClient {
 
     let socket;
     try {
-      socket = this.webSocketFactory(this.url);
+      const token = typeof this.accessTokenProvider === 'function'
+        ? this.accessTokenProvider()
+        : this.accessToken;
+      const siteCode = typeof this.siteCodeProvider === 'function'
+        ? this.siteCodeProvider()
+        : this.siteCode;
+      socket = this.webSocketFactory(webSocketUrl(this.url, siteCode), webSocketProtocols(token));
     } catch (error) {
       this.handleOpenFailure(error);
       return null;
@@ -251,4 +273,17 @@ export class RealtimeClient {
       listener(this.health);
     }
   }
+}
+
+function webSocketUrl(url, siteCode) {
+  const hasSite = siteCode !== null && siteCode !== undefined && String(siteCode).trim() !== '';
+  if (!hasSite) return url;
+  const parsed = new URL(url);
+  if (hasSite) parsed.searchParams.set('siteCode', String(siteCode).trim());
+  return parsed.toString();
+}
+
+function webSocketProtocols(accessToken) {
+  const token = String(accessToken ?? '').trim();
+  return token ? [`iot-bearer.${token}`] : undefined;
 }

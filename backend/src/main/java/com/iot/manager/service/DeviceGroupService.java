@@ -4,13 +4,11 @@ import com.iot.manager.dto.DeviceGroupCreateRequest;
 import com.iot.manager.dto.DeviceGroupMembersRequest;
 import com.iot.manager.dto.DeviceGroupUpdateRequest;
 import com.iot.manager.dto.DeviceGroupView;
-import com.iot.manager.entity.ActivityEvent;
 import com.iot.manager.entity.Device;
 import com.iot.manager.entity.DeviceGroup;
 import com.iot.manager.entity.DeviceGroupMember;
 import com.iot.manager.entity.Organization;
 import com.iot.manager.entity.Site;
-import com.iot.manager.repository.ActivityEventRepository;
 import com.iot.manager.repository.DeviceGroupMemberRepository;
 import com.iot.manager.repository.DeviceGroupRepository;
 import com.iot.manager.repository.DeviceRepository;
@@ -42,8 +40,9 @@ public class DeviceGroupService {
     private final OrganizationRepository organizationRepository;
     private final SiteRepository siteRepository;
     private final BootstrapService bootstrapService;
-    private final ActivityEventRepository activityEventRepository;
+    private final AuditEventService auditEventService;
     private final WebSocketService webSocketService;
+    private final SiteAccessService siteAccessService;
 
     @Transactional(readOnly = true)
     public List<DeviceGroupView> list(String siteCode) {
@@ -163,6 +162,9 @@ public class DeviceGroupService {
     }
 
     private Site resolveSite(String siteCode) {
+        if (siteAccessService.isScopeEnforced()) {
+            return siteAccessService.requireSiteAccess(siteCode);
+        }
         bootstrapService.ensureDemoContext();
         Organization organization = organizationRepository.findByCode(DEMO_ORGANIZATION_CODE)
                 .orElseThrow(() -> new NoSuchElementException("Organization not found"));
@@ -177,7 +179,7 @@ public class DeviceGroupService {
                 .filter(device -> device.getArchivedAt() == null && "ONLINE".equals(device.getStatus()))
                 .count();
         return new DeviceGroupView(
-                group.getPublicId(), group.getSite().getCode(), group.getName(), group.getDescription(),
+                group.getPublicId(), group.getSite().getId(), group.getSite().getCode(), group.getName(), group.getDescription(),
                 group.getVersion(), memberCount, onlineCount, group.getUpdatedAt(), group.getArchivedAt()
         );
     }
@@ -201,13 +203,12 @@ public class DeviceGroupService {
     }
 
     private void saveActivity(Device device, String eventType, String groupId) {
-        activityEventRepository.save(ActivityEvent.builder()
-                .device(device)
-                .eventType(eventType)
-                .detail("Device group membership changed")
-                .payloadJson("{\"groupId\":\"" + groupId + "\"}")
-                .occurredAt(LocalDateTime.now())
-                .build());
+        auditEventService.recordActivity(
+                device,
+                eventType,
+                "Device group membership changed",
+                "{\"groupId\":\"" + groupId + "\"}"
+        );
     }
 
     private String normalizeSiteCode(String siteCode) {

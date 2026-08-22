@@ -2,6 +2,7 @@ package com.iot.manager.weather;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.iot.manager.dto.CurrentWeatherView;
 import com.iot.manager.dto.EnvironmentIndicatorsView;
 import com.iot.manager.dto.SiteWeatherForecastView;
@@ -16,13 +17,16 @@ import com.iot.manager.entity.Site;
 import com.iot.manager.entity.SiteWeatherForecastPoint;
 import com.iot.manager.entity.SiteWeatherSettings;
 import com.iot.manager.entity.SiteWeatherSnapshot;
+import com.iot.manager.entity.WeatherProviderAccessEvent;
 import com.iot.manager.repository.DeviceRepository;
 import com.iot.manager.repository.DeviceTelemetrySampleRepository;
 import com.iot.manager.repository.SiteRepository;
 import com.iot.manager.repository.SiteWeatherForecastPointRepository;
 import com.iot.manager.repository.SiteWeatherSettingsRepository;
 import com.iot.manager.repository.SiteWeatherSnapshotRepository;
+import com.iot.manager.repository.WeatherProviderAccessEventRepository;
 import com.iot.manager.service.WebSocketService;
+import com.iot.manager.service.PlatformMetricsService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -31,13 +35,18 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 @Service
 @RequiredArgsConstructor
@@ -55,23 +64,34 @@ public class SiteWeatherService {
     private final SiteWeatherSettingsRepository settingsRepository;
     private final SiteWeatherSnapshotRepository snapshotRepository;
     private final SiteWeatherForecastPointRepository forecastRepository;
+    private final WeatherProviderAccessEventRepository weatherProviderAccessEventRepository;
     private final List<WeatherProvider> providers;
     private final WeatherCodeMapper weatherCodeMapper;
     private final EnvironmentStatusEvaluator environmentStatusEvaluator;
     private final WebSocketService webSocketService;
+    private final PlatformMetricsService platformMetricsService;
     private final ObjectMapper objectMapper;
+    private final WeatherPrivacyProperties weatherPrivacyProperties;
     private final Set<Long> refreshingSiteIds = ConcurrentHashMap.newKeySet();
 
     @Transactional(readOnly = true)
     public SiteWeatherView current(String siteCode) {
-        Site site = site(siteCode);
+        return current(site(siteCode));
+    }
+
+    @Transactional(readOnly = true)
+    public SiteWeatherView current(Site site) {
         SiteWeatherSettings setting = settingsRepository.findBySiteId(site.getId()).orElse(null);
         return buildCurrent(site, setting, latestSnapshot(site, setting));
     }
 
     @Transactional(readOnly = true)
     public SiteWeatherForecastView forecast(String siteCode, int hours, int days) {
-        Site site = site(siteCode);
+        return forecast(site(siteCode), hours, days);
+    }
+
+    @Transactional(readOnly = true)
+    public SiteWeatherForecastView forecast(Site site, int hours, int days) {
         SiteWeatherSettings setting = settingsRepository.findBySiteId(site.getId()).orElse(null);
         String configurationFingerprint = configurationFingerprint(setting);
         SiteWeatherSnapshot snapshot = latestSnapshot(site, setting);
@@ -95,14 +115,22 @@ public class SiteWeatherService {
 
     @Transactional(readOnly = true)
     public SiteWeatherSettingsView settings(String siteCode) {
-        Site site = site(siteCode);
+        return settings(site(siteCode));
+    }
+
+    @Transactional(readOnly = true)
+    public SiteWeatherSettingsView settings(Site site) {
         SiteWeatherSettings setting = settingsRepository.findBySiteId(site.getId()).orElse(null);
         return settingsView(site, setting, latestSnapshot(site, setting));
     }
 
     @Transactional
     public SiteWeatherSettingsView updateSettings(String siteCode, @Valid SiteWeatherSettingsRequest request) {
-        Site site = site(siteCode);
+        return updateSettings(site(siteCode), request);
+    }
+
+    @Transactional
+    public SiteWeatherSettingsView updateSettings(Site site, @Valid SiteWeatherSettingsRequest request) {
         validateCoordinates(request.latitude(), request.longitude());
         validateTimezone(request.timezone());
         String providerCode = blankToNull(request.providerCode());
@@ -149,7 +177,11 @@ public class SiteWeatherService {
      */
     @Transactional
     public SiteWeatherView updateLocationAndRefresh(String siteCode, @Valid SiteWeatherLocationRequest request) {
-        Site site = site(siteCode);
+        return updateLocationAndRefresh(site(siteCode), request);
+    }
+
+    @Transactional
+    public SiteWeatherView updateLocationAndRefresh(Site site, @Valid SiteWeatherLocationRequest request) {
         validateCoordinates(request.latitude(), request.longitude());
         validateTimezone(request.timezone());
         SiteWeatherSettings setting = settingsRepository.findBySiteId(site.getId())
@@ -182,14 +214,18 @@ public class SiteWeatherService {
         // unavailable. A weather refresh is therefore performed only after the
         // independent repository save has completed.
         if (!materialLocationChange && !timezoneChanged && !needsInitialWeather) {
-            return current(siteCode);
+            return current(site);
         }
         return refreshSiteSafely(site, true);
     }
 
     @Transactional
     public SiteWeatherView refresh(String siteCode) {
-        Site site = site(siteCode);
+        return refresh(site(siteCode));
+    }
+
+    @Transactional
+    public SiteWeatherView refresh(Site site) {
         SiteWeatherSettings setting = settingsRepository.findBySiteId(site.getId())
                 .orElseThrow(() -> new IllegalArgumentException("Weather is not configured for this site"));
         Instant now = Instant.now();
@@ -234,12 +270,16 @@ public class SiteWeatherService {
                 settingsRepository.save(setting);
             });
         }
+        long startedAtNanos = System.nanoTime();
         try {
-            return refreshSite(site);
+            SiteWeatherView view = refreshSite(site);
+            recordRefreshOutcome(site, "SUCCESS", elapsedMillis(startedAtNanos));
+            platformMetricsService.weatherRefresh(view.source(), "success");
+            return view;
         } catch (WeatherRefreshInProgressException exception) {
             throw exception;
         } catch (RuntimeException exception) {
-            return recordRefreshFailure(site, exception);
+            return recordRefreshFailure(site, exception, elapsedMillis(startedAtNanos));
         }
     }
 
@@ -258,7 +298,18 @@ public class SiteWeatherService {
             if (provider == null) throw new IllegalArgumentException("Unsupported weather provider");
             setting.setLastRefreshAttemptAt(Instant.now());
             settingsRepository.save(setting);
-            WeatherPayload payload = provider.fetch(setting);
+            Instant providerRequestedAt = Instant.now();
+            long providerStartedAtNanos = System.nanoTime();
+            WeatherPayload payload;
+            try {
+                payload = provider.fetch(setting);
+                auditProviderAccess(site, setting, provider.getClass().getSimpleName(), providerRequestedAt,
+                        "SUCCESS", elapsedMillis(providerStartedAtNanos), null);
+            } catch (RuntimeException exception) {
+                auditProviderAccess(site, setting, provider.getClass().getSimpleName(), providerRequestedAt,
+                        "FAILURE", elapsedMillis(providerStartedAtNanos), providerErrorCode(exception));
+                throw exception;
+            }
             String configurationFingerprint = configurationFingerprint(setting);
             Instant fetchedAt = Instant.now();
             WeatherCondition condition = weatherCodeMapper.map(payload.current().weatherCode());
@@ -277,7 +328,7 @@ public class SiteWeatherService {
                     .windSpeedKmh(payload.current().windSpeedKmh())
                     .windDirectionDeg(payload.current().windDirectionDeg())
                     .elevationM(setting.getManualElevationM() != null ? setting.getManualElevationM() : payload.elevationM())
-                    .rawPayloadJson(payload.rawPayloadJson())
+                    .rawPayloadJson(sanitizedRawPayload(payload.rawPayloadJson()))
                     .build());
             forecastRepository.deleteBySiteId(site.getId());
             List<SiteWeatherForecastPoint> points = new ArrayList<>();
@@ -304,15 +355,18 @@ public class SiteWeatherService {
         }
     }
 
-    private SiteWeatherView recordRefreshFailure(Site site, RuntimeException exception) {
+    private SiteWeatherView recordRefreshFailure(Site site, RuntimeException exception, long durationMillis) {
         SiteWeatherSettings setting = settingsRepository.findBySiteId(site.getId()).orElse(null);
+        platformMetricsService.weatherRefresh(setting == null ? null : setting.getProviderCode(), "failure");
         if (setting == null) {
-            return new SiteWeatherView(site.getCode(), "UNAVAILABLE", null, null, null,
+            return new SiteWeatherView(site.getCode(), site.getId(), "UNAVAILABLE", null, null, null,
                     "天气配置不存在。", null, null, unavailableIndicators("UNAVAILABLE"));
         }
         Instant attemptedAt = Instant.now();
         setting.setLastRefreshAttemptAt(attemptedAt);
         setting.setLastRefreshError(refreshErrorMessage(exception));
+        setting.setLastRefreshOutcome("FAILURE");
+        setting.setLastRefreshDurationMs(durationMillis);
         if (setting.getWeatherRetryCount() < 1) {
             setting.setWeatherRetryCount(setting.getWeatherRetryCount() + 1);
             setting.setRetryAfter(attemptedAt.plus(RETRY_DELAY));
@@ -323,10 +377,64 @@ public class SiteWeatherService {
         return buildCurrent(site, saved, latestSnapshot(site, saved));
     }
 
+    private void recordRefreshOutcome(Site site, String outcome, long durationMillis) {
+        settingsRepository.findBySiteId(site.getId()).ifPresent(setting -> {
+            setting.setLastRefreshOutcome(outcome);
+            setting.setLastRefreshDurationMs(durationMillis);
+            settingsRepository.save(setting);
+        });
+    }
+
+    private long elapsedMillis(long startedAtNanos) {
+        return Math.max(0L, java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos));
+    }
+
+    private void auditProviderAccess(
+            Site site,
+            SiteWeatherSettings setting,
+            String providerCode,
+            Instant requestedAt,
+            String outcome,
+            long durationMillis,
+            String errorCode
+    ) {
+        weatherProviderAccessEventRepository.save(WeatherProviderAccessEvent.builder()
+                .site(site)
+                .providerCode(blankToNull(setting.getProviderCode()) == null ? providerCode : setting.getProviderCode())
+                .purpose("WEATHER_REFRESH")
+                .outcome(outcome)
+                .coordinatePrecision("COARSENED".equalsIgnoreCase(setting.getLocationSource()) ? "COARSE" : "EXACT")
+                .occurredAt(requestedAt)
+                .durationMs(durationMillis)
+                .errorCode(errorCode)
+                .build());
+    }
+
+    private String providerErrorCode(RuntimeException exception) {
+        if (exception instanceof WeatherProviderException) return "PROVIDER_ERROR";
+        if (exception instanceof IllegalArgumentException) return "INVALID_CONFIGURATION";
+        return "UNEXPECTED_ERROR";
+    }
+
+    /** Removes exact-coordinate fields before retaining a provider diagnostic payload. */
+    private String sanitizedRawPayload(String rawPayload) {
+        if (rawPayload == null || rawPayload.isBlank()) return null;
+        try {
+            JsonNode root = objectMapper.readTree(rawPayload);
+            if (!(root instanceof ObjectNode object)) return null;
+            object.remove("latitude");
+            object.remove("longitude");
+            return objectMapper.writeValueAsString(object);
+        } catch (Exception ignored) {
+            // Diagnostics must never make a successful weather refresh fail.
+            return null;
+        }
+    }
+
     private SiteWeatherView buildCurrent(Site site, SiteWeatherSettings setting, SiteWeatherSnapshot snapshot) {
         String weatherStatus = status(setting, snapshot);
         if (snapshot == null) {
-            return new SiteWeatherView(site.getCode(), weatherStatus, null, null, null,
+            return new SiteWeatherView(site.getCode(), site.getId(), weatherStatus, null, null, null,
                     setting == null ? null : setting.getLastRefreshError(), setting == null ? null : setting.getRetryAfter(), null,
                     unavailableIndicators(weatherStatus));
         }
@@ -338,7 +446,7 @@ public class SiteWeatherService {
                 surfaceTemperature, condensationConfigured
         );
         return new SiteWeatherView(
-                site.getCode(), weatherStatus, snapshot.getProviderCode(), snapshot.getObservedAt(), snapshot.getFetchedAt(),
+                site.getCode(), site.getId(), weatherStatus, snapshot.getProviderCode(), snapshot.getObservedAt(), snapshot.getFetchedAt(),
                 setting == null ? null : setting.getLastRefreshError(), setting == null ? null : setting.getRetryAfter(),
                 new CurrentWeatherView(
                         condition.code(), snapshot.getConditionText(), condition.iconKey(), snapshot.getTemperatureC(),
@@ -368,7 +476,7 @@ public class SiteWeatherService {
         if (setting == null) {
             return new SiteWeatherSettingsView(site.getCode(), false, "OPEN_METEO", null, null, null, null,
                     null, null, null, null, null, snapshot == null ? null : snapshot.getFetchedAt(),
-                    null, null, null, null);
+                    null, null, null, null, null, null);
         }
         return new SiteWeatherSettingsView(
                 site.getCode(), setting.isEnabled(), setting.getProviderCode(), setting.getLatitude(), setting.getLongitude(),
@@ -376,7 +484,8 @@ public class SiteWeatherService {
                 setting.getLocationUpdatedAt(),
                 setting.getCondensationTemperatureDevice() == null ? null : setting.getCondensationTemperatureDevice().getId(),
                 setting.getCondensationTemperatureField(), snapshot == null ? null : snapshot.getFetchedAt(),
-                setting.getLastRefreshAttemptAt(), setting.getLastRefreshError(), setting.getRetryAfter(),
+                setting.getLastRefreshAttemptAt(), setting.getLastRefreshError(), setting.getLastRefreshOutcome(),
+                setting.getLastRefreshDurationMs(), setting.getRetryAfter(),
                 setting.getLastManualRefreshAt()
         );
     }
@@ -434,12 +543,24 @@ public class SiteWeatherService {
         if (setting == null || setting.getLatitude() == null || setting.getLongitude() == null) return null;
         String providerCode = blankToNull(setting.getProviderCode());
         String timezone = blankToNull(setting.getTimezone());
-        return String.join("|",
+        String configuration = String.join("|",
                 providerCode == null ? "OPEN_METEO" : providerCode.toUpperCase(Locale.ROOT),
                 Double.toString(setting.getLatitude()),
                 Double.toString(setting.getLongitude()),
                 timezone == null ? "UTC" : ZoneId.of(timezone).getId()
         );
+        String secret = blankToNull(weatherPrivacyProperties.getFingerprintSecret());
+        if (secret == null) {
+            throw new IllegalStateException("Weather privacy fingerprint secret must be configured");
+        }
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            return "v2:" + Base64.getUrlEncoder().withoutPadding()
+                    .encodeToString(mac.doFinal(configuration.getBytes(StandardCharsets.UTF_8)));
+        } catch (GeneralSecurityException exception) {
+            throw new IllegalStateException("Unable to protect weather configuration fingerprint", exception);
+        }
     }
 
     private boolean hasMaterialLocationChange(SiteWeatherSettings setting, double latitude, double longitude) {

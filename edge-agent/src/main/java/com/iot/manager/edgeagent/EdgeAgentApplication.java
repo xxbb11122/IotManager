@@ -38,7 +38,14 @@ public final class EdgeAgentApplication {
                 config,
                 identity,
                 registry,
-                endpoint -> new JdkWebSocketAgentTransport(httpClient, endpoint, codec)
+                endpoint -> new JdkWebSocketAgentTransport(
+                        httpClient,
+                        endpoint,
+                        codec,
+                        config.webSocketAccessToken(),
+                        config.agentCredentialId(),
+                        config.agentCredentialToken()
+                )
         );
         CountDownLatch stopped = new CountDownLatch(1);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {

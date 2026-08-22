@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 
 public record CommandBatchView(
         String batchId,
+        Long siteId,
         String siteCode,
         String groupId,
         String targetKind,

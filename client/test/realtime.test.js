@@ -80,3 +80,42 @@ test('realtime client notifies valid events and reconnects after an unexpected c
   realtime.disconnect();
   assert.equal(realtime.getHealth().state, 'disconnected');
 });
+
+test('realtime client places an optional bearer token in a WebSocket subprotocol instead of the URL', () => {
+  FakeWebSocket.instances = [];
+  let protocols;
+  const realtime = new RealtimeClient({
+    url: 'wss://iot.example.test/ws/devices',
+    accessToken: 'access-token-2',
+    webSocketFactory: (url, offeredProtocols) => {
+      protocols = offeredProtocols;
+      return new FakeWebSocket(url);
+    }
+  });
+
+  realtime.connect();
+
+  assert.equal(
+    FakeWebSocket.instances[0].url,
+    'wss://iot.example.test/ws/devices'
+  );
+  assert.deepEqual(protocols, ['iot-bearer.access-token-2']);
+  realtime.disconnect();
+});
+
+test('realtime client scopes the WebSocket handshake to the active site', () => {
+  FakeWebSocket.instances = [];
+  const realtime = new RealtimeClient({
+    url: 'wss://iot.example.test/ws/devices',
+    siteCode: 'site-a',
+    webSocketFactory: (url) => new FakeWebSocket(url)
+  });
+
+  realtime.connect();
+
+  assert.equal(
+    FakeWebSocket.instances[0].url,
+    'wss://iot.example.test/ws/devices?siteCode=site-a'
+  );
+  realtime.disconnect();
+});

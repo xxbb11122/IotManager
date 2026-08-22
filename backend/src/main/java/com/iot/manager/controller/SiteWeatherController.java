@@ -5,6 +5,7 @@ import com.iot.manager.dto.SiteWeatherLocationRequest;
 import com.iot.manager.dto.SiteWeatherSettingsRequest;
 import com.iot.manager.dto.SiteWeatherSettingsView;
 import com.iot.manager.dto.SiteWeatherView;
+import com.iot.manager.service.SiteAccessService;
 import com.iot.manager.weather.SiteWeatherService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -22,16 +23,17 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/sites/{siteCode}")
+@RequestMapping({"/api/sites/{siteCode}", "/api/v1/sites/{siteCode}"})
 @RequiredArgsConstructor
 @Validated
 public class SiteWeatherController {
 
     private final SiteWeatherService siteWeatherService;
+    private final SiteAccessService siteAccessService;
 
     @GetMapping("/weather")
     public SiteWeatherView current(@PathVariable String siteCode) {
-        return siteWeatherService.current(siteCode);
+        return siteWeatherService.current(siteAccessService.requireSiteAccess(siteCode));
     }
 
     @GetMapping("/weather/forecast")
@@ -40,30 +42,32 @@ public class SiteWeatherController {
             @RequestParam(defaultValue = "24") @Min(0) @Max(24) int hours,
             @RequestParam(defaultValue = "7") @Min(0) @Max(7) int days
     ) {
-        return siteWeatherService.forecast(siteCode, hours, days);
+        return siteWeatherService.forecast(siteAccessService.requireSiteAccess(siteCode), hours, days);
     }
 
     @GetMapping("/weather-settings")
     public SiteWeatherSettingsView settings(@PathVariable String siteCode) {
-        return siteWeatherService.settings(siteCode);
+        return siteWeatherService.settings(siteAccessService.requireSiteAccess(siteCode));
     }
 
     @PutMapping("/weather-settings")
     public SiteWeatherSettingsView updateSettings(
             @PathVariable String siteCode, @Valid @RequestBody SiteWeatherSettingsRequest request
     ) {
-        return siteWeatherService.updateSettings(siteCode, request);
+        return siteWeatherService.updateSettings(siteAccessService.requireSiteAccess(siteCode), request);
     }
 
     @PostMapping("/weather/refresh")
     public ResponseEntity<SiteWeatherView> refresh(@PathVariable String siteCode) {
-        return ResponseEntity.ok(siteWeatherService.refresh(siteCode));
+        return ResponseEntity.ok(siteWeatherService.refresh(siteAccessService.requireSiteAccess(siteCode)));
     }
 
     @PostMapping("/weather/location")
     public ResponseEntity<SiteWeatherView> updateLocation(
             @PathVariable String siteCode, @Valid @RequestBody SiteWeatherLocationRequest request
     ) {
-        return ResponseEntity.ok(siteWeatherService.updateLocationAndRefresh(siteCode, request));
+        return ResponseEntity.ok(siteWeatherService.updateLocationAndRefresh(
+                siteAccessService.requireSiteAccess(siteCode), request
+        ));
     }
 }

@@ -14,4 +14,6 @@ public interface SiteWeatherSettingsRepository extends JpaRepository<SiteWeather
     List<SiteWeatherSettings> findByEnabledTrue();
 
     List<SiteWeatherSettings> findByEnabledTrueAndRetryAfterLessThanEqual(Instant retryAfter);
+
+    List<SiteWeatherSettings> findByLocationUpdatedAtBeforeAndLatitudeIsNotNullAndLongitudeIsNotNull(Instant cutoff);
 }

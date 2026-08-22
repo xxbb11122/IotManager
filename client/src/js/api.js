@@ -15,6 +15,20 @@ function appendPathWhenRoot(value, path) {
   }
 }
 
+function versionedApiBase(value) {
+  const normalized = appendPathWhenRoot(value, '/api/v1') || '/api/v1';
+  if (normalized === '/api' || normalized === '/api/') return '/api/v1';
+  try {
+    const parsed = new URL(normalized);
+    if (parsed.pathname === '/api' || parsed.pathname === '/api/') {
+      parsed.pathname = '/api/v1';
+    }
+    return parsed.href.replace(/\/$/, '');
+  } catch {
+    return normalized;
+  }
+}
+
 function runtimeEnv() {
   return import.meta.env ?? {};
 }
@@ -46,7 +60,7 @@ function normalizeWebSocketUrl(value) {
 
 export function resolveClientConfig(overrides = {}) {
   const env = runtimeEnv();
-  const apiBaseUrl = appendPathWhenRoot(overrides.apiBaseUrl ?? env.VITE_API_BASE_URL ?? '/api', '/api') || '/api';
+  const apiBaseUrl = versionedApiBase(overrides.apiBaseUrl ?? env.VITE_API_BASE_URL ?? '/api/v1');
   const wsUrl = normalizeWebSocketUrl(overrides.wsUrl ?? env.VITE_WS_URL ?? defaultWebSocketUrl());
   return Object.freeze({ apiBaseUrl, wsUrl });
 }
@@ -82,32 +96,53 @@ export class ApiError extends Error {
     this.name = 'ApiError';
     this.status = response.status;
     this.problem = problem ?? null;
+    const retryAfter = Number(response.headers?.get?.('retry-after') ?? problem?.retryAfterSeconds);
+    this.retryAfterSeconds = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.ceil(retryAfter) : null;
   }
 }
 
 export class ApiClient {
-  constructor({ baseUrl = resolveClientConfig().apiBaseUrl, fetchImpl = globalThis.fetch } = {}) {
+  constructor({
+    baseUrl = resolveClientConfig().apiBaseUrl,
+    fetchImpl = globalThis.fetch,
+    accessToken = null,
+    accessTokenProvider = null,
+    onUnauthorized = null
+  } = {}) {
     if (typeof fetchImpl !== 'function') {
       throw new TypeError('ApiClient requires a fetch implementation');
     }
-    this.baseUrl = trimTrailingSlash(baseUrl);
+    this.baseUrl = versionedApiBase(baseUrl);
+    this.accessToken = accessToken;
+    this.accessTokenProvider = accessTokenProvider;
+    this.onUnauthorized = onUnauthorized;
     // Native Window.fetch needs Window as its receiver in Chromium.
     this.fetchImpl = fetchImpl.bind(globalThis);
   }
 
-  async request(path, { method = 'GET', body, headers = {}, signal } = {}) {
+  async request(path, { method = 'GET', body, headers = {}, signal } = {}, retriedAfterRefresh = false) {
     const hasBody = body !== undefined;
+    const token = typeof this.accessTokenProvider === 'function'
+      ? await this.accessTokenProvider()
+      : this.accessToken;
     const response = await this.fetchImpl(joinUrl(this.baseUrl, path), {
       method,
       signal,
       headers: {
         accept: 'application/json',
         ...(hasBody ? { 'content-type': 'application/json' } : {}),
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
         ...headers
       },
       ...(hasBody ? { body: JSON.stringify(body) } : {})
     });
     const payload = await readResponseBody(response);
+    if (response.status === 401 && !retriedAfterRefresh && typeof this.onUnauthorized === 'function') {
+      const refreshed = await this.onUnauthorized();
+      if (refreshed) {
+        return this.request(path, { method, body, headers, signal }, true);
+      }
+    }
     if (!response.ok) {
       throw new ApiError(response, payload);
     }
@@ -123,6 +158,10 @@ export class ApiClient {
     }
     const suffix = params.size > 0 ? `?${params}` : '';
     return this.request(`/devices${suffix}`, options);
+  }
+
+  listSites(options = {}) {
+    return this.request('/sites', options);
   }
 
   getDevice(deviceId, options = {}) {

@@ -51,6 +51,8 @@ public class CommandBatchService {
     private final CommandService commandService;
     private final CommandBatchSummaryService summaryService;
     private final ObjectMapper objectMapper;
+    private final SiteAccessService siteAccessService;
+    private final AuditContextService auditContextService;
 
     @Transactional
     public CommandBatchView create(CommandBatchRequest request) {
@@ -85,7 +87,7 @@ public class CommandBatchService {
                 .idempotencyKey(request.idempotencyKey().trim())
                 .requestFingerprint(fingerprint)
                 .requestedVia("CONSOLE")
-                .requestedBy("anonymous")
+                .requestedBy(auditContextService.currentSubjectOrAnonymous())
                 .requestedAt(LocalDateTime.now())
                 .expiresAt(expiry(request.expiresInSeconds()))
                 .totalCount(0)
@@ -170,6 +172,9 @@ public class CommandBatchService {
     }
 
     private Site resolveSite(String siteCode) {
+        if (siteAccessService.isScopeEnforced()) {
+            return siteAccessService.requireSiteAccess(siteCode);
+        }
         bootstrapService.ensureDemoContext();
         Organization organization = organizationRepository.findByCode(DEMO_ORGANIZATION_CODE)
                 .orElseThrow(() -> new NoSuchElementException("Organization not found"));

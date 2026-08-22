@@ -52,14 +52,34 @@ verify_maven_jdk() {
   fi
 }
 
+verify_android_jdk() {
+  require_command java 'Configure JDK 21 or newer for Android builds.'
+  local java_version
+  java_version="$(java -version 2>&1 | head -n 1)"
+  if [[ ! "$java_version" =~ ([0-9]+) ]]; then
+    printf 'Unable to determine the Android Java version: %s\n' "$java_version" >&2
+    exit 1
+  fi
+  if [ "${BASH_REMATCH[1]}" -lt 21 ]; then
+    printf 'Android verification requires JDK 21 or newer. Java reported: %s\n' "$java_version" >&2
+    exit 1
+  fi
+}
+
 if [ "$skip_backend" = false ]; then
   verify_maven_jdk
   for component in backend edge-agent; do
     printf '==> %s: tests and package (JDK 17)\n' "$component"
     (
       cd "$repository_root/$component"
-      mvn --batch-mode --no-transfer-progress verify
+      mvn --batch-mode --no-transfer-progress clean verify
     )
+    # .dumpstream can contain an informational Maven classpath notice; .dump
+    # is the Surefire diagnostic for an abnormal fork shutdown.
+    if compgen -G "$repository_root/$component/target/surefire-reports/*.dump" > /dev/null; then
+      printf '%s Maven verification produced Surefire shutdown dump(s).\n' "$component" >&2
+      exit 1
+    fi
   done
 fi
 
@@ -72,6 +92,7 @@ if [ "$skip_web" = false ]; then
       npm ci
       if [ "$app" = client ]; then
         npm test
+        npm run test:e2e
       fi
       npm run build
     )
@@ -80,13 +101,20 @@ fi
 
 if [ "$skip_deploy" = false ]; then
   if command -v docker >/dev/null 2>&1; then
-    printf '==> Deployment: Docker Compose and Caddy configuration\n'
-    DOMAIN=ci.example.test docker compose -f "$repository_root/deploy/docker-compose.yml" config --quiet
-    docker run --rm \
-      -e DOMAIN=ci.example.test \
-      -v "$repository_root/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
-      caddy:2-alpine \
-      caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+    printf '==> Deployment: Docker Compose configuration\n'
+    DOMAIN=ci.example.test ACME_EMAIL=ci@example.test \
+      docker compose --env-file "$repository_root/deploy/.env.example" -f "$repository_root/deploy/docker-compose.yml" config --quiet
+    if docker info >/dev/null 2>&1; then
+      printf '==> Deployment: Caddy configuration\n'
+      docker run --rm \
+        -e DOMAIN=ci.example.test \
+        -e ACME_EMAIL=ci@example.test \
+        -v "$repository_root/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+        caddy:2-alpine \
+        caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+    else
+      printf 'WARNING: Docker CLI was found but its engine is unavailable. Caddy runtime validation was skipped.\n' >&2
+    fi
   else
     printf 'WARNING: Docker was not found. Deployment configuration validation was skipped.\n' >&2
   fi
@@ -94,6 +122,7 @@ fi
 
 if [ "$run_android" = true ]; then
   verify_node
+  verify_android_jdk
   if [ -z "${ANDROID_SDK_ROOT:-}" ] && [ -z "${ANDROID_HOME:-}" ]; then
     printf 'Set ANDROID_SDK_ROOT (or ANDROID_HOME) to an Android SDK containing API 36 and Build Tools 36.0.0.\n' >&2
     exit 1

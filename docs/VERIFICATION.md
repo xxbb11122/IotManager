@@ -10,12 +10,19 @@ the deployment configuration from the same commit.
 - Web applications and Capacitor sync: Node.js 22+ and npm.
 - Android: JDK 21+, Android SDK Platform 36, Build Tools 36.0.0, and platform
   tools.
-- Deployment checks: Docker with the Compose v2 plugin.
+- Deployment checks: a running Docker Engine with the Compose v2 plugin.
 
 The default local check covers `backend`, `edge-agent`, `frontend`, `console`,
-`client`, and Docker Compose/Caddy syntax. Android is opt-in because it needs
-a local Android SDK. The CI workflow installs the Android prerequisites and
-runs it by default.
+`client`, and Docker Compose/Caddy syntax. If the Docker CLI is present but the
+Engine is stopped, Compose interpolation is still checked and the Caddy
+container validation is reported as skipped. Android is opt-in because it needs
+a local Android SDK. CI installs the Android prerequisites and runs it by
+default.
+
+Java service verification uses `clean verify`. The backend permits up to 90
+seconds for the forked test JVM to close its multiple RANDOM_PORT
+Spring/Tomcat contexts cleanly; this prevents a passing suite from being
+forcibly terminated during its orderly shutdown.
 
 ## Run locally
 
@@ -45,11 +52,11 @@ newer.
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on pushes to `master` and `codex/**`, pull
-requests, and manual dispatch. It contains independent jobs for:
+`.github/workflows/verify.yml` runs on every push, pull request, and manual
+dispatch. It contains independent jobs for:
 
 - Maven tests and packaging for the backend and Edge Agent on JDK 17.
-- Client unit tests plus all three Vite builds on Node 22.
+- Client unit/E2E tests plus all three Vite builds on Node 22.
 - Capacitor synchronization and an Android debug APK on JDK 21/API 36.
 - Docker Compose interpolation/schema validation, Caddy syntax validation, and
   a build of the backend plus both static web images.

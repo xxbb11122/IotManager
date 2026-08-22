@@ -16,13 +16,39 @@ public final class JdkWebSocketAgentTransport implements AgentTransport {
     private final HttpClient httpClient;
     private final URI endpoint;
     private final AgentProtocolCodec codec;
+    private final String accessToken;
+    private final String credentialId;
+    private final String credentialToken;
     private volatile AgentTransportListener listener;
     private volatile WebSocket webSocket;
 
     public JdkWebSocketAgentTransport(HttpClient httpClient, URI endpoint, AgentProtocolCodec codec) {
+        this(httpClient, endpoint, codec, null);
+    }
+
+    public JdkWebSocketAgentTransport(
+            HttpClient httpClient, URI endpoint, AgentProtocolCodec codec, String accessToken
+    ) {
+        this(httpClient, endpoint, codec, accessToken, null, null);
+    }
+
+    public JdkWebSocketAgentTransport(
+            HttpClient httpClient,
+            URI endpoint,
+            AgentProtocolCodec codec,
+            String accessToken,
+            String credentialId,
+            String credentialToken
+    ) {
         this.httpClient = Objects.requireNonNull(httpClient, "httpClient");
         this.endpoint = Objects.requireNonNull(endpoint, "endpoint");
         this.codec = Objects.requireNonNull(codec, "codec");
+        this.accessToken = accessToken == null || accessToken.isBlank() ? null : accessToken.trim();
+        this.credentialId = credentialId == null || credentialId.isBlank() ? null : credentialId.trim();
+        this.credentialToken = credentialToken == null || credentialToken.isBlank() ? null : credentialToken.trim();
+        if ((this.credentialId == null) != (this.credentialToken == null)) {
+            throw new IllegalArgumentException("credentialId and credentialToken must be provided together");
+        }
     }
 
     @Override
@@ -31,7 +57,15 @@ public final class JdkWebSocketAgentTransport implements AgentTransport {
             return CompletableFuture.failedFuture(new IllegalStateException("WebSocket transport is already connecting or connected"));
         }
         this.listener = Objects.requireNonNull(listener, "listener");
-        return httpClient.newWebSocketBuilder()
+        WebSocket.Builder builder = httpClient.newWebSocketBuilder();
+        if (accessToken != null) {
+            builder.header("Authorization", "Bearer " + accessToken);
+        }
+        if (credentialId != null) {
+            builder.header("X-Iot-Agent-Credential", credentialId);
+            builder.header("X-Iot-Agent-Token", credentialToken);
+        }
+        return builder
                 .buildAsync(endpoint, new Listener())
                 .thenApply(ignored -> null);
     }

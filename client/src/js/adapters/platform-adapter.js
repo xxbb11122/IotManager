@@ -10,6 +10,8 @@ export class PlatformAdapter {
   }
 
   listDevices(context = {}, options = {}) { return this.api.listDevices(context, options); }
+  listSites(options = {}) { return this.api.listSites(options); }
+  setSiteCode(siteCode) { this.realtime.setSiteCode?.(siteCode); }
   discoverLan({ siteCode }, options = {}) { return this.api.listLanCandidates(siteCode, options); }
   claimLan(candidate, claim, options = {}) {
     const candidateId = typeof candidate === 'string' ? candidate : candidate?.candidateId;

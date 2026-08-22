@@ -26,6 +26,8 @@ export async function probeEndpoint({
   apiBaseUrl,
   wsUrl,
   organizationCode,
+  siteCode,
+  accessToken,
   fetchImpl,
   timeoutMs = 8000,
   verifyWebSocket = false,
@@ -38,7 +40,8 @@ export async function probeEndpoint({
       accessRoute,
       apiBaseUrl,
       wsUrl,
-      organizationCode
+      organizationCode,
+      accessToken
     });
   } catch (error) {
     return { ok: false, message: friendlyEndpointError(error) };
@@ -47,10 +50,10 @@ export async function probeEndpoint({
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const api = new ApiClient({ baseUrl: profile.apiBaseUrl, fetchImpl });
+    const api = new ApiClient({ baseUrl: profile.apiBaseUrl, fetchImpl, accessToken: profile.accessToken });
     const devices = await api.listDevices({}, { signal: controller.signal });
     if (verifyWebSocket) {
-      await probeWebSocket(profile.wsUrl, webSocketFactory, timeoutMs);
+      await probeWebSocket(profile.wsUrl, webSocketFactory, timeoutMs, profile.accessToken, siteCode);
     }
     return {
       ok: true,
@@ -68,7 +71,7 @@ export async function probeEndpoint({
   }
 }
 
-function probeWebSocket(url, factory, timeoutMs) {
+function probeWebSocket(url, factory, timeoutMs, accessToken, siteCode) {
   if (typeof factory !== 'function') {
     return Promise.reject(new Error('当前环境不支持实时连接测试。'));
   }
@@ -84,7 +87,7 @@ function probeWebSocket(url, factory, timeoutMs) {
     };
     const timer = setTimeout(() => finish(reject, new Error('实时连接超时，请检查 WebSocket 地址和后端状态。')), timeoutMs);
     try {
-      socket = new factory(url);
+      socket = new factory(withWebSocketContext(url, siteCode), webSocketProtocols(accessToken));
       socket.onopen = () => finish(resolve);
       socket.onerror = () => finish(reject, new Error('实时连接失败，请检查 WebSocket 地址和后端状态。'));
       socket.onclose = () => {
@@ -94,4 +97,19 @@ function probeWebSocket(url, factory, timeoutMs) {
       finish(reject, error instanceof Error ? error : new Error(String(error)));
     }
   });
+}
+
+function withWebSocketContext(url, siteCode) {
+  const hasSite = siteCode !== null && siteCode !== undefined && String(siteCode).trim() !== '';
+  if (!hasSite) {
+    return url;
+  }
+  const parsed = new URL(url);
+  if (hasSite) parsed.searchParams.set('siteCode', String(siteCode).trim());
+  return parsed.toString();
+}
+
+function webSocketProtocols(accessToken) {
+  const token = String(accessToken ?? '').trim();
+  return token ? [`iot-bearer.${token}`] : undefined;
 }

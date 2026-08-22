@@ -11,6 +11,7 @@ import com.iot.manager.entity.DiscoveredDevice;
 import com.iot.manager.entity.EdgeAgent;
 import com.iot.manager.entity.Organization;
 import com.iot.manager.entity.Site;
+import com.iot.manager.config.IotSecurityProperties;
 import com.iot.manager.repository.DeviceCommandRepository;
 import com.iot.manager.repository.DeviceConnectionRepository;
 import com.iot.manager.repository.DeviceRepository;
@@ -18,6 +19,7 @@ import com.iot.manager.repository.DiscoveredDeviceRepository;
 import com.iot.manager.repository.EdgeAgentRepository;
 import com.iot.manager.repository.OrganizationRepository;
 import com.iot.manager.repository.SiteRepository;
+import com.iot.manager.websocket.EdgeAgentCredentialHandshakeInterceptor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -58,9 +60,12 @@ public class EdgeAgentService {
     private final TelemetryService telemetryService;
     private final WebSocketService webSocketService;
     private final ObjectMapper objectMapper;
+    private final IotSecurityProperties securityProperties;
+    private final AgentCredentialService credentialService;
 
     private final Map<String, WebSocketSession> sessionsByAgentId = new ConcurrentHashMap<>();
     private final Map<String, String> agentIdBySessionId = new ConcurrentHashMap<>();
+    private final Map<String, String> credentialIdBySessionId = new ConcurrentHashMap<>();
 
     public void connected(WebSocketSession session) {
         log.info("Edge agent WebSocket connected: {}", session.getId());
@@ -69,6 +74,7 @@ public class EdgeAgentService {
     @Transactional
     public void disconnected(WebSocketSession session) {
         String agentId = agentIdBySessionId.remove(session.getId());
+        credentialIdBySessionId.remove(session.getId());
         if (agentId == null) return;
         if (sessionsByAgentId.remove(agentId, session)) {
             markOffline(agentId);
@@ -135,6 +141,13 @@ public class EdgeAgentService {
             );
             return;
         }
+        if (securityProperties.isEnabled() && !isCredentialActive(session)) {
+            commandService.completeFromEdgeAgent(
+                    pending.getCommandId(), "FAILED", Map.of(), "AGENT_CREDENTIAL_REVOKED",
+                    "The edge agent credential is no longer active", Instant.now()
+            );
+            return;
+        }
         try {
             DeviceCommandViewGuard sent = new DeviceCommandViewGuard(commandService.markSentForEdgeAgent(pending.getCommandId()));
             if (!"SENT".equals(sent.status())) return;
@@ -151,15 +164,38 @@ public class EdgeAgentService {
     protected void hello(WebSocketSession session, JsonNode payload) {
         JsonNode descriptor = payload.path("agent");
         String agentId = requiredText(descriptor, "agentId");
-        Site site = resolveSite(requiredText(descriptor, "siteCode"));
+        String siteCode = requiredText(descriptor, "siteCode");
         LocalDateTime now = LocalDateTime.now();
-        EdgeAgent agent = agentRepository.findByAgentId(agentId).orElseGet(() -> EdgeAgent.builder()
-                .agentId(agentId)
-                .site(site)
-                .createdAt(now)
-                .build());
-        if (!agent.getSite().getId().equals(site.getId())) {
-            throw new IllegalArgumentException("Agent identity is already assigned to a different site");
+        EdgeAgent agent;
+        if (securityProperties.isEnabled()) {
+            Object boundAgentId = session.getAttributes().get(EdgeAgentCredentialHandshakeInterceptor.AGENT_ID_ATTRIBUTE);
+            Object boundSiteCode = session.getAttributes().get(EdgeAgentCredentialHandshakeInterceptor.SITE_CODE_ATTRIBUTE);
+            Object boundDatabaseId = session.getAttributes().get(EdgeAgentCredentialHandshakeInterceptor.AGENT_DATABASE_ID_ATTRIBUTE);
+            Object boundCredentialId = session.getAttributes().get(EdgeAgentCredentialHandshakeInterceptor.CREDENTIAL_ID_ATTRIBUTE);
+            if (!(boundAgentId instanceof String expectedAgentId)
+                    || !(boundSiteCode instanceof String expectedSiteCode)
+                    || !(boundDatabaseId instanceof Long databaseId)
+                    || !(boundCredentialId instanceof String credentialId)
+                    || !agentId.equals(expectedAgentId)
+                    || !siteCode.equals(expectedSiteCode)) {
+                throw new IllegalArgumentException("Agent hello does not match the authenticated credential");
+            }
+            agent = agentRepository.findById(databaseId)
+                    .orElseThrow(() -> new NoSuchElementException("Edge agent not found"));
+            if (!agentId.equals(agent.getAgentId()) || !siteCode.equals(agent.getSite().getCode())) {
+                throw new IllegalArgumentException("Agent identity is already assigned to a different site");
+            }
+            credentialIdBySessionId.put(session.getId(), credentialId);
+        } else {
+            Site site = resolveSite(siteCode);
+            agent = agentRepository.findByAgentId(agentId).orElseGet(() -> EdgeAgent.builder()
+                    .agentId(agentId)
+                    .site(site)
+                    .createdAt(now)
+                    .build());
+            if (!agent.getSite().getId().equals(site.getId())) {
+                throw new IllegalArgumentException("Agent identity is already assigned to a different site");
+            }
         }
         agent.setName(requiredText(descriptor, "agentName"));
         agent.setVersion(text(descriptor, "softwareVersion"));
@@ -312,7 +348,22 @@ public class EdgeAgentService {
     private EdgeAgent agentFor(WebSocketSession session) {
         String agentId = agentIdBySessionId.get(session.getId());
         if (agentId == null) throw new IllegalArgumentException("Agent hello is required before this message");
+        if (securityProperties.isEnabled()) {
+            Object boundAgentId = session.getAttributes().get(EdgeAgentCredentialHandshakeInterceptor.AGENT_ID_ATTRIBUTE);
+            String credentialId = credentialIdBySessionId.get(session.getId());
+            if (!(boundAgentId instanceof String expectedAgentId)
+                    || !agentId.equals(expectedAgentId)
+                    || credentialId == null
+                    || !credentialService.isActive(credentialId)) {
+                throw new IllegalArgumentException("Edge agent credential is no longer active");
+            }
+        }
         return agentRepository.findByAgentId(agentId).orElseThrow(() -> new NoSuchElementException("Edge agent not found"));
+    }
+
+    private boolean isCredentialActive(WebSocketSession session) {
+        String credentialId = credentialIdBySessionId.get(session.getId());
+        return credentialId != null && credentialService.isActive(credentialId);
     }
 
     private Site resolveSite(String siteCode) {
@@ -355,6 +406,7 @@ public class EdgeAgentService {
     private Map<String, Object> agentPayload(EdgeAgent agent) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("agentId", agent.getAgentId());
+        payload.put("siteId", agent.getSite().getId());
         payload.put("siteCode", agent.getSite().getCode());
         payload.put("name", agent.getName());
         payload.put("version", agent.getVersion());

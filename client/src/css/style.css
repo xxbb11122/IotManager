@@ -801,6 +801,18 @@ select:focus-visible {
   background: #f9fcfc;
 }
 
+.path-choice--selected {
+  color: var(--teal-strong);
+  background: var(--teal-soft);
+  border-color: var(--teal);
+  box-shadow: inset 3px 0 0 var(--teal);
+}
+
+.path-choice--selected:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
 .path-choice__icon {
   width: 44px;
   height: 44px;

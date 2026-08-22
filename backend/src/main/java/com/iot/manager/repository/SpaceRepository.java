@@ -11,4 +11,6 @@ import java.util.Optional;
 public interface SpaceRepository extends JpaRepository<Space, Long> {
 
     Optional<Space> findBySiteAndPath(Site site, String path);
+
+    Optional<Space> findFirstBySiteIdOrderById(Long siteId);
 }

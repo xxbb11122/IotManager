@@ -5,13 +5,17 @@ import com.iot.manager.dto.SiteWeatherSettingsRequest;
 import com.iot.manager.dto.SiteWeatherLocationRequest;
 import com.iot.manager.entity.Site;
 import com.iot.manager.entity.SiteWeatherSettings;
+import com.iot.manager.entity.SiteWeatherSnapshot;
+import com.iot.manager.entity.WeatherProviderAccessEvent;
 import com.iot.manager.repository.DeviceRepository;
 import com.iot.manager.repository.DeviceTelemetrySampleRepository;
 import com.iot.manager.repository.SiteRepository;
 import com.iot.manager.repository.SiteWeatherForecastPointRepository;
 import com.iot.manager.repository.SiteWeatherSettingsRepository;
 import com.iot.manager.repository.SiteWeatherSnapshotRepository;
+import com.iot.manager.repository.WeatherProviderAccessEventRepository;
 import com.iot.manager.service.WebSocketService;
+import com.iot.manager.service.PlatformMetricsService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -23,7 +27,7 @@ import java.util.Optional;
 import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -40,7 +44,9 @@ class SiteWeatherServiceTest {
     @Mock private SiteWeatherSettingsRepository settingsRepository;
     @Mock private SiteWeatherSnapshotRepository snapshotRepository;
     @Mock private SiteWeatherForecastPointRepository forecastRepository;
+    @Mock private WeatherProviderAccessEventRepository weatherProviderAccessEventRepository;
     @Mock private WebSocketService webSocketService;
+    @Mock private PlatformMetricsService platformMetricsService;
 
     @Test
     void returnsPendingWhenTheActiveConfigurationHasNoMatchingSnapshot() {
@@ -76,7 +82,7 @@ class SiteWeatherServiceTest {
         verify(forecastRepository).deleteBySiteId(7L);
         ArgumentCaptor<String> fingerprint = ArgumentCaptor.forClass(String.class);
         verify(snapshotRepository).findTopBySiteIdAndConfigurationFingerprintOrderByFetchedAtDesc(eq(7L), fingerprint.capture());
-        assertThat(fingerprint.getValue()).contains("39.9042", "116.4074");
+        assertThat(fingerprint.getValue()).startsWith("v2:").doesNotContain("39.9042", "116.4074");
     }
 
     @Test
@@ -101,7 +107,7 @@ class SiteWeatherServiceTest {
                 assertThat(updated.getLongitude()).isEqualTo(116.4074);
                 return new WeatherPayload("OPEN_METEO", Instant.parse("2026-08-13T06:00:00Z"), 52D,
                         new WeatherPayload.Current(1, 24D, 24D, 50, 1000D, 5D, 90),
-                        List.of(), List.of(), "{}");
+                        List.of(), List.of(), "{\"latitude\":39.9042,\"longitude\":116.4074,\"timezone\":\"Asia/Shanghai\"}");
             }
         };
 
@@ -115,6 +121,14 @@ class SiteWeatherServiceTest {
         assertThat(weather.current().elevationM()).isEqualTo(52D);
         assertThat(weather.current().elevationSource()).isEqualTo("PROVIDER");
         verify(forecastRepository, times(2)).deleteBySiteId(7L);
+        ArgumentCaptor<SiteWeatherSnapshot> snapshot = ArgumentCaptor.forClass(SiteWeatherSnapshot.class);
+        verify(snapshotRepository).save(snapshot.capture());
+        assertThat(snapshot.getValue().getRawPayloadJson()).doesNotContain("latitude", "longitude");
+        ArgumentCaptor<WeatherProviderAccessEvent> audit = ArgumentCaptor.forClass(WeatherProviderAccessEvent.class);
+        verify(weatherProviderAccessEventRepository).save(audit.capture());
+        assertThat(audit.getValue().getPurpose()).isEqualTo("WEATHER_REFRESH");
+        assertThat(audit.getValue().getOutcome()).isEqualTo("SUCCESS");
+        assertThat(audit.getValue().getCoordinatePrecision()).isEqualTo("EXACT");
     }
 
     @Test
@@ -148,6 +162,10 @@ class SiteWeatherServiceTest {
         assertThat(settings.getRetryAfter()).isAfter(Instant.now().minusSeconds(1));
         assertThat(weather.status()).isEqualTo("PENDING");
         assertThat(weather.refreshError()).contains("30 秒后自动重试");
+        ArgumentCaptor<WeatherProviderAccessEvent> audit = ArgumentCaptor.forClass(WeatherProviderAccessEvent.class);
+        verify(weatherProviderAccessEventRepository).save(audit.capture());
+        assertThat(audit.getValue().getOutcome()).isEqualTo("FAILURE");
+        assertThat(audit.getValue().getErrorCode()).isEqualTo("PROVIDER_ERROR");
     }
 
     @Test
@@ -158,9 +176,12 @@ class SiteWeatherServiceTest {
         when(siteRepository.findFirstByCode("demo-site")).thenReturn(Optional.of(site));
         when(settingsRepository.findBySiteId(7L)).thenReturn(Optional.of(settings));
 
-        assertThatThrownBy(() -> service().refresh("demo-site"))
-                .isInstanceOf(WeatherRefreshRateLimitedException.class)
-                .hasMessageContaining("秒后再试");
+        WeatherRefreshRateLimitedException exception = catchThrowableOfType(
+                () -> service().refresh("demo-site"), WeatherRefreshRateLimitedException.class
+        );
+
+        assertThat(exception).hasMessageContaining("秒后再试");
+        assertThat(exception.getRemainingSeconds()).isGreaterThan(0L).isLessThanOrEqualTo(60L);
     }
 
     private SiteWeatherService service() {
@@ -170,10 +191,16 @@ class SiteWeatherServiceTest {
     private SiteWeatherService service(List<WeatherProvider> providers) {
         return new SiteWeatherService(
                 siteRepository, deviceRepository, telemetrySampleRepository, settingsRepository, snapshotRepository,
-                forecastRepository, providers, new WeatherCodeMapper(),
+                forecastRepository, weatherProviderAccessEventRepository, providers, new WeatherCodeMapper(),
                 new EnvironmentStatusEvaluator(new DewPointCalculator(), new WeatherEnvironmentRules()),
-                webSocketService, new ObjectMapper()
+                webSocketService, platformMetricsService, new ObjectMapper(), weatherPrivacyProperties()
         );
+    }
+
+    private WeatherPrivacyProperties weatherPrivacyProperties() {
+        WeatherPrivacyProperties properties = new WeatherPrivacyProperties();
+        properties.setFingerprintSecret("test-weather-fingerprint-secret");
+        return properties;
     }
 
     private SiteWeatherSettings settings(Site site, double latitude, double longitude) {

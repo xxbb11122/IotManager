@@ -16,8 +16,45 @@ public record AgentConfig(
         Duration discoveryInterval,
         Duration reconnectDelay,
         Duration requestTimeout,
-        List<URI> shellyEndpoints
+        List<URI> shellyEndpoints,
+        String webSocketAccessToken,
+        String agentCredentialId,
+        String agentCredentialToken
 ) {
+    /** Backward-compatible constructor for local test/dev configurations. */
+    public AgentConfig(
+            String agentName,
+            String siteCode,
+            Path identityFile,
+            URI backendWebSocketUri,
+            Duration heartbeatInterval,
+            Duration discoveryInterval,
+                Duration reconnectDelay,
+                Duration requestTimeout,
+                List<URI> shellyEndpoints
+    ) {
+        this(agentName, siteCode, identityFile, backendWebSocketUri, heartbeatInterval,
+                discoveryInterval, reconnectDelay, requestTimeout, shellyEndpoints, null, null, null);
+    }
+
+    /** Backward-compatible bearer-token constructor for the transition period. */
+    public AgentConfig(
+            String agentName,
+            String siteCode,
+            Path identityFile,
+            URI backendWebSocketUri,
+            Duration heartbeatInterval,
+            Duration discoveryInterval,
+            Duration reconnectDelay,
+            Duration requestTimeout,
+            List<URI> shellyEndpoints,
+            String webSocketAccessToken
+    ) {
+        this(agentName, siteCode, identityFile, backendWebSocketUri, heartbeatInterval,
+                discoveryInterval, reconnectDelay, requestTimeout, shellyEndpoints,
+                webSocketAccessToken, null, null);
+    }
+
     public AgentConfig {
         agentName = requireText(agentName, "agentName");
         siteCode = requireText(siteCode, "siteCode");
@@ -28,6 +65,12 @@ public record AgentConfig(
         reconnectDelay = requirePositive(reconnectDelay, "reconnectDelay");
         requestTimeout = requirePositive(requestTimeout, "requestTimeout");
         shellyEndpoints = List.copyOf(Objects.requireNonNull(shellyEndpoints, "shellyEndpoints"));
+        webSocketAccessToken = normalizeOptional(webSocketAccessToken);
+        agentCredentialId = normalizeOptional(agentCredentialId);
+        agentCredentialToken = normalizeOptional(agentCredentialToken);
+        if ((agentCredentialId == null) != (agentCredentialToken == null)) {
+            throw new IllegalArgumentException("agentCredentialId and agentCredentialToken must be provided together");
+        }
     }
 
     private static String requireText(String value, String field) {
@@ -52,5 +95,9 @@ public record AgentConfig(
             throw new IllegalArgumentException(field + " must be positive");
         }
         return duration;
+    }
+
+    private static String normalizeOptional(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 }

@@ -14,7 +14,6 @@ import com.iot.manager.entity.DiscoveredDevice;
 import com.iot.manager.entity.Organization;
 import com.iot.manager.entity.Site;
 import com.iot.manager.entity.Space;
-import com.iot.manager.repository.ActivityEventRepository;
 import com.iot.manager.repository.DeviceConnectionRepository;
 import com.iot.manager.repository.DiscoveredDeviceRepository;
 import com.iot.manager.repository.EdgeAgentRepository;
@@ -47,10 +46,11 @@ public class EdgeDiscoveryService {
     private final DeviceProfileService profileService;
     private final DeviceService deviceService;
     private final DeviceConnectionRepository connectionRepository;
-    private final ActivityEventRepository activityEventRepository;
+    private final AuditEventService auditEventService;
     private final DeviceMapper deviceMapper;
     private final WebSocketService webSocketService;
     private final ObjectMapper objectMapper;
+    private final SiteAccessService siteAccessService;
 
     @Transactional(readOnly = true)
     public boolean hasConnectedAgent(String siteCode) {
@@ -108,17 +108,16 @@ public class EdgeDiscoveryService {
                 .build());
         candidate.setStatus("CLAIMED");
         candidate.setClaimedDevice(device);
-        ActivityEvent activity = activityEventRepository.save(ActivityEvent.builder()
-                .device(device)
-                .eventType("DEVICE_CLAIMED")
-                .detail("Edge Agent LAN candidate claimed")
-                .payloadJson(writeJson(Map.of(
+        ActivityEvent activity = auditEventService.recordActivity(
+                device,
+                "DEVICE_CLAIMED",
+                "Edge Agent LAN candidate claimed",
+                writeJson(Map.of(
                         "candidateId", candidate.getCandidateId(),
                         "agentId", candidate.getAgent().getAgentId(),
                         "externalId", candidate.getExternalId()
-                )))
-                .occurredAt(LocalDateTime.now())
-                .build());
+                ))
+        );
         webSocketService.broadcastEvent("connection_update", Map.of(
                 "deviceId", device.getDeviceId(), "transport", connection.getTransport(),
                 "profileId", connection.getProfileId(), "agentId", connection.getAgentId(),
@@ -144,6 +143,9 @@ public class EdgeDiscoveryService {
     }
 
     private Site resolveSite(String siteCode) {
+        if (siteAccessService.isScopeEnforced()) {
+            return siteAccessService.requireSiteAccess(siteCode);
+        }
         bootstrapService.ensureDemoContext();
         Organization organization = organizationRepository.findByCode(DEMO_ORGANIZATION_CODE)
                 .orElseThrow(() -> new NoSuchElementException("Organization not found"));

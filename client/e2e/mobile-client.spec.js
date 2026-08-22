@@ -7,7 +7,12 @@ test('mobile client exposes devices, activity, add, and connection settings with
   page.on('console', (message) => {
     if (message.type() === 'error') runtimeErrors.push(message.text());
   });
-  await page.route('**/api/devices', (route) => {
+  await page.route('**/api/v1/sites', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify([{ siteCode: 'demo-site', siteName: '演示站点', organizationCode: 'demo-org', organizationName: '演示组织' }])
+  }));
+  await page.route('**/api/v1/devices**', (route) => {
     deviceReadCount += 1;
     return route.fulfill({
       status: 200,
@@ -15,7 +20,7 @@ test('mobile client exposes devices, activity, add, and connection settings with
       body: '[]'
     });
   });
-  await page.route('**/api/sites/demo-site/weather', (route) => route.fulfill({
+  await page.route('**/api/v1/sites/demo-site/weather', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify({
@@ -28,12 +33,12 @@ test('mobile client exposes devices, activity, add, and connection settings with
       }
     })
   }));
-  await page.route('**/api/sites/demo-site/weather/forecast?**', (route) => route.fulfill({
+  await page.route('**/api/v1/sites/demo-site/weather/forecast?**', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify({ siteCode: 'demo-site', status: 'FRESH', hourly: [], daily: [] })
   }));
-  await page.route('**/api/sites/demo-site/weather-settings', (route) => route.fulfill({
+  await page.route('**/api/v1/sites/demo-site/weather-settings', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify({

@@ -18,6 +18,8 @@ public record SiteWeatherSettingsView(
         Instant lastFetchedAt,
         Instant lastRefreshAttemptAt,
         String lastRefreshError,
+        String lastRefreshOutcome,
+        Long lastRefreshDurationMs,
         Instant retryAfter,
         Instant lastManualRefreshAt
 ) { }

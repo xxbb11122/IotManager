@@ -1,27 +1,64 @@
+{
+	email {$ACME_EMAIL}
+}
+
+(common_security) {
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "geolocation=(self), bluetooth=(self), camera=()"
+	}
+}
+
+(static_security) {
+	import common_security
+	header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' wss:"
+}
+
 {$DOMAIN} {
 	encode zstd gzip
 
-	# Keep routing order explicit: platform APIs and WebSockets never fall
-	# through to a single-page-app HTML response.
+	# Keep API, WebSocket and Keycloak routes ahead of SPA fallback handling.
 	route {
-		@consoleRoot path /console
-		redir @consoleRoot /console/ permanent
+		@identity path /auth /auth/*
+		handle @identity {
+			reverse_proxy keycloak:8080 {
+				header_up X-Forwarded-Proto https
+				header_up X-Forwarded-Host {host}
+				header_up X-Real-IP {remote_host}
+				header_up X-Forwarded-For {remote_host}
+			}
+		}
 
 		@platform path /api /api/* /ws /ws/*
 		handle @platform {
-			reverse_proxy backend:8080
+			import common_security
+			request_body {
+				max_size 1MB
+			}
+			reverse_proxy backend:8080 {
+				header_up X-Forwarded-Proto https
+				header_up X-Forwarded-Host {host}
+				header_up X-Real-IP {remote_host}
+				header_up X-Forwarded-For {remote_host}
+			}
 		}
 
-		# Caddy strips /console before looking up the console build. The
-		# console is built with Vite base=/console/, so its assets stay scoped.
+		@consoleRoot path /console
+		redir @consoleRoot /console/ permanent
+
 		handle_path /console/* {
+			import static_security
 			root * /srv/console
 			try_files {path} /index.html
 			file_server
 		}
 
-		# The monitoring dashboard owns the root path and its /assets files.
 		handle {
+			import static_security
 			root * /srv/frontend
 			try_files {path} /index.html
 			file_server

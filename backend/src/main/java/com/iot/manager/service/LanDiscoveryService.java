@@ -11,7 +11,6 @@ import com.iot.manager.entity.DeviceConnection;
 import com.iot.manager.entity.Organization;
 import com.iot.manager.entity.Site;
 import com.iot.manager.entity.Space;
-import com.iot.manager.repository.ActivityEventRepository;
 import com.iot.manager.repository.DeviceConnectionRepository;
 import com.iot.manager.repository.OrganizationRepository;
 import com.iot.manager.repository.SiteRepository;
@@ -62,10 +61,11 @@ public class LanDiscoveryService {
     private final SpaceRepository spaceRepository;
     private final DeviceService deviceService;
     private final DeviceConnectionRepository connectionRepository;
-    private final ActivityEventRepository activityEventRepository;
+    private final AuditEventService auditEventService;
     private final DeviceMapper deviceMapper;
     private final WebSocketService webSocketService;
     private final ObjectMapper objectMapper;
+    private final SiteAccessService siteAccessService;
 
     public List<LanCandidateView> listCandidates(String siteCode) {
         resolveSite(siteCode);
@@ -104,13 +104,12 @@ public class LanDiscoveryService {
                     .status(CONNECTED)
                     .metadataJson(writeJson(metadata))
                     .build());
-            ActivityEvent claimActivity = activityEventRepository.save(ActivityEvent.builder()
-                    .device(device)
-                    .eventType("device_claimed")
-                    .detail("LAN candidate claimed: " + candidate.name())
-                    .payloadJson(writeJson(claimPayload(candidate, site, space)))
-                    .occurredAt(LocalDateTime.now())
-                    .build());
+            ActivityEvent claimActivity = auditEventService.recordActivity(
+                    device,
+                    "device_claimed",
+                    "LAN candidate claimed: " + candidate.name(),
+                    writeJson(claimPayload(candidate, site, space))
+            );
 
             connectionRepository.flush();
             webSocketService.broadcastEvent("connection_update", connectionPayload(device, connection, metadata));
@@ -142,6 +141,9 @@ public class LanDiscoveryService {
     }
 
     private Site resolveSite(String siteCode) {
+        if (siteAccessService.isScopeEnforced()) {
+            return siteAccessService.requireSiteAccess(siteCode);
+        }
         if (siteCode == null || siteCode.isBlank()) {
             throw new NoSuchElementException("Site not found");
         }

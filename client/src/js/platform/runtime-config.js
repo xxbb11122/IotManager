@@ -30,8 +30,21 @@ export function normalizeEndpointProfile(input = {}) {
     accessRoute: input.accessRoute,
     apiBaseUrl: api.href.replace(/\/$/, ''),
     wsUrl: ws.href.replace(/\/$/, ''),
-    organizationCode: String(input.organizationCode ?? '').trim() || null
+    organizationCode: String(input.organizationCode ?? '').trim() || null,
+    // Kept only as an in-memory development/testing override. Production
+    // OAuth tokens are owned by SecureSessionStore and are never written to
+    // Capacitor Preferences with the endpoint profile.
+    accessToken: String(input.accessToken ?? '').trim() || null,
+    oidcIssuerUrl: String(input.oidcIssuerUrl ?? '').trim() || null,
+    oidcClientId: String(input.oidcClientId ?? '').trim() || null,
+    oidcRedirectUri: String(input.oidcRedirectUri ?? '').trim() || null,
+    oidcScope: String(input.oidcScope ?? '').trim() || null
   });
+}
+
+function persistedEndpointProfile(profile) {
+  const { accessToken: _accessToken, ...safeProfile } = profile;
+  return safeProfile;
 }
 
 /**
@@ -63,12 +76,20 @@ export class RuntimeConfigRepository {
 
   async load() {
     const { value } = await this.preferences.get({ key: STORAGE_KEY });
-    return value ? normalizeEndpointProfile(JSON.parse(value)) : null;
+    if (!value) return null;
+    const parsed = JSON.parse(value);
+    const normalized = normalizeEndpointProfile(parsed);
+    // One-way migration for pre-PKCE clients: a token that used to be stored
+    // in Preferences is discarded rather than copied into another store.
+    if (parsed?.accessToken) {
+      await this.preferences.set({ key: STORAGE_KEY, value: JSON.stringify(persistedEndpointProfile(normalized)) });
+    }
+    return normalized;
   }
 
   async save(profile) {
     const normalized = normalizeEndpointProfile(profile);
-    await this.preferences.set({ key: STORAGE_KEY, value: JSON.stringify(normalized) });
+    await this.preferences.set({ key: STORAGE_KEY, value: JSON.stringify(persistedEndpointProfile(normalized)) });
     return normalized;
   }
 }

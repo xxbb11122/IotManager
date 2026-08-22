@@ -15,8 +15,15 @@
     <h1>IoT Manager</h1>
   </div>
   <div class="topbar-right">
+    <label class="site-picker" for="site-selector">
+      <span class="visually-hidden">选择站点</span>
+      <select id="site-selector" aria-label="选择站点" disabled>
+        <option value="demo-site">演示站点</option>
+      </select>
+    </label>
     <span id="clock">—</span>
     <span class="live-badge"><span class="ring"></span> LIVE</span>
+    <button id="auth-action" class="auth-button" type="button" hidden>退出登录</button>
   </div>
 </div>
 
@@ -55,7 +62,7 @@
     <!-- Site weather and environment state -->
     <section class="weather-panel" id="weather-panel" aria-live="polite">
       <div class="weather-panel__current">
-        <div><p class="weather-kicker">演示站点 · 站点环境</p><h2 id="weather-condition">天气加载中</h2><div class="weather-temperature" id="weather-temperature">--</div><p id="weather-updated">正在读取天气数据…</p></div>
+        <div><p class="weather-kicker"><span id="site-label">演示站点</span> · 站点环境</p><h2 id="weather-condition">天气加载中</h2><div class="weather-temperature" id="weather-temperature">--</div><p id="weather-updated">正在读取天气数据…</p></div>
         <div class="weather-top-metrics">
           <div class="weather-top-metric" id="weather-humidity"><span>湿度</span><strong>--</strong></div>
           <div class="weather-top-metric" id="weather-pressure"><span>气压</span><strong>--</strong></div>

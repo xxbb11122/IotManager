@@ -9,6 +9,7 @@
 - A JDK `HttpClient` WebSocket transport with a reconnecting runtime shell.
 - Pluggable discovery and device-driver interfaces.
 - A real Shelly Plus Plug S Gen2 local RPC driver. It uses `Shelly.GetDeviceInfo`, `Switch.Set`, and `Switch.GetStatus`; confirmation occurs only after state read-back.
+- R1 per-agent credential headers with one-time provisioning, rotation, expiry, and revocation. The backend stores only a BCrypt digest.
 - Focused tests for durable identity, protocol serialization, and the Shelly RPC flow.
 
 The initial discovery source is explicit IP/URL configuration. Java SE does not provide mDNS browsing, so mDNS belongs in a later `DiscoverySource` implementation without changing the Shelly driver contract.
@@ -22,6 +23,9 @@ agent.name=plant-edge-01
 agent.site-code=demo-site
 agent.identity-file=./data/edge-agent/identity.json
 backend.websocket.url=ws://platform.example/ws/edge/v1
+# R1 production (use wss:// and inject values from a secret store):
+backend.websocket.credential-id=agentcred-...
+backend.websocket.credential-token=iat_...
 heartbeat.interval.seconds=30
 discovery.interval.seconds=60
 reconnect.delay.seconds=5
@@ -29,7 +33,7 @@ request.timeout.seconds=5
 shelly.endpoints=http://192.168.1.50
 ```
 
-The agent sends an `agent_hello` immediately after the transport connects, then sends heartbeat and discovery messages. An unsupported or malformed command is reported as `REJECTED`; a transport/device failure as `FAILED`; and a write whose read-back cannot confirm the requested state as `UNCONFIRMED`.
+The agent sends an `agent_hello` immediately after the transport connects, then sends heartbeat and discovery messages. In the production profile the WebSocket handshake must carry `X-Iot-Agent-Credential` and `X-Iot-Agent-Token`; the hello's agent/site identity must match the credential binding. An unsupported or malformed command is reported as `REJECTED`; a transport/device failure as `FAILED`; and a write whose read-back cannot confirm the requested state as `UNCONFIRMED`.
 
 ## Build and run
 
@@ -68,7 +72,7 @@ Every message is a JSON envelope with `type`, `protocolVersion`, `messageId`, `s
 }
 ```
 
-Supported message types are `agent_hello`, `agent_heartbeat`, `discovery_snapshot`, `telemetry`, `command_request`, and `command_result`. The server sends `command_request`; the agent treats `commandId` as an idempotency key while it is in flight and retains the latest 10,000 completed command results in memory. The backend persists the command transition audit and accepts only receipts from the Agent connected to the claimed device. Production retry policy and Agent authentication are later hardening work.
+Supported message types are `agent_hello`, `agent_heartbeat`, `discovery_snapshot`, `telemetry`, `command_request`, and `command_result`. The server sends `command_request`; the agent treats `commandId` as an idempotency key while it is in flight and retains the latest 10,000 completed command results in memory. The backend persists the command transition audit and accepts only receipts from the Agent connected to the claimed device. R2 still adds mTLS and broader retry/observability hardening.
 
 ## Shelly Plus Plug S Gen2 behavior
 

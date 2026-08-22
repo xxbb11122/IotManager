@@ -6,6 +6,12 @@ agent.identity-file=./data/edge-agent/identity.json
 # Local development endpoint. For the Caddy deployment use
 # wss://your-domain.example/ws/edge/v1 instead.
 backend.websocket.url=ws://localhost:8080/ws/edge/v1
+# Transitional bearer-token mode (not the preferred agent credential flow).
+backend.websocket.access-token=
+# R1 production: provision these values through the admin API. The token is
+# shown once and must be injected from a deployment secret, never committed.
+backend.websocket.credential-id=
+backend.websocket.credential-token=
 heartbeat.interval.seconds=30
 discovery.interval.seconds=60
 reconnect.delay.seconds=5

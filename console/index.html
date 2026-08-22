@@ -12,8 +12,15 @@
       <h1>企业运维控制台</h1>
     </div>
     <div class="topbar-right">
+      <label class="site-picker" for="site-selector">
+        <span id="site-label" class="visually-hidden">演示站点</span>
+        <select id="site-selector" aria-label="选择站点" disabled>
+          <option value="demo-site">演示站点</option>
+        </select>
+      </label>
       <span id="clock"></span>
       <button class="icon-button" id="refresh-all" title="刷新数据" aria-label="刷新数据">&#8635;</button>
+      <button class="btn btn-ghost" id="auth-action" type="button" hidden>退出登录</button>
     </div>
   </header>
 

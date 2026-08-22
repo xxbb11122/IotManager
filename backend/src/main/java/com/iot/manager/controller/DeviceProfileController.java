@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/device-profiles")
+@RequestMapping({"/api/device-profiles", "/api/v1/device-profiles"})
 @RequiredArgsConstructor
 public class DeviceProfileController {
 

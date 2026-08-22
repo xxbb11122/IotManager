@@ -18,9 +18,41 @@ spring:
     properties:
       hibernate:
         format_sql: true
+    open-in-view: false
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}
 
 iot:
+  security:
+    # R0 development/test remain open only inside a controlled network. The
+    # production profile turns this on and requires Keycloak-issued JWTs.
+    enabled: false
+  edge-agent:
+    require-secure-transport: false
+  rate-limit:
+    enabled: false
+    reads-per-minute: 120
+    commands-per-minute: 30
+  web:
+    allowed-origins:
+      - "*"
   weather:
+    privacy:
+      # Production overrides this with a deployment secret so persisted cache
+      # fingerprints never reveal a site's precise weather coordinates.
+      fingerprint-secret: ${IOT_WEATHER_FINGERPRINT_SECRET:local-development-weather-fingerprint-secret}
     environment-rules:
       temperature-ideal-min: 20
       temperature-ideal-max: 25

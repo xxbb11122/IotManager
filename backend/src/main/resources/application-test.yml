@@ -10,6 +10,11 @@ spring:
       enabled: false
 
 iot:
+  security:
+    enabled: false
+  web:
+    allowed-origins:
+      - "*"
   command-simulator:
     enabled: false
 

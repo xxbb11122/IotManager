@@ -60,7 +60,7 @@ public class CommandBatchSummaryService {
 
     public CommandBatchView toView(CommandBatch batch) {
         return new CommandBatchView(
-                batch.getBatchId(), batch.getSite().getCode(),
+                batch.getBatchId(), batch.getSite().getId(), batch.getSite().getCode(),
                 batch.getGroup() == null ? null : batch.getGroup().getPublicId(),
                 batch.getTargetKind(), batch.getTargetLabel(), batch.getType(), batch.getStatus(),
                 batch.getTotalCount(), batch.getPendingCount(), batch.getSentCount(), batch.getAcknowledgedCount(),

@@ -7,11 +7,11 @@ import com.iot.manager.entity.ActivityEvent;
 import com.iot.manager.entity.Alert;
 import com.iot.manager.entity.Device;
 import com.iot.manager.entity.Space;
-import com.iot.manager.repository.ActivityEventRepository;
 import com.iot.manager.repository.AlertRepository;
 import com.iot.manager.repository.DeviceCommandRepository;
 import com.iot.manager.repository.DeviceConnectionRepository;
 import com.iot.manager.repository.DeviceRepository;
+import com.iot.manager.repository.SpaceRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -30,8 +31,10 @@ import java.util.UUID;
 public class DeviceService {
 
     private final DeviceRepository deviceRepo;
+    private final SpaceRepository spaceRepo;
     private final AlertRepository alertRepo;
-    private final ActivityEventRepository activityEventRepo;
+    private final AuditEventService auditEventService;
+    private final AuditContextService auditContextService;
     private final DeviceCommandRepository deviceCommandRepo;
     private final DeviceConnectionRepository connectionRepo;
     private final BootstrapService bootstrapService;
@@ -45,6 +48,13 @@ public class DeviceService {
     @Transactional(readOnly = true)
     public List<DeviceView> getAllViews(String status, String type, String search) {
         return deviceMapper.toViews(findDevices(status, type, search));
+    }
+
+    @Transactional(readOnly = true)
+    public List<DeviceView> getAllViews(
+            String status, String type, String search, Collection<Long> allowedSiteIds
+    ) {
+        return deviceMapper.toViews(findDevices(status, type, search, allowedSiteIds));
     }
 
     public Optional<Device> getById(Long id) {
@@ -75,6 +85,13 @@ public class DeviceService {
         if (space == null) {
             throw new NoSuchElementException("Space not found");
         }
+
+        // Callers may resolve a space in a separate transaction (for example
+        // an authenticated site-selection request). Reload it here so the
+        // site/organization associations are managed before they are copied
+        // onto the new device.
+        Space managedSpace = spaceRepo.findById(space.getId())
+                .orElseThrow(() -> new NoSuchElementException("Space not found"));
 
         if (device.getDeviceId() == null || device.getDeviceId().isBlank()) {
             device.setDeviceId("DEV-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
@@ -107,18 +124,17 @@ public class DeviceService {
             device.setDesiredStateJson("{}");
         }
 
-        device.setOrganization(space.getSite().getOrganization());
-        device.setSite(space.getSite());
-        device.setSpace(space);
+        device.setOrganization(managedSpace.getSite().getOrganization());
+        device.setSite(managedSpace.getSite());
+        device.setSpace(managedSpace);
 
         Device saved = deviceRepo.save(device);
-        activityEventRepo.save(ActivityEvent.builder()
-                .device(saved)
-                .eventType("DEVICE_REGISTERED")
-                .detail("Device registered")
-                .payloadJson("{\"deviceId\":\"" + saved.getDeviceId() + "\"}")
-                .occurredAt(LocalDateTime.now())
-                .build());
+        auditEventService.recordActivity(
+                saved,
+                "DEVICE_REGISTERED",
+                "Device registered",
+                "{\"deviceId\":\"" + saved.getDeviceId() + "\"}"
+        );
         webSocketService.sendDeviceUpdate(saved);
         return saved;
     }
@@ -134,6 +150,19 @@ public class DeviceService {
                 .status(request.status())
                 .build();
         return deviceMapper.toView(create(device));
+    }
+
+    @Transactional
+    public DeviceView create(DeviceCreateRequest request, Space space) {
+        Device device = Device.builder()
+                .name(request.name())
+                .type(request.type())
+                .protocol(request.protocol())
+                .location(request.location())
+                .firmwareVersion(request.firmwareVersion())
+                .status(request.status())
+                .build();
+        return deviceMapper.toView(createInContext(device, space));
     }
 
     @Transactional
@@ -171,33 +200,41 @@ public class DeviceService {
         }
         device.setArchivedAt(LocalDateTime.now());
         device.setArchivedReason("Archived through device API");
-        device.setArchivedBy("anonymous");
-        activityEventRepo.save(ActivityEvent.builder()
-                .device(device)
-                .eventType("DEVICE_ARCHIVED")
-                .detail("Device archived; command and telemetry history retained")
-                .payloadJson("{\"reason\":\"Archived through device API\"}")
-                .occurredAt(LocalDateTime.now())
-                .build());
+        device.setArchivedBy(auditContextService.currentSubjectOrAnonymous());
+        auditEventService.recordActivity(
+                device,
+                "DEVICE_ARCHIVED",
+                "Device archived; command and telemetry history retained",
+                "{\"reason\":\"Archived through device API\"}"
+        );
         webSocketService.sendDeviceArchived(device);
     }
 
+    @Transactional(readOnly = true)
     public Map<String, Object> getDashboardStats() {
-        Map<String, Object> stats = new LinkedHashMap<>();
-        stats.put("total", deviceRepo.findAllActive(Sort.by(Sort.Direction.DESC, "updatedAt")).size());
-        stats.put("online", deviceRepo.countByStatusAndArchivedAtIsNull("ONLINE"));
-        stats.put("offline", deviceRepo.countByStatusAndArchivedAtIsNull("OFFLINE"));
-        stats.put("warning", deviceRepo.countByStatusAndArchivedAtIsNull("WARNING"));
-        stats.put("activeAlerts", alertRepo.countByResolvedFalse());
+        return getDashboardStats(null);
+    }
 
-        List<Object[]> byStatus = deviceRepo.countGroupByStatus();
+    @Transactional(readOnly = true)
+    public Map<String, Object> getDashboardStats(Collection<Long> allowedSiteIds) {
+        List<Device> devices = findDevices(null, null, null, allowedSiteIds);
+        Map<String, Object> stats = new LinkedHashMap<>();
+        stats.put("total", devices.size());
+        stats.put("online", devices.stream().filter(device -> "ONLINE".equals(device.getStatus())).count());
+        stats.put("offline", devices.stream().filter(device -> "OFFLINE".equals(device.getStatus())).count());
+        stats.put("warning", devices.stream().filter(device -> "WARNING".equals(device.getStatus())).count());
+        stats.put("activeAlerts", alertRepo.findByResolvedFalseOrderByCreatedAtDesc().stream()
+                .filter(alert -> allowedSiteIds == null
+                        || (alert.getDevice() != null && alert.getDevice().getSite() != null
+                        && allowedSiteIds.contains(alert.getDevice().getSite().getId())))
+                .count());
+
         Map<String, Long> statusMap = new LinkedHashMap<>();
-        byStatus.forEach(row -> statusMap.put((String) row[0], (Long) row[1]));
+        devices.forEach(device -> statusMap.merge(device.getStatus(), 1L, Long::sum));
         stats.put("statusBreakdown", statusMap);
 
-        List<Object[]> byType = deviceRepo.countGroupByType();
         Map<String, Long> typeMap = new LinkedHashMap<>();
-        byType.forEach(row -> typeMap.put((String) row[0], (Long) row[1]));
+        devices.forEach(device -> typeMap.merge(device.getType(), 1L, Long::sum));
         stats.put("typeBreakdown", typeMap);
 
         return stats;
@@ -223,13 +260,12 @@ public class DeviceService {
         alert.setStatus("RESOLVED");
         Alert saved = alertRepo.save(alert);
         if (saved.getDevice() != null) {
-            ActivityEvent event = activityEventRepo.save(ActivityEvent.builder()
-                    .device(saved.getDevice())
-                    .eventType("ALERT_RESOLVED")
-                    .detail("Alert resolved")
-                    .payloadJson("{\"alertId\":" + saved.getId() + "}")
-                    .occurredAt(LocalDateTime.now())
-                    .build());
+            ActivityEvent event = auditEventService.recordActivity(
+                    saved.getDevice(),
+                    "ALERT_RESOLVED",
+                    "Alert resolved",
+                    "{\"alertId\":" + saved.getId() + "}"
+            );
             webSocketService.sendActivityUpdate(event);
         }
         webSocketService.sendAlertUpdate(saved);
@@ -249,16 +285,28 @@ public class DeviceService {
     }
 
     private List<Device> findDevices(String status, String type, String search) {
+        return findDevices(status, type, search, null);
+    }
+
+    private List<Device> findDevices(
+            String status, String type, String search, Collection<Long> allowedSiteIds
+    ) {
+        List<Device> devices;
         if (search != null && !search.isEmpty()) {
-            return deviceRepo.findActiveByNameContainingOrDeviceIdContaining(search);
+            devices = deviceRepo.findActiveByNameContainingOrDeviceIdContaining(search);
+        } else if (status != null && !status.isEmpty()) {
+            devices = deviceRepo.findByStatusAndArchivedAtIsNull(status);
+        } else if (type != null && !type.isEmpty()) {
+            devices = deviceRepo.findByTypeAndArchivedAtIsNull(type);
+        } else {
+            devices = deviceRepo.findAllActive(Sort.by(Sort.Direction.DESC, "updatedAt"));
         }
-        if (status != null && !status.isEmpty()) {
-            return deviceRepo.findByStatusAndArchivedAtIsNull(status);
+        if (allowedSiteIds == null) {
+            return devices;
         }
-        if (type != null && !type.isEmpty()) {
-            return deviceRepo.findByTypeAndArchivedAtIsNull(type);
-        }
-        return deviceRepo.findAllActive(Sort.by(Sort.Direction.DESC, "updatedAt"));
+        return devices.stream()
+                .filter(device -> device.getSite() != null && allowedSiteIds.contains(device.getSite().getId()))
+                .toList();
     }
 
     private Device updateDevice(

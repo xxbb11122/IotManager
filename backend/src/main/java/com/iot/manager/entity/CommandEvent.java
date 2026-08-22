@@ -33,6 +33,18 @@ public class CommandEvent {
     @JoinColumn(name = "command_id", nullable = false)
     private DeviceCommand command;
 
+    /** AppUser id captured when the transition was written; null means system/edge actor. */
+    @Column(name = "actor_id")
+    private Long actorId;
+
+    /** Immutable organization scope copied from the command's device. */
+    @Column(name = "organization_id")
+    private Long organizationId;
+
+    /** Immutable site scope copied from the command's device. */
+    @Column(name = "site_id")
+    private Long siteId;
+
     @Column(name = "from_status", length = 50)
     private String fromStatus;
 

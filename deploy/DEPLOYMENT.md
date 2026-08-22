@@ -1,95 +1,153 @@
-# 首版云端部署
+# IoT Manager R1 deployment runbook
 
-本部署将同一个 Git 提交中的三个交付面一起发布：Spring Boot 平台、监控
-界面和企业运维控制台。Caddy 负责 HTTPS/WSS 终止、静态文件服务和平台反向
-代理；后端 `8080` 不直接暴露到公网。
+This folder deploys the approved R1 stack: Caddy TLS termination, Spring Boot
+resource server, PostgreSQL 16, Keycloak OIDC, daily logical backups, and the
+monitoring/operations web applications. It is not an authorization to claim
+R2: Redis, mTLS, external immutable/WAL backup storage, k6/ZAP/Trivy/Gitleaks
+evidence, and real-device acceptance still require their respective gates.
 
-## 访问地址
+## Public endpoints
 
-假设 `DOMAIN=iot.example.com`：
-
-| 用途 | 地址 |
+| Use | Address |
 | --- | --- |
-| 监控界面 | `https://iot.example.com/` |
-| 运维控制台 | `https://iot.example.com/console/` |
-| REST API | `https://iot.example.com/api` |
-| 移动端设备事件 | `wss://iot.example.com/ws/devices` |
-| 现场 Edge Agent | `wss://iot.example.com/ws/edge/v1` |
+| Monitoring UI | `https://<DOMAIN>/` |
+| Operations UI | `https://<DOMAIN>/console/` |
+| REST API | `https://<DOMAIN>/api/v1` (`/api` remains a deprecated compatibility alias) |
+| Device WebSocket | `wss://<DOMAIN>/ws/devices` |
+| Edge Agent WebSocket | `wss://<DOMAIN>/ws/edge/v1` |
+| Keycloak | `https://<DOMAIN>/auth/` |
 
-控制台的前端资源在镜像构建时使用 `/console/` 作为 Vite base，因此它和根
-目录的监控界面可以由同一个域名安全地提供静态资源。`/api` 与 `/ws` 会在
-Caddy 路由的最前面交给 Spring Boot，不会被单页应用回退页面截获。
+Only Caddy publishes ports `80` and `443`. PostgreSQL, Keycloak management,
+and Spring Boot remain Docker-internal. Spring Boot liveness/readiness and
+Prometheus endpoints are intentionally not reverse-proxied to the public
+internet.
 
-## 前置条件
+## Preconditions
 
-- 公网 Linux 主机已安装 Docker Engine 和 Docker Compose v2。
-- 域名 A/AAAA 记录已指向该主机。
-- 云防火墙和主机防火墙允许入站 TCP `80` 和 `443`。
-- 部署目录位于完整仓库中；Compose 的构建上下文是仓库根目录，不能只复制
-  `deploy/` 子目录。
+- A Linux host with Docker Engine and Docker Compose v2.
+- An A/AAAA record for `DOMAIN` pointing to the host; firewall ingress permits
+  TCP `80` and `443`.
+- A protected deployment checkout. Do not copy only `deploy/`; the two Docker
+  builds use the repository root as their context.
+- A secret manager or protected host file for `deploy/.env`. It must never be
+  committed or copied into an APK.
 
-## 首次启动
+## First deployment
+
+1. Copy the template and fill every `replace-with-...` value with unique,
+   high-entropy secrets, including `IOT_WEATHER_FINGERPRINT_SECRET`. Keep
+   `IOT_DB_URL=jdbc:postgresql://postgres:5432/iot_manager` for this bundled
+   single-host stack. The Keycloak database password is supplied through
+   `KCRAW_DB_PASSWORD`, so a `$` in a generated password is preserved literally
+   rather than being interpreted as a Keycloak expression.
+
+   ```bash
+   cd deploy
+   cp .env.example .env
+   chmod 600 .env
+   ```
+
+2. Start PostgreSQL, Keycloak and Caddy. The backend may restart until the
+   initial owner mapping in the next step is complete; this is expected and
+   fail-closed.
+
+   ```bash
+   docker compose up -d --build postgres keycloak caddy
+   docker compose logs -f keycloak
+   ```
+
+3. Open `https://<DOMAIN>/auth/admin/`, sign in with
+   `KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME`, and create the first operator user.
+   Assign it the **OWNER** realm role in `iot-manager`. Copy that user's
+   immutable Keycloak subject/ID into `IOT_BOOTSTRAP_OWNER_SUBJECT`; fill the
+   remaining `IOT_BOOTSTRAP_*` organization and site values. This maps the
+   verified identity to the platform's first organization/site membership; it
+   does not store a password in PostgreSQL.
+
+4. Start the complete stack and verify containers are healthy/running.
+
+   ```bash
+   docker compose up -d --build
+   docker compose ps
+   docker compose logs --tail=200 backend keycloak backup caddy
+   ```
+
+5. Configure the Android connection as follows after signing in:
+
+   ```text
+   API:               https://<DOMAIN>/api/v1
+   WebSocket:         wss://<DOMAIN>/ws/devices
+   OIDC Issuer URL:   https://<DOMAIN>/auth/realms/iot-manager
+   OIDC Client ID:    iot-mobile
+   OIDC callback:     com.iot.manager.client://oauth/callback
+   ```
+
+   The mobile client uses Authorization Code + PKCE and Android Keystore-backed
+   token storage. It never requires a copied bearer token.
+
+   The monitoring UI at `/` and operations console at `/console/` detect the
+   HTTPS deployment and use the same `iot-web` public OIDC client with PKCE.
+   They retain tokens only for the browser session and send WebSocket tokens in
+   the `iot-bearer.<token>` subprotocol, never in a query string.
+
+## Smoke checks
 
 ```bash
-cd deploy
-cp .env.example .env
+curl -fsSI https://<DOMAIN>/
+curl -fsSI https://<DOMAIN>/console/
+curl -fsSI https://<DOMAIN>/auth/realms/iot-manager/.well-known/openid-configuration
+curl -i https://<DOMAIN>/api/v1/devices
 ```
 
-编辑 `.env`，只填写域名，不要包含 `https://`、端口或路径：
+The last command must return `401` without a bearer token. After an OWNER logs
+in through a configured client, `GET /api/v1/sites` must return only its
+membership sites. Validate the private readiness/metrics endpoints from a
+monitoring container on the `internal` network; do not expose them through
+Caddy as a convenience shortcut.
 
-```text
-DOMAIN=iot.example.com
+## Backups and restore rehearsal
+
+The `backup` service creates a PostgreSQL custom-format dump immediately and
+then every 24 hours in the `postgres-backups` volume. It writes a SHA-256 side
+car and retains the configured number of days.
+
+```bash
+docker compose exec backup /bin/sh /scripts/backup.sh
+docker compose logs --tail=100 backup
+docker volume inspect deploy_postgres-backups
 ```
 
-构建并启动：
+Never first-test a restore against the live database. For a disposable target,
+set `PGHOST`, `PGDATABASE`, `PGUSER`, and `PGPASSWORD` to that target and run:
+
+```bash
+IOT_RESTORE_CONFIRM=RESTORE /bin/sh deploy/backup/restore.sh /path/to/iot_manager-<timestamp>.dump
+```
+
+Record the dump checksum, migration version, restore start/end timestamps,
+application readiness result, and a read/write smoke result. R1 release still
+requires an external encrypted/immutable backup destination and a tested WAL
+archive that demonstrates RPO <= 15 minutes and RTO <= 60 minutes; this local
+logical backup is a deployable mechanism, not evidence that those operational
+targets have been met.
+
+## Updates and rollback
+
+Build and start from a reviewed Git revision:
 
 ```bash
 docker compose up -d --build
 docker compose ps
 ```
 
-首次启动时 Caddy 会在 DNS 和端口检查通过后申请证书。查看启动日志：
+Before any rollback, take and checksum a backup, record the active image/git
+revision, and check Flyway compatibility. Do not roll back a database schema
+by deleting volumes or editing Flyway history. Use a forward-compatible
+application image or a separately rehearsed restore plan.
 
-```bash
-docker compose logs -f caddy backend
-```
+## Keycloak import note
 
-## 验收
-
-在公网主机或另一台可以访问域名的机器上执行：
-
-```bash
-curl -fsS https://iot.example.com/api/devices/stats
-curl -fsSI https://iot.example.com/
-curl -fsSI https://iot.example.com/console/
-```
-
-浏览器打开根路径应显示监控界面，打开 `/console/` 应显示运维控制台。移动端
-连接设置填写：
-
-```text
-API:       https://iot.example.com/api
-WebSocket: wss://iot.example.com/ws/devices
-```
-
-现场 Edge Agent 不在云端 Compose 中运行；它安装在设备所在 LAN，并通过
-`wss://iot.example.com/ws/edge/v1` 主动连接云端。
-
-## 更新与恢复
-
-更新同一发布基线时，在仓库根目录更新代码后重新构建：
-
-```bash
-cd deploy
-docker compose up -d --build
-```
-
-持久化数据位于 `backend-data`、`caddy-data` 和 `caddy-config` Docker 卷。
-`docker compose down` 不会删除这些卷；只有显式执行 `docker compose down -v`
-才会删除它们。
-
-## 当前边界
-
-这是首版功能部署，而非生产安全基线。当前后端仍使用演示 H2 数据库，并且
-登录、RBAC、组织授权、限流、密钥管理和正式备份策略尚未完成。不要在公网
-长期暴露真实业务数据；进入正式生产前应先完成安全和 PostgreSQL 迁移里程碑。
+`iot-manager-realm.json` is imported only when the realm does not already
+exist. Changes to the file do not mutate an existing production realm; make
+reviewed changes through the Keycloak administration API/UI, export a reviewed
+realm artifact, and rehearse the result in a non-production environment.

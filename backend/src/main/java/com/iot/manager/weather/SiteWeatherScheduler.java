@@ -16,7 +16,7 @@ public class SiteWeatherScheduler {
 
     @Scheduled(
             fixedDelayString = "${iot.weather.refresh-interval-ms:1800000}",
-            initialDelayString = "${iot.weather.initial-delay-ms:300000}"
+            initialDelayString = "${iot.weather.initial-delay-ms:30000}"
     )
     public void refreshEnabledSites() {
         for (Long siteId : siteWeatherService.enabledSiteIds()) {

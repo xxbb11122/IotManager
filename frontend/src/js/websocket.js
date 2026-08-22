@@ -3,11 +3,22 @@ const handlers = {};
 let ws = null;
 let reconnectTimer = null;
 const RECONNECT_MS = 3000;
+let activeSiteCode = null;
+let accessTokenProvider = () => String(globalThis.__IOT_ACCESS_TOKEN__ ?? import.meta.env?.VITE_ACCESS_TOKEN ?? '').trim();
+let shouldReconnect = true;
+
+function websocketUrl() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = new URL(proto + '//' + location.host + '/ws/devices');
+  if (activeSiteCode) url.searchParams.set('siteCode', activeSiteCode);
+  return url.toString();
+}
 
 function connect() {
   if (ws && ws.readyState === WebSocket.OPEN) return;
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(proto + '//' + location.host + '/ws/devices');
+  shouldReconnect = true;
+  const token = String(accessTokenProvider?.() ?? '').trim();
+  ws = token ? new WebSocket(websocketUrl(), [`iot-bearer.${token}`]) : new WebSocket(websocketUrl());
 
   ws.onopen = () => {
     console.log('[WS] 已连接');
@@ -29,7 +40,7 @@ function connect() {
 
   ws.onclose = () => {
     console.log('[WS] 断开, 3s 后重连');
-    if (!reconnectTimer) {
+    if (shouldReconnect && !reconnectTimer) {
       reconnectTimer = setTimeout(connect, RECONNECT_MS);
     }
     emit('disconnected');
@@ -41,9 +52,20 @@ function connect() {
 }
 
 function disconnect() {
+  shouldReconnect = false;
   if (reconnectTimer) clearTimeout(reconnectTimer);
   ws?.close();
   ws = null;
+}
+
+function setAccessTokenProvider(provider) {
+  accessTokenProvider = typeof provider === 'function' ? provider : () => null;
+}
+
+function setSiteCode(siteCode) {
+  activeSiteCode = siteCode === null || siteCode === undefined || String(siteCode).trim() === ''
+    ? null
+    : String(siteCode).trim();
 }
 
 function on(type, fn) {
@@ -59,4 +81,4 @@ function emit(type, data) {
   (handlers[type] || []).forEach(fn => fn(data));
 }
 
-export const wsService = { connect, disconnect, on, isConnected };
+export const wsService = { connect, disconnect, setSiteCode, setAccessTokenProvider, on, isConnected };

@@ -1,0 +1,65 @@
+server:
+  address: 0.0.0.0
+  forward-headers-strategy: framework
+
+spring:
+  datasource:
+    url: ${IOT_DB_URL:jdbc:postgresql://postgres:5432/iot_manager}
+    username: ${IOT_DB_USERNAME:iot_manager}
+    password: ${IOT_DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${IOT_DB_POOL_MAX_SIZE:20}
+      minimum-idle: ${IOT_DB_POOL_MIN_IDLE:2}
+      connection-timeout: ${IOT_DB_CONNECTION_TIMEOUT_MS:5000}
+      validation-timeout: ${IOT_DB_VALIDATION_TIMEOUT_MS:3000}
+      max-lifetime: ${IOT_DB_MAX_LIFETIME_MS:1800000}
+  h2:
+    console:
+      enabled: false
+  flyway:
+    baseline-on-migrate: false
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${IOT_SECURITY_ISSUER_URI}
+          # Public issuer validation with an internal JWK URL avoids relying on
+          # public-DNS hairpinning from the Docker network during boot.
+          jwk-set-uri: ${IOT_SECURITY_JWK_SET_URI}
+
+iot:
+  security:
+    enabled: true
+  edge-agent:
+    require-secure-transport: true
+  rate-limit:
+    enabled: true
+    reads-per-minute: ${IOT_RATE_LIMIT_READS_PER_MINUTE:120}
+    commands-per-minute: ${IOT_RATE_LIMIT_COMMANDS_PER_MINUTE:30}
+  web:
+    # Required, comma-separated HTTPS origins supplied by deployment secrets,
+    # for example: https://iot.example.com,https://ops.example.com
+    allowed-origins: ${IOT_WEB_ALLOWED_ORIGINS}
+    require-secure-transport: true
+  command-simulator:
+    enabled: false
+  simulator:
+    enabled: false
+  weather:
+    privacy:
+      fingerprint-secret: ${IOT_WEATHER_FINGERPRINT_SECRET}
+  bootstrap:
+    # The Keycloak subject is not a secret, but it must be explicitly supplied
+    # after the initial OWNER user has been created in the imported realm.
+    require-owner: true
+    owner-subject: ${IOT_BOOTSTRAP_OWNER_SUBJECT:}
+    owner-username: ${IOT_BOOTSTRAP_OWNER_USERNAME:}
+    owner-display-name: ${IOT_BOOTSTRAP_OWNER_DISPLAY_NAME:}
+    owner-email: ${IOT_BOOTSTRAP_OWNER_EMAIL:}
+    organization-code: ${IOT_BOOTSTRAP_ORGANIZATION_CODE:}
+    organization-name: ${IOT_BOOTSTRAP_ORGANIZATION_NAME:}
+    site-code: ${IOT_BOOTSTRAP_SITE_CODE:}
+    site-name: ${IOT_BOOTSTRAP_SITE_NAME:}
+    space-path: ${IOT_BOOTSTRAP_SPACE_PATH:/operations}
+    space-name: ${IOT_BOOTSTRAP_SPACE_NAME:Operations}

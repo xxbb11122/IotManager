@@ -1,8 +1,10 @@
 import './css/style.css';
 
 import { Capacitor } from '@capacitor/core';
+import { App } from '@capacitor/app';
 import { Preferences } from '@capacitor/preferences';
 import { resolveClientConfig } from './js/api.js';
+import { OidcSessionManager, normalizeOidcConfig } from './js/auth/oidc-session.js';
 import { createLocalBleDevice, decorateLanDevice, mergePlatformAndLocalDevices } from './js/client-flow.js';
 import { isTerminalCommandStatus } from './js/command-state.js';
 import { BleAdapter } from './js/adapters/ble-adapter.js';
@@ -30,9 +32,33 @@ const DEMO_CONTEXT = Object.freeze({
 // Android/PDA build supplies its LAN endpoint through VITE_NATIVE_* variables
 // in client/.env.local, which is intentionally excluded from Git.
 const nativeBuildEnv = import.meta.env ?? {};
+function defaultOidcFields({ native = false } = {}) {
+  const issuerUrl = native
+    ? nativeBuildEnv.VITE_NATIVE_OIDC_ISSUER_URL ?? nativeBuildEnv.VITE_OIDC_ISSUER_URL
+    : nativeBuildEnv.VITE_OIDC_ISSUER_URL;
+  const clientId = native
+    ? nativeBuildEnv.VITE_NATIVE_OIDC_CLIENT_ID ?? nativeBuildEnv.VITE_OIDC_CLIENT_ID
+    : nativeBuildEnv.VITE_OIDC_CLIENT_ID;
+  if (!issuerUrl && !clientId) return {};
+  const configuredRedirect = native
+    ? nativeBuildEnv.VITE_NATIVE_OIDC_REDIRECT_URI ?? nativeBuildEnv.VITE_OIDC_REDIRECT_URI
+    : nativeBuildEnv.VITE_OIDC_REDIRECT_URI;
+  const browserRedirect = globalThis.location?.origin
+    ? `${globalThis.location.origin}${globalThis.location.pathname}`
+    : null;
+  return {
+    oidcIssuerUrl: issuerUrl ?? null,
+    oidcClientId: clientId ?? null,
+    oidcRedirectUri: configuredRedirect ?? (native ? 'com.iot.manager.client://oauth/callback' : browserRedirect),
+    oidcScope: nativeBuildEnv.VITE_OIDC_SCOPE ?? null
+  };
+}
+
 const DEFAULT_NATIVE_ENDPOINT = Object.freeze({
-  apiBaseUrl: nativeBuildEnv.VITE_NATIVE_API_BASE_URL ?? 'http://10.0.2.2:8080/api',
-  wsUrl: nativeBuildEnv.VITE_NATIVE_WS_URL ?? 'ws://10.0.2.2:8080/ws/devices'
+  apiBaseUrl: nativeBuildEnv.VITE_NATIVE_API_BASE_URL ?? 'http://10.0.2.2:8080/api/v1',
+  wsUrl: nativeBuildEnv.VITE_NATIVE_WS_URL ?? 'ws://10.0.2.2:8080/ws/devices',
+  accessToken: nativeBuildEnv.VITE_NATIVE_ACCESS_TOKEN ?? null,
+  ...defaultOidcFields({ native: true })
 });
 const WEATHER_READ_CACHE_MS = 10 * 60 * 1000;
 const WEATHER_FORECAST_CACHE_MS = 30 * 60 * 1000;
@@ -41,6 +67,7 @@ const REALTIME_RESYNC_COOLDOWN_MS = 2 * 60 * 1000;
 const PULL_REFRESH_COOLDOWN_MS = 60 * 1000;
 const LIVE_RENDER_MIN_INTERVAL_MS = 2 * 1000;
 const PENDING_WEATHER_LOCATION_KEY = 'iot-manager.pending-weather-location.v1';
+const SELECTED_SITE_KEY = 'iot-manager.selected-site.v1';
 
 const nativeRuntime = Capacitor.isNativePlatform();
 const runtimeConfigRepository = new RuntimeConfigRepository();
@@ -48,6 +75,8 @@ const cacheRepository = new CacheRepository();
 let platformSession = null;
 let platform = null;
 let endpointProfile = null;
+let authSession = null;
+let authUrlListener = null;
 let ble = nativeRuntime ? new NativeBleAdapter() : new BleAdapter();
 let platformUnsubscribers = [];
 let lifecycleHandle = null;
@@ -61,10 +90,12 @@ let appBackgroundedAt = null;
 let realtimeState = 'idle';
 let liveRenderTimer = null;
 let lastLiveRenderAt = 0;
+let weatherRefreshCooldownTimer = null;
 
 let clientState = {
   context: DEMO_CONTEXT,
   endpointProfile: null,
+  sites: [],
   lanCandidates: [],
   ble: {
     availability: ble.availability().available,
@@ -80,6 +111,8 @@ let clientState = {
   loading: {},
   weatherSettings: null,
   pendingWeatherLocation: null,
+  weatherRefreshRetryAt: null,
+  auth: { configured: false, authenticated: false, status: 'not_configured', expiresAt: null, error: null },
   error: null
 };
 
@@ -106,12 +139,17 @@ const ui = createClientUi(document.getElementById('app'), {
   sendCommand,
   retryCommand,
   reconnectRealtime,
+  switchSite,
   switchEndpoint,
+  signIn,
+  signOut,
   testEndpoint: (draft) => probeEndpoint({
     accessRoute: draft?.accessRoute,
     apiBaseUrl: draft?.apiBaseUrl,
     wsUrl: draft?.wsUrl,
     organizationCode: clientState.context.organizationCode,
+    siteCode: clientState.context.siteCode,
+    accessToken: draft?.accessToken,
     verifyWebSocket: true
   }),
   openBleAppSettings: () => ble.openAppSettings?.(),
@@ -210,9 +248,40 @@ function setLoading(key, value) {
   setClientState({ loading: { [key]: value } });
 }
 
+function weatherRefreshCooldownSeconds() {
+  const retryAt = Number(clientState.weatherRefreshRetryAt);
+  if (!Number.isFinite(retryAt) || retryAt <= Date.now()) return 0;
+  return Math.max(1, Math.ceil((retryAt - Date.now()) / 1000));
+}
+
+function setWeatherRefreshCooldown(seconds) {
+  if (weatherRefreshCooldownTimer) {
+    clearInterval(weatherRefreshCooldownTimer);
+    weatherRefreshCooldownTimer = null;
+  }
+  const normalized = Math.max(0, Math.ceil(Number(seconds) || 0));
+  if (normalized === 0) {
+    if (clientState.weatherRefreshRetryAt !== null) setClientState({ weatherRefreshRetryAt: null });
+    return;
+  }
+  const retryAt = Date.now() + normalized * 1000;
+  const tick = () => {
+    if (Date.now() >= retryAt) {
+      if (weatherRefreshCooldownTimer) clearInterval(weatherRefreshCooldownTimer);
+      weatherRefreshCooldownTimer = null;
+      setClientState({ weatherRefreshRetryAt: null });
+      return;
+    }
+    // Keep the same deadline in state so the UI redraws the visible countdown.
+    setClientState({ weatherRefreshRetryAt: retryAt });
+  };
+  setClientState({ weatherRefreshRetryAt: retryAt });
+  weatherRefreshCooldownTimer = setInterval(tick, 1000);
+}
+
 function describeError(error) {
   if (nativeRuntime && endpointProfile?.apiBaseUrl?.includes('://10.0.2.2')) {
-    return '当前地址 10.0.2.2 仅适用于 Android 模拟器；真机请在连接设置填写电脑的局域网地址，例如 http://192.168.1.100:8080/api。';
+    return '当前地址 10.0.2.2 仅适用于 Android 模拟器；真机请在连接设置填写电脑的局域网地址，例如 http://192.168.1.100:8080/api/v1。';
   }
   if (error?.message === 'Failed to fetch' || /network request failed|connection refused|load failed/i.test(String(error?.message ?? ''))) {
     return '后台不可达：请确认电脑上的后端已启动，手机填写的是电脑局域网地址，且两者连接同一 Wi‑Fi。';
@@ -252,12 +321,81 @@ function bindPlatformEvents(adapter) {
   ];
 }
 
+function currentUrl() {
+  return typeof globalThis.location?.href === 'string' ? globalThis.location.href : null;
+}
+
+function removeOidcQueryFromBrowser(url) {
+  if (url !== currentUrl() || !globalThis.history?.replaceState) return;
+  try {
+    const cleaned = new URL(url);
+    for (const key of ['code', 'state', 'session_state', 'iss', 'error', 'error_description']) {
+      cleaned.searchParams.delete(key);
+    }
+    globalThis.history.replaceState({}, globalThis.document?.title ?? '', `${cleaned.pathname}${cleaned.search}${cleaned.hash}`);
+  } catch {
+    // Callback cleanup must not invalidate an otherwise successful sign-in.
+  }
+}
+
+function tokenProvider() {
+  return authSession?.getAccessToken() ?? endpointProfile?.accessToken ?? null;
+}
+
+async function configureAuthSession(profile) {
+  authSession?.stopAutoRefresh();
+  const config = normalizeOidcConfig(profile);
+  if (!config) {
+    authSession = null;
+    setClientState({ auth: { configured: false, authenticated: false, status: 'not_configured', expiresAt: null, error: null } });
+    return null;
+  }
+  let manager;
+  manager = new OidcSessionManager({
+    config,
+    onStateChange: (auth) => {
+      if (authSession !== manager) return;
+      setClientState({ auth });
+      if (!auth.authenticated) platform?.disconnect();
+    }
+  });
+  authSession = manager;
+  setClientState({ auth: manager.getState() });
+  await manager.restore();
+  return manager;
+}
+
+async function completeOidcRedirect(url = currentUrl()) {
+  if (!authSession?.isRedirect(url)) return false;
+  const completed = await authSession.completeRedirect(url);
+  if (completed) removeOidcQueryFromBrowser(url);
+  return completed;
+}
+
+async function synchronizePlatformEndpoint() {
+  if (!platform) return null;
+  if (authSession?.isConfigured() && !authSession.getAccessToken()) return null;
+  await hydrateCachedWeather();
+  await loadSites();
+  await refreshDevices();
+  await refreshWeather({ includeSettings: false });
+  platform.connect();
+  return endpointProfile;
+}
+
 async function activateEndpoint(profile) {
   for (const unsubscribe of platformUnsubscribers) unsubscribe();
   platformUnsubscribers = [];
   platform?.disconnect();
   endpointProfile = await runtimeConfigRepository.save(profile);
-  platformSession = createPlatformAdapter({ endpointProfile });
+  setWeatherRefreshCooldown(0);
+  await configureAuthSession(endpointProfile);
+  platformSession = createPlatformAdapter({
+    endpointProfile,
+    siteCodeProvider: () => clientState.context.siteCode,
+    accessTokenProvider: tokenProvider,
+    onUnauthorized: () => authSession?.tryRefresh() ?? Promise.resolve(false)
+  });
   platform = platformSession.adapter;
   realtimeState = 'idle';
   clientState = { ...clientState, endpointProfile, lanCandidates: [] };
@@ -269,24 +407,149 @@ async function activateEndpoint(profile) {
     stale: true,
     lastSyncedAt: null
   });
-  await hydrateCachedWeather();
-  await refreshDevices();
-  await refreshWeather({ includeSettings: false });
-  platform.connect();
+  await completeOidcRedirect();
+  await synchronizePlatformEndpoint();
   render();
   return endpointProfile;
 }
 
+async function loadSites() {
+  if (!platform) return [];
+  try {
+    const response = await platform.listSites();
+    const sites = Array.isArray(response) ? response.filter((site) => site?.siteCode) : [];
+    if (sites.length > 0) {
+      setClientState({ sites });
+      const selected = sites.find((site) => String(site.siteCode) === String(clientState.context.siteCode)) ?? sites[0];
+      if (selected && String(selected.siteCode) !== String(clientState.context.siteCode)) {
+        await applySiteContext(selected, { persist: false, reload: false });
+      }
+      return sites;
+    }
+  } catch {
+    // Older local backends do not expose the versioned site endpoint yet. Keep
+    // the current demo context usable and let the operator upgrade in place.
+  }
+  setClientState({ sites: clientState.sites.length ? clientState.sites : [siteFromContext(clientState.context)] });
+  return clientState.sites;
+}
+
+function siteFromContext(context) {
+  return {
+    id: null,
+    organizationCode: context.organizationCode,
+    organizationName: context.organizationName,
+    siteCode: context.siteCode,
+    siteName: context.siteName
+  };
+}
+
+async function switchSite({ siteCode } = {}) {
+  const selected = clientState.sites.find((site) => String(site.siteCode) === String(siteCode ?? ''));
+  if (!selected) throw new Error('选择的站点不可用，请重新同步站点列表');
+  if (String(selected.siteCode) === String(clientState.context.siteCode)) return selected;
+  await applySiteContext(selected, { persist: true, reload: true });
+  return selected;
+}
+
+async function applySiteContext(site, { persist = true, reload = true } = {}) {
+  const context = {
+    ...clientState.context,
+    organizationCode: site.organizationCode ?? clientState.context.organizationCode,
+    organizationName: site.organizationName ?? clientState.context.organizationName,
+    siteCode: site.siteCode,
+    siteName: site.siteName ?? site.siteCode,
+    spaceName: '现场空间',
+    spacePath: '/operations/field'
+  };
+  clientState = { ...clientState, context };
+  if (persist) {
+    try {
+      await Preferences.set({ key: SELECTED_SITE_KEY, value: JSON.stringify({
+        endpointId: endpointProfile?.id ?? null,
+        siteCode: context.siteCode
+      }) });
+    } catch {
+      // Site selection remains active in memory if preference storage is unavailable.
+    }
+  }
+  store.setActiveDevice(null);
+  store.setWeather(null);
+  store.setWeatherForecast(null);
+  store.setRuntimeContext({ siteCode: context.siteCode, stale: true, lastSyncedAt: null });
+  lastWeatherReadAt = 0;
+  lastForecastReadAt = 0;
+  lastDeviceResyncAt = 0;
+  setWeatherRefreshCooldown(0);
+  setClientState({ context, weatherSettings: null, pendingWeatherLocation: null });
+  platform?.setSiteCode?.(context.siteCode);
+  platform?.disconnect();
+  if (!reload) return context;
+  await Promise.all([
+    refreshDevices({ refreshActiveActivity: false }),
+    refreshWeather({ forceRead: true, includeSettings: true }),
+    loadWeatherForecast({ forceRead: true })
+  ]);
+  platform?.connect();
+  return context;
+}
+
 async function switchEndpoint(profile) {
+  const oidcConfig = normalizeOidcConfig(profile);
+  if (oidcConfig) {
+    await activateEndpoint(profile);
+    if (!authSession?.getAccessToken()) {
+      await signIn();
+      return endpointProfile;
+    }
+    const authenticatedResult = await probeEndpoint({
+      accessRoute: endpointProfile.accessRoute,
+      apiBaseUrl: endpointProfile.apiBaseUrl,
+      wsUrl: endpointProfile.wsUrl,
+      organizationCode: clientState.context.organizationCode,
+      siteCode: clientState.context.siteCode,
+      accessToken: tokenProvider(),
+      verifyWebSocket: true
+    });
+    if (!authenticatedResult.ok) throw new Error(authenticatedResult.message);
+    return endpointProfile;
+  }
   const result = await probeEndpoint({
     accessRoute: profile?.accessRoute,
     apiBaseUrl: profile?.apiBaseUrl,
     wsUrl: profile?.wsUrl,
     organizationCode: clientState.context.organizationCode,
+    siteCode: clientState.context.siteCode,
+    accessToken: profile?.accessToken,
     verifyWebSocket: true
   });
   if (!result.ok) throw new Error(result.message);
   return activateEndpoint(profile);
+}
+
+async function signIn() {
+  if (!authSession?.isConfigured()) {
+    throw new Error('当前端点尚未配置 OIDC。请在“互联网远程”连接设置中填写 Keycloak 地址、客户端 ID 和回调地址。');
+  }
+  await authSession.beginLogin();
+}
+
+async function signOut() {
+  platform?.disconnect();
+  setWeatherRefreshCooldown(0);
+  try {
+    await cacheRepository.clearPlatformScope(platformCacheScope());
+  } catch {
+    // A sign-out must still succeed when no endpoint was configured or local
+    // browser storage has already been cleared.
+  }
+  store.setDevices(store.getState().devices.filter((device) => device.localOnly));
+  store.setActiveDevice(null);
+  store.setWeather(null);
+  store.setWeatherForecast(null);
+  store.setRuntimeContext({ stale: true, lastSyncedAt: null });
+  setClientState({ sites: [], weatherSettings: null, pendingWeatherLocation: null, error: null });
+  await authSession?.logout();
 }
 
 async function refreshDevices({ refreshActiveActivity = true } = {}) {
@@ -509,16 +772,23 @@ async function retryPendingWeatherLocation() {
 
 async function forceRefreshWeather() {
   if (!platform) throw new Error('平台连接不可用，无法刷新天气。');
+  const localCooldown = weatherRefreshCooldownSeconds();
+  if (localCooldown > 0) {
+    throw new Error(`天气刚刚已刷新，请 ${localCooldown} 秒后再试。`);
+  }
   try {
     const weather = await platform.refreshSiteWeather(clientState.context.siteCode);
     store.setWeather(weather);
     await cacheRepository.putPlatformWeather(platformCacheScope(), weather);
     lastWeatherReadAt = Date.now();
+    setWeatherRefreshCooldown(60);
     await Promise.all([refreshWeatherSettings(), loadWeatherForecast({ forceRead: true })]);
     return weather;
   } catch (error) {
     if (error?.status === 429) {
-      throw new Error(error.message || '天气刚刚已刷新，请稍后再试。', { cause: error });
+      const retryAfterSeconds = Number(error.retryAfterSeconds) || 60;
+      setWeatherRefreshCooldown(retryAfterSeconds);
+      throw new Error(`天气刚刚已刷新，请 ${retryAfterSeconds} 秒后再试。`, { cause: error });
     }
     throw new Error(`天气刷新失败：${describeError(error)}`, { cause: error });
   }
@@ -628,23 +898,68 @@ async function persistLocalCommandActivity(bindingKey, command) {
   return stored;
 }
 
+function withDefaultOidcFields(profile, defaults = defaultOidcFields({ native: nativeRuntime })) {
+  return {
+    ...profile,
+    oidcIssuerUrl: profile?.oidcIssuerUrl ?? defaults.oidcIssuerUrl ?? null,
+    oidcClientId: profile?.oidcClientId ?? defaults.oidcClientId ?? null,
+    oidcRedirectUri: profile?.oidcRedirectUri ?? defaults.oidcRedirectUri ?? null,
+    oidcScope: profile?.oidcScope ?? defaults.oidcScope ?? null
+  };
+}
+
+async function handleNativeOidcRedirect(url) {
+  try {
+    const completed = await completeOidcRedirect(url);
+    if (completed) await synchronizePlatformEndpoint();
+  } catch (error) {
+    setClientState({ error: `登录未完成：${error?.message ?? '请重试。'}` });
+  }
+}
+
 async function bootstrapRuntime() {
   appInstallId = await loadAppInstallId();
   await restoreLocalBindings();
   clientState = { ...clientState, pendingWeatherLocation: await loadPendingWeatherLocation() };
+  try {
+    const savedSite = await Preferences.get({ key: SELECTED_SITE_KEY });
+    if (savedSite.value) {
+      const parsed = JSON.parse(savedSite.value);
+      if (parsed?.siteCode) {
+        clientState = {
+          ...clientState,
+          context: { ...clientState.context, siteCode: String(parsed.siteCode) }
+        };
+      }
+    }
+  } catch {
+    // The built-in demo context remains the safe fallback.
+  }
   const savedProfile = await runtimeConfigRepository.load();
   const defaults = nativeRuntime
     ? DEFAULT_NATIVE_ENDPOINT
     : resolveClientConfig();
   const saved = nativeRuntime ? repairLegacyNativeEndpoint(savedProfile, DEFAULT_NATIVE_ENDPOINT) : savedProfile;
-  const profile = saved ?? {
+  const profile = withDefaultOidcFields(saved ?? {
     id: 'local-site',
     accessRoute: ACCESS_ROUTES.SITE_API,
     apiBaseUrl: defaults.apiBaseUrl,
     wsUrl: defaults.wsUrl,
-    organizationCode: clientState.context.organizationCode
-  };
+    organizationCode: clientState.context.organizationCode,
+    accessToken: defaults.accessToken ?? nativeBuildEnv.VITE_ACCESS_TOKEN ?? null,
+    ...defaultOidcFields({ native: nativeRuntime })
+  });
   await activateEndpoint(profile);
+  if (nativeRuntime && !authUrlListener) {
+    authUrlListener = await App.addListener('appUrlOpen', ({ url }) => handleNativeOidcRedirect(url));
+  }
+  if (nativeRuntime) {
+    // An Android custom-scheme callback can cold-start the app before the
+    // appUrlOpen listener exists. Read the launch URL once so the PKCE
+    // transaction is completed in both warm- and cold-start flows.
+    const launch = await App.getLaunchUrl?.();
+    if (launch?.url) await handleNativeOidcRedirect(launch.url);
+  }
   lifecycleHandle = await attachAppLifecycle({
     onBackground: async () => {
       appBackgroundedAt = Date.now();

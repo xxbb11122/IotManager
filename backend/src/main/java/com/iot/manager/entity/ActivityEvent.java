@@ -32,6 +32,18 @@ public class ActivityEvent {
     @JoinColumn(name = "device_id", nullable = false)
     private Device device;
 
+    /** AppUser id captured when the event was written; null means system/legacy actor. */
+    @Column(name = "actor_id")
+    private Long actorId;
+
+    /** Immutable organization scope copied from the device at event time. */
+    @Column(name = "organization_id")
+    private Long organizationId;
+
+    /** Immutable site scope copied from the device at event time. */
+    @Column(name = "site_id")
+    private Long siteId;
+
     @Column(nullable = false, length = 100)
     private String eventType;
 

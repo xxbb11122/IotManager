@@ -10,7 +10,10 @@ public record CommandEventView(
         String eventType,
         String detail,
         Map<String, Object> payload,
-        LocalDateTime occurredAt
+        LocalDateTime occurredAt,
+        Long actorId,
+        Long organizationId,
+        Long siteId
 ) {
 
     public CommandEventView {

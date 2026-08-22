@@ -1,5 +1,9 @@
 # 站点天气与环境状态模块｜汇总开发文档
 
+> **文档级别：历史设计稿（非发布审批基线）。** 当前实施以
+> [`PROJECT-APPROVAL-REVIEW.md`](/E:/CC_testP/iot-manager/docs/PROJECT-APPROVAL-REVIEW.md)、
+> [`PROJECT-IMPROVEMENT-PLAN.md`](/E:/CC_testP/iot-manager/docs/PROJECT-IMPROVEMENT-PLAN.md)
+> 和功能路线图为准；本稿中的“一期/后续”表述不改变 Gate、权限和供应商审查要求。
 > 状态：一期已实现并验证；天气自动联动与生产级权限仍为后续工作
 > 目标端：Android/PDA 客户端、监控大屏、运维控制台
 > 设计基准：设备页顶部固定展示当地气温、相对湿度、气压三项实时数据；天气状况与站点海拔归入站点环境信息；数值按绿色（适宜）、黄色（观察）、红色（风险）响应。
@@ -145,12 +149,12 @@ timezone=<site timezone>&forecast_days=7
 
 | 方法与路径 | 用途 |
 |---|---|
-| `GET /api/sites/{siteCode}/weather` | 客户端顶部和当前天气卡；坐标已配置但未同步时返回 `PENDING`，未配置或已停用时返回 `UNAVAILABLE`，均不返回伪造数值。 |
-| `GET /api/sites/{siteCode}/weather/forecast?hours=24&days=7` | 天气详情页的小时/每日预报。 |
-| `PUT /api/sites/{siteCode}/weather-settings` | 控制台保存天气配置。 |
-| `POST /api/sites/{siteCode}/weather/refresh` | 控制台手动刷新。 |
+| `GET /api/v1/sites/{siteCode}/weather` | 客户端顶部和当前天气卡；坐标已配置但未同步时返回 `PENDING`，未配置或已停用时返回 `UNAVAILABLE`，均不返回伪造数值。 |
+| `GET /api/v1/sites/{siteCode}/weather/forecast?hours=24&days=7` | 天气详情页的小时/每日预报。 |
+| `PUT /api/v1/sites/{siteCode}/weather-settings` | 控制台保存天气配置。 |
+| `POST /api/v1/sites/{siteCode}/weather/refresh` | 控制台手动刷新。 |
 
-`GET /api/sites/demo-site/weather` 的目标响应：
+`GET /api/v1/sites/demo-site/weather` 的目标响应：
 
 ```json
 {

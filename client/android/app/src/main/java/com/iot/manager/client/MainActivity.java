@@ -9,6 +9,7 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        registerPlugin(SecureSessionPlugin.class);
         super.onCreate(savedInstanceState);
         boolean debuggable = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
         if (debuggable && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
