@@ -21,8 +21,6 @@ jobs:
     name: Backend and Edge Agent (JDK 17)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      IOT_VERIFY_SUMMARY_FILE: ${{ runner.temp }}/iot-manager-java-summary.csv
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -34,6 +32,8 @@ jobs:
           java-version: "17"
           cache: maven
       - name: Verify Backend, Edge Agent, and PostgreSQL Testcontainers strictly
+        env:
+          IOT_VERIFY_SUMMARY_FILE: ${{ runner.temp }}/iot-manager-java-summary.csv
         run: bash scripts/verify.sh --strict --skip-web --skip-deploy
       - name: Upload Java execution summary
         if: ${{ always() }}
@@ -48,8 +48,6 @@ jobs:
     name: Frontend, Console, and Client (Node 22)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      IOT_VERIFY_SUMMARY_FILE: ${{ runner.temp }}/iot-manager-web-summary.csv
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -69,6 +67,8 @@ jobs:
           npm ci
           npx playwright install --with-deps chromium
       - name: Verify web clients strictly
+        env:
+          IOT_VERIFY_SUMMARY_FILE: ${{ runner.temp }}/iot-manager-web-summary.csv
         run: bash scripts/verify.sh --strict --skip-backend --skip-deploy
       - name: Upload web execution summary
         if: ${{ always() }}
