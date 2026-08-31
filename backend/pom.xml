@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.2.0</version>
+        <version>3.5.16</version>
         <relativePath/>
     </parent>
 
@@ -20,11 +20,13 @@
 
     <properties>
         <java.version>17</java.version>
-        <!-- Spring Boot 3.2 manages an older Lombok release that cannot run
-             inside the JDK 23/24 javac used by the local IDEA installation. -->
+        <!-- Keep Lombok compatible with the JDK 23/24 javac used by the
+             local IDEA installation. -->
         <lombok.version>1.18.44</lombok.version>
         <!-- Used by Mockito in tests; 1.14.10 only supports class files through JDK 22. -->
-        <byte-buddy.version>1.17.7</byte-buddy.version>
+        <byte-buddy.version>1.17.8</byte-buddy.version>
+        <!-- CVE-2026-54291 is fixed in PostgreSQL JDBC 42.7.12. -->
+        <postgresql.version>42.7.12</postgresql.version>
     </properties>
 
     <dependencies>
@@ -59,11 +61,18 @@
         <dependency>
             <groupId>net.logstash.logback</groupId>
             <artifactId>logstash-logback-encoder</artifactId>
-            <version>7.4</version>
+            <version>8.1</version>
         </dependency>
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
+        </dependency>
+        <!-- Flyway 10+ ships PostgreSQL support as a separate module.  Keep
+             it on the production runtime classpath so startup migrations and
+             the PostgreSQL migration smoke test use the same implementation. -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
         <dependency>
             <groupId>org.postgresql</groupId>

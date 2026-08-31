@@ -1,0 +1,42 @@
+groups:
+  - name: iot-manager-r1
+    rules:
+      - alert: IotManagerBackendUnavailable
+        expr: up{job="iot-manager-backend"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: iot-manager
+        annotations:
+          summary: IoT Manager backend scrape target is unavailable
+          runbook: Verify backend readiness, PostgreSQL connectivity, and the private scrape token.
+
+      - alert: IotManagerCommandFailures
+        expr: sum(increase(iot_commands_transitions_total{status=~"failed|expired|unconfirmed"}[10m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: iot-manager
+        annotations:
+          summary: IoT command failures need operator review
+          runbook: Review command audit events and edge-agent connectivity before retrying a command.
+
+      - alert: IotManagerWeatherRefreshFailures
+        expr: sum(increase(iot_weather_refreshes_total{outcome="failed"}[15m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          service: iot-manager
+        annotations:
+          summary: Site weather refreshes are failing
+          runbook: Confirm Open-Meteo availability and cached weather fallback before manual refresh.
+
+      - alert: IotManagerApiRateLimitPressure
+        expr: sum(increase(iot_api_rate_limited_total[5m])) > 10
+        for: 5m
+        labels:
+          severity: warning
+          service: iot-manager
+        annotations:
+          summary: API rate limit pressure is elevated
+          runbook: Identify the caller from redacted access logs and verify refresh budgets.

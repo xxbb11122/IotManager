@@ -3,8 +3,11 @@ const handlers = {};
 let ws = null;
 let reconnectTimer = null;
 const RECONNECT_MS = 3000;
+const BROWSER_SUBPROTOCOL = 'iot-v1';
 let activeSiteCode = null;
-let accessTokenProvider = () => String(globalThis.__IOT_ACCESS_TOKEN__ ?? import.meta.env?.VITE_ACCESS_TOKEN ?? '').trim();
+// OIDC injects the short-lived token through setAccessTokenProvider. Build-
+// time and global token injection are intentionally unsupported.
+let accessTokenProvider = () => '';
 let shouldReconnect = true;
 
 function websocketUrl() {
@@ -18,7 +21,9 @@ function connect() {
   if (ws && ws.readyState === WebSocket.OPEN) return;
   shouldReconnect = true;
   const token = String(accessTokenProvider?.() ?? '').trim();
-  ws = token ? new WebSocket(websocketUrl(), [`iot-bearer.${token}`]) : new WebSocket(websocketUrl());
+  ws = token
+    ? new WebSocket(websocketUrl(), [BROWSER_SUBPROTOCOL, `iot-bearer.${token}`])
+    : new WebSocket(websocketUrl());
 
   ws.onopen = () => {
     console.log('[WS] 已连接');

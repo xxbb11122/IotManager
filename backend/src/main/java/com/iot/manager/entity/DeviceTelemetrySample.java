@@ -7,7 +7,6 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.Lob;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
@@ -15,6 +14,9 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+
+import java.sql.Types;
 
 import java.time.LocalDateTime;
 
@@ -45,7 +47,7 @@ public class DeviceTelemetrySample {
     @Column(nullable = false, length = 100)
     private String source;
 
-    @Lob
+    @JdbcTypeCode(Types.LONGVARCHAR)
     @Column(name = "state_json", nullable = false)
     private String stateJson;
 }

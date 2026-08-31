@@ -1,0 +1,15 @@
+# R1 intentionally does not introduce external notification channels. Alerts
+# are retained in the private Alertmanager UI for the on-call team to review;
+# connecting email/chat/webhook delivery requires a separately approved change.
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: r1-ops-review
+  group_by: [alertname, service]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: r1-ops-review

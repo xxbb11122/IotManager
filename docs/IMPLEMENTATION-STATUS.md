@@ -1,5 +1,16 @@
 # IoT Manager 实施状态（非审批文件）
 
+> **归档说明（2026-08-21 快照）：** 本文件保留早期实施记录，不再作为当前
+> R1 收尾状态或 Gate 证据的依据。请使用
+> [R1-COMPLETION-IMPLEMENTATION-STATUS.md](R1-COMPLETION-IMPLEMENTATION-STATUS.md)
+> 获取当前实现、最新测试计数和明确的外部阻塞项。
+>
+> **2026-08-30 对账：** 下文保留的是历史快照，不能引用其中的 Docker、Testcontainers、
+> 测试计数或 Gate 结论。当前审计请使用
+> [R1 收尾实施状态](R1-COMPLETION-IMPLEMENTATION-STATUS.md)、
+> [运行镜像安全状态](IMAGE-SECURITY-STATUS.md) 和
+> [严格项目审计](PROJECT-AUDIT-2026-08-30.md)。
+
 **状态：** R0→R1 代码与部署资产已完成本地验证；尚未申请 Gate 2，不能视为生产发布授权。<br>
 **日期：** 2026-08-21<br>
 **权威基线：** [PROJECT-APPROVAL-REVIEW.md](PROJECT-APPROVAL-REVIEW.md) v1.3 > [PROJECT-IMPROVEMENT-PLAN.md](PROJECT-IMPROVEMENT-PLAN.md) v1.6 > [FEATURE-EXPANSION-EVALUATION-AND-ROADMAP.md](FEATURE-EXPANSION-EVALUATION-AND-ROADMAP.md) v1.3
@@ -16,7 +27,9 @@
 - **可观测性：** 受限 Actuator 健康探针与 Prometheus 指标、结构化日志、`X-Request-Id`/`X-Trace-Id`、单实例 API 限流、命令/天气/WebSocket 指标已实现。部署后的 Prometheus 抓取与告警规则仍需现场验证。
 - **天气可靠性与隐私：** 60 秒手动刷新冷却与 `429 + Retry-After`、缓存降级、刷新结果/耗时、供应商调用目的/结果/耗时审计、HMAC 坐标指纹、原始响应坐标脱敏和 30 天后坐标粗化均已实现；V18 会清理旧的原始载荷和明文坐标指纹。
 - **迁移：** Flyway V1–V18 连续且不复用；V16 为多站点授权查询索引，V17 为天气刷新可观测字段，V18 为天气隐私与供应商调用审计。
-- **持续验证：** `.github/workflows/verify.yml` 已拆分为 Java 服务、Web/客户端、Android APK 和部署镜像四个作业；远端 GitHub Runner 的首次执行仍需在推送或 PR 后获取证据。
+- **持续验证（已替换）：** `.github/workflows/ci.yml` 是唯一基础 CI，包含 Java、
+  Web/客户端、Android、部署与供应链检查；`.github/workflows/runtime-e2e.yml`
+  负责完整 Compose 验证，物理 WAL/PITR 则由受保护的 `recovery-drill.yml` 执行。
 
 ## 当前验证证据
 

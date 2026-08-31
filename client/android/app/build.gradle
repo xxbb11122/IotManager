@@ -1,5 +1,40 @@
 apply plugin: 'com.android.application'
 
+/**
+ * Release credentials are deliberately supplied outside the repository. CI
+ * writes the protected keystore to a temporary path and exposes the four
+ * IOT_RELEASE_* values as environment variables (or Gradle -P properties).
+ */
+def releaseSetting = { String name ->
+    def value = project.findProperty(name)
+    if (value == null || value.toString().trim().isEmpty()) {
+        value = System.getenv(name)
+    }
+    return value == null ? null : value.toString().trim()
+}
+
+def releaseStoreFile = releaseSetting('IOT_RELEASE_STORE_FILE')
+def releaseStorePassword = releaseSetting('IOT_RELEASE_STORE_PASSWORD')
+def releaseKeyAlias = releaseSetting('IOT_RELEASE_KEY_ALIAS')
+def releaseKeyPassword = releaseSetting('IOT_RELEASE_KEY_PASSWORD')
+def releaseSigningConfigured = [releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword]
+    .every { value -> value != null && !value.isEmpty() }
+
+def configuredVersionCode = releaseSetting('IOT_RELEASE_VERSION_CODE')
+def configuredVersionName = releaseSetting('IOT_RELEASE_VERSION_NAME')
+def resolvedVersionCode = 1
+if (configuredVersionCode != null) {
+    try {
+        resolvedVersionCode = Integer.parseInt(configuredVersionCode)
+    } catch (NumberFormatException exception) {
+        throw new GradleException('IOT_RELEASE_VERSION_CODE must be a positive integer.', exception)
+    }
+    if (resolvedVersionCode <= 0) {
+        throw new GradleException('IOT_RELEASE_VERSION_CODE must be a positive integer.')
+    }
+}
+def resolvedVersionName = configuredVersionName ?: '1.0.0'
+
 android {
     namespace = "com.iot.manager.client"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,13 +42,23 @@ android {
         applicationId "com.iot.manager.client"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode resolvedVersionCode
+        versionName resolvedVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        release {
+            if (releaseSigningConfigured) {
+                storeFile rootProject.file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
         }
     }
     buildTypes {
@@ -25,8 +70,28 @@ android {
         release {
             minifyEnabled false
             manifestPlaceholders = [cleartextTrafficPermitted: "false"]
+            signingConfig signingConfigs.release
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
+    }
+}
+
+tasks.register('validateReleaseSigning') {
+    group = 'verification'
+    description = 'Fails before packaging when protected release signing inputs are missing.'
+    doLast {
+        if (!releaseSigningConfigured) {
+            throw new GradleException('Release signing is required. Set IOT_RELEASE_STORE_FILE, IOT_RELEASE_STORE_PASSWORD, IOT_RELEASE_KEY_ALIAS, and IOT_RELEASE_KEY_PASSWORD outside the repository.')
+        }
+        if (!rootProject.file(releaseStoreFile).isFile()) {
+            throw new GradleException('IOT_RELEASE_STORE_FILE must point to an existing keystore file.')
+        }
+    }
+}
+
+tasks.configureEach { task ->
+    if (task.name == 'packageRelease' || task.name == 'bundleRelease') {
+        task.dependsOn(tasks.named('validateReleaseSigning'))
     }
 }
 

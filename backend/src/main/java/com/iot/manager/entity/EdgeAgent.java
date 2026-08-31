@@ -7,13 +7,15 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.Lob;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+
+import java.sql.Types;
 
 import java.time.LocalDateTime;
 
@@ -48,7 +50,7 @@ public class EdgeAgent {
     @Column(name = "last_seen")
     private LocalDateTime lastSeen;
 
-    @Lob
+    @JdbcTypeCode(Types.LONGVARCHAR)
     @Column(name = "metadata_json")
     private String metadataJson;
 

@@ -47,7 +47,9 @@ async function initializeAuthentication() {
     onUnauthorized: () => browserAuth.tryRefresh()
   });
   realtime.setAccessTokenProvider(() => browserAuth.getAccessToken());
-  const authState = await browserAuth.initialize();
+  // Keep the explicit login action available on a signed-out HTTPS console;
+  // automatic redirects would make logout immediately reauthenticate.
+  const authState = await browserAuth.initialize({ redirectIfUnauthenticated: false });
   updateAuthenticationUi(authState);
   return authState.authenticated;
 }

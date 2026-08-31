@@ -4,6 +4,7 @@ let reconnectTimer = null;
 let activeSiteCode = null;
 let accessTokenProvider = () => null;
 let shouldReconnect = true;
+const BROWSER_SUBPROTOCOL = 'iot-v1';
 
 function endpoint() {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -20,7 +21,9 @@ function connect() {
   if (socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) return;
   shouldReconnect = true;
   const token = String(accessTokenProvider?.() ?? '').trim();
-  socket = token ? new WebSocket(endpoint(), [`iot-bearer.${token}`]) : new WebSocket(endpoint());
+  socket = token
+    ? new WebSocket(endpoint(), [BROWSER_SUBPROTOCOL, `iot-bearer.${token}`])
+    : new WebSocket(endpoint());
   socket.onmessage = (event) => {
     try {
       const message = JSON.parse(event.data);

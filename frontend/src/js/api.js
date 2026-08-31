@@ -3,9 +3,10 @@ let accessTokenProvider = accessToken;
 let unauthorizedHandler = null;
 
 function accessToken() {
-  const runtimeToken = globalThis.__IOT_ACCESS_TOKEN__;
-  const buildToken = import.meta.env?.VITE_ACCESS_TOKEN;
-  return String(runtimeToken ?? buildToken ?? '').trim();
+  // Browser credentials are supplied only by the in-memory OIDC session via
+  // configureApiAuthentication. Build-time and global token injection are
+  // intentionally unsupported because they bypass that session lifecycle.
+  return '';
 }
 
 function versionedPath(path) {

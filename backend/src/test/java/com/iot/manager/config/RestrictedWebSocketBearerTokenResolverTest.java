@@ -36,7 +36,7 @@ class RestrictedWebSocketBearerTokenResolverTest {
     @Test
     void prefersTheTokenInTheWebSocketSubprotocolWithoutRequiringTlsAtResolverLevel() {
         MockHttpServletRequest request = request("/ws/devices", false);
-        request.addHeader("Sec-WebSocket-Protocol", "chat, iot-bearer.browser-token-2");
+        request.addHeader("Sec-WebSocket-Protocol", "iot-v1, iot-bearer.browser-token-2");
 
         assertThat(resolver.resolve(request)).isEqualTo("browser-token-2");
     }

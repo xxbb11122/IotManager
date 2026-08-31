@@ -1,5 +1,6 @@
 package com.iot.manager.weather;
 
+import com.iot.manager.service.ScheduledDatabaseTaskGuard;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -16,12 +17,15 @@ import java.time.Instant;
 public class SiteWeatherPrivacyScheduler {
 
     private final SiteWeatherPrivacyService privacyService;
+    private final ScheduledDatabaseTaskGuard scheduledDatabaseTaskGuard;
 
     @Scheduled(cron = "${iot.weather.privacy-coarsen-cron:0 15 3 * * *}")
     public void coarsenExpiredLocations() {
-        int changed = privacyService.coarsenExpiredLocations(Instant.now());
-        if (changed > 0) {
-            log.info("Weather location precision reduced for {} expired site configuration(s)", changed);
-        }
+        scheduledDatabaseTaskGuard.run("weather-location-privacy-coarsen", () -> {
+            int changed = privacyService.coarsenExpiredLocations(Instant.now());
+            if (changed > 0) {
+                log.info("Weather location precision reduced for {} expired site configuration(s)", changed);
+            }
+        });
     }
 }

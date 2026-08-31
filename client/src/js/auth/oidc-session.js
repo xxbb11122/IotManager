@@ -162,7 +162,10 @@ export class OidcSessionManager {
   constructor({
     config,
     tokenStore = new SecureSessionStore(),
-    fetchImpl = globalThis.fetch,
+    // Keep Window as the receiver for the browser's native fetch. Calling an
+    // unbound Web IDL fetch function as a manager member fails in Chromium
+    // before discovery or token exchange can leave the device.
+    fetchImpl = (...args) => globalThis.fetch(...args),
     navigate = (url) => globalThis.location.assign(url),
     now = () => Date.now(),
     cryptoRef = globalThis.crypto,

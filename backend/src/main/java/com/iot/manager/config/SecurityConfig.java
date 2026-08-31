@@ -4,7 +4,6 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -18,9 +17,14 @@ import org.springframework.security.oauth2.server.resource.web.authentication.Be
 import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.core.convert.converter.Converter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.filter.CorsFilter;
 
 import java.util.Collection;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -38,7 +42,8 @@ import java.util.Set;
         WebAccessProperties.class,
         EdgeAgentSecurityProperties.class,
         BootstrapOwnerProperties.class,
-        ApiRateLimitProperties.class
+        ApiRateLimitProperties.class,
+        ObservabilityProperties.class
 })
 public class SecurityConfig {
 
@@ -52,22 +57,46 @@ public class SecurityConfig {
         this.webAccessProperties = webAccessProperties;
     }
 
+    /**
+     * Spring Security handles an OPTIONS request before MVC reaches the
+     * WebMvcConfigurer mapping.  Keep an explicit source here so production
+     * CORS behavior cannot depend on MVC handler-mapping discovery order.
+     */
+    @Bean
+    CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+        configuration.setAllowedOrigins(webAccessProperties.getAllowedOrigins());
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        configuration.setAllowedHeaders(List.of("*"));
+        configuration.setExposedHeaders(List.of("X-Request-Id", "X-Trace-Id", "Retry-After"));
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/api/**", configuration);
+        return source;
+    }
+
     @Bean
     SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             KeycloakJwtAuthenticationConverter keycloakJwtAuthenticationConverter,
             ApiRateLimitProperties apiRateLimitProperties,
-            com.iot.manager.service.PlatformMetricsService platformMetricsService
+            com.iot.manager.service.PlatformMetricsService platformMetricsService,
+            ObservabilityProperties observabilityProperties,
+            CorsConfigurationSource corsConfigurationSource
     ) throws Exception {
         RequestCorrelationFilter requestCorrelationFilter = new RequestCorrelationFilter();
         ApiRateLimitFilter apiRateLimitFilter = new ApiRateLimitFilter(apiRateLimitProperties, platformMetricsService);
         http.csrf(csrf -> csrf.disable())
-                .cors(Customizer.withDefaults())
                 .formLogin(formLogin -> formLogin.disable())
                 .httpBasic(httpBasic -> httpBasic.disable())
                 .logout(logout -> logout.disable())
                 .requestCache(requestCache -> requestCache.disable());
+        // Use the concrete allow-list filter here instead of relying on MVC's
+        // HandlerMappingIntrospector fallback.  That fallback may not resolve
+        // a versioned API route during an unauthenticated preflight request.
+        http.addFilterBefore(new CorsFilter(corsConfigurationSource), SecurityContextHolderFilter.class);
         http.addFilterBefore(requestCorrelationFilter, SecurityContextHolderFilter.class);
+        http.addFilterBefore(new MetricsScrapeAuthenticationFilter(observabilityProperties), BearerTokenAuthenticationFilter.class);
 
         if (!securityProperties.isEnabled()) {
             // H2 remains a development-only diagnostic tool and still needs
@@ -83,6 +112,10 @@ public class SecurityConfig {
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/actuator/health/liveness", "/actuator/health/readiness", "/error").permitAll()
+                        // The scrape endpoint is not an operations API. No
+                        // Keycloak realm role grants it; only the preceding
+                        // Docker-secret filter can establish ROLE_METRICS.
+                        .requestMatchers(MetricsScrapeAuthenticationFilter.METRICS_PATH).hasRole("METRICS")
                         .requestMatchers("/actuator/**").hasAnyRole("OWNER", "ADMIN")
                         // Edge agents use the independently managed
                         // X-Iot-Agent-Credential/X-Iot-Agent-Token pair. The

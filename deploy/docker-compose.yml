@@ -1,27 +1,106 @@
+name: iot-manager
+
+x-postgres-build: &postgres-build
+  context: .
+  dockerfile: postgres/Dockerfile
+
+x-walg-environment: &walg-environment
+  WALG_STORAGE_MODE: ${WALG_STORAGE_MODE:?set WALG_STORAGE_MODE}
+  WALG_FILE_PREFIX: ${WALG_FILE_PREFIX:-}
+  WALG_S3_PREFIX: ${WALG_S3_PREFIX:-}
+  AWS_ENDPOINT: ${AWS_ENDPOINT:-}
+  AWS_REGION: ${AWS_REGION:?set AWS_REGION}
+  AWS_S3_FORCE_PATH_STYLE: ${AWS_S3_FORCE_PATH_STYLE:-true}
+  WALG_COMPRESSION_METHOD: ${WALG_COMPRESSION_METHOD:-zstd}
+
 services:
+  volume-init:
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    restart: "no"
+    command:
+      - /bin/sh
+      - -ec
+      - >-
+        mkdir -p /postgres-data /wal-archive /wal-g-data/basebackups_005 /backups /caddy-data /caddy-config
+        && chown -R 999:999 /postgres-data /wal-archive /wal-g-data /backups
+        && chown -R 65534:65534 /caddy-data /caddy-config
+    volumes:
+      - postgres-data:/postgres-data
+      - wal-archive:/wal-archive
+      - wal-g-data:/wal-g-data
+      - postgres-backups:/backups
+      - caddy-data:/caddy-data
+      - caddy-config:/caddy-config
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Existing PostgreSQL volumes are mode 0700 and owned by UID 999. The
+    # one-shot initializer needs these precise capabilities to traverse and
+    # restore ownership before the long-running non-root containers start.
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+    networks: [internal]
+
   postgres:
-    image: postgres:16-alpine
+    build: *postgres-build
+    image: iot-manager-postgres:16-walg
     restart: unless-stopped
+    stop_grace_period: 60s
     environment:
-      POSTGRES_DB: ${IOT_DB_DATABASE:?set IOT_DB_DATABASE}
-      POSTGRES_USER: ${IOT_DB_USERNAME:?set IOT_DB_USERNAME}
-      POSTGRES_PASSWORD: ${IOT_DB_PASSWORD:?set IOT_DB_PASSWORD}
+      POSTGRES_DB: postgres
+      POSTGRES_USER: ${POSTGRES_BOOTSTRAP_USERNAME:?set POSTGRES_BOOTSTRAP_USERNAME}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_admin_password
+      IOT_DB_DATABASE: ${IOT_DB_DATABASE:?set IOT_DB_DATABASE}
+      IOT_DB_OWNER_USERNAME: ${IOT_DB_OWNER_USERNAME:?set IOT_DB_OWNER_USERNAME}
+      IOT_DB_USERNAME: ${IOT_DB_USERNAME:?set IOT_DB_USERNAME}
       KEYCLOAK_DB_DATABASE: ${KEYCLOAK_DB_DATABASE:?set KEYCLOAK_DB_DATABASE}
       KEYCLOAK_DB_USERNAME: ${KEYCLOAK_DB_USERNAME:?set KEYCLOAK_DB_USERNAME}
-      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD}
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=3
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_timeout=300
+      - -c
+      - archive_command=test -f /var/lib/wal-archive/%f || (cp %p /var/lib/wal-archive/%f.pending && mv /var/lib/wal-archive/%f.pending /var/lib/wal-archive/%f)
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./postgres/init-keycloak.sh:/docker-entrypoint-initdb.d/10-create-keycloak.sh:ro
+      - wal-archive:/var/lib/wal-archive
+      - wal-g-data:/var/lib/wal-g
+      - ./postgres/init-databases.sh:/docker-entrypoint-initdb.d/10-init-databases.sh:ro
+    secrets:
+      - postgres_admin_password
+      - iot_db_owner_password
+      - iot_db_app_password
+      - keycloak_db_password
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
       timeout: 5s
       retries: 12
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
     networks: [internal]
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.7.1
+    build:
+      context: .
+      dockerfile: keycloak/Dockerfile
+    image: iot-manager-keycloak:26.7.2
     restart: unless-stopped
+    stop_grace_period: 45s
+    entrypoint: ["/opt/keycloak/bin/iot-manager-entrypoint.sh"]
     command:
       - start
       - --import-realm
@@ -33,90 +112,402 @@ services:
       - --health-enabled=true
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME:?set KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME}
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD:?set KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD}
       KC_DB: postgres
       KC_DB_URL_HOST: postgres
       KC_DB_URL_DATABASE: ${KEYCLOAK_DB_DATABASE:?set KEYCLOAK_DB_DATABASE}
       KC_DB_USERNAME: ${KEYCLOAK_DB_USERNAME:?set KEYCLOAK_DB_USERNAME}
-      # KCRAW preserves a '$' in a high-entropy password instead of letting
-      # Keycloak's expression resolver interpret it.
-      KCRAW_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD}
       KC_METRICS_ENABLED: "true"
-      IOT_WEB_REDIRECT_URI: ${IOT_WEB_REDIRECT_URI:?set IOT_WEB_REDIRECT_URI}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:?set KEYCLOAK_REALM}
+      IOT_DASHBOARD_REDIRECT_URI: ${IOT_DASHBOARD_REDIRECT_URI:?set IOT_DASHBOARD_REDIRECT_URI}
+      IOT_CONSOLE_REDIRECT_URI: ${IOT_CONSOLE_REDIRECT_URI:?set IOT_CONSOLE_REDIRECT_URI}
       IOT_WEB_ORIGIN: ${IOT_WEB_ORIGIN:?set IOT_WEB_ORIGIN}
       IOT_MOBILE_REDIRECT_URI: ${IOT_MOBILE_REDIRECT_URI:?set IOT_MOBILE_REDIRECT_URI}
+      IOT_BOOTSTRAP_OWNER_USERNAME: ${IOT_BOOTSTRAP_OWNER_USERNAME:?set IOT_BOOTSTRAP_OWNER_USERNAME}
+      IOT_BOOTSTRAP_OWNER_DISPLAY_NAME: ${IOT_BOOTSTRAP_OWNER_DISPLAY_NAME:?set IOT_BOOTSTRAP_OWNER_DISPLAY_NAME}
+      IOT_BOOTSTRAP_OWNER_EMAIL: ${IOT_BOOTSTRAP_OWNER_EMAIL:?set IOT_BOOTSTRAP_OWNER_EMAIL}
+      # The test-only role accounts remain disabled in normal production
+      # deployments. The integration launcher turns this on before Backend
+      # starts so every real Keycloak role also receives platform membership.
+      IOT_CREATE_INTEGRATION_IDENTITIES: ${IOT_CREATE_INTEGRATION_IDENTITIES:-false}
+      IOT_CREATE_INTEGRATION_VIEWER: ${IOT_CREATE_INTEGRATION_VIEWER:-false}
+      IOT_ADMIN_USERNAME: ${IOT_ADMIN_USERNAME:-}
+      IOT_ADMIN_DISPLAY_NAME: ${IOT_ADMIN_DISPLAY_NAME:-}
+      IOT_ADMIN_EMAIL: ${IOT_ADMIN_EMAIL:-}
+      IOT_OPERATOR_USERNAME: ${IOT_OPERATOR_USERNAME:-}
+      IOT_OPERATOR_DISPLAY_NAME: ${IOT_OPERATOR_DISPLAY_NAME:-}
+      IOT_OPERATOR_EMAIL: ${IOT_OPERATOR_EMAIL:-}
+      IOT_VIEWER_USERNAME: ${IOT_VIEWER_USERNAME:-}
+      IOT_VIEWER_DISPLAY_NAME: ${IOT_VIEWER_DISPLAY_NAME:-}
+      IOT_VIEWER_EMAIL: ${IOT_VIEWER_EMAIL:-}
     depends_on:
       postgres:
         condition: service_healthy
+    expose:
+      - "8080"
+      - "9000"
     volumes:
       - ./keycloak/iot-manager-realm.json:/opt/keycloak/data/import/iot-manager-realm.json:ro
+    secrets:
+      - keycloak_db_password
+      - keycloak_bootstrap_admin_password
+      - keycloak_owner_password
+      - keycloak_admin_password
+      - keycloak_operator_password
+      - keycloak_viewer_password
+    healthcheck:
+      # Keycloak deliberately ships no HTTP client. This is the documented
+      # raw-TCP ready probe for the management interface on port 9000. The
+      # management endpoints inherit the configured /auth relative path.
+      test: ["CMD", "/bin/bash", "-ec", "{ printf 'HEAD /auth/health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&0; grep -Eq 'HTTP/1\\.[01] 200'; } 0<>/dev/tcp/localhost/9000"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 60s
+    security_opt:
+      - no-new-privileges:true
     networks: [internal]
 
   backend:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+    image: iot-manager-backend:local
+    profiles: [application]
+    # A database or Docker-engine restart can outlast five application boot
+    # attempts. Keep retrying until an operator explicitly stops the service;
+    # readiness remains fail-closed while dependencies are unavailable.
     restart: unless-stopped
+    stop_grace_period: 45s
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m
     environment:
       SPRING_PROFILES_ACTIVE: prod
+      SPRING_CONFIG_IMPORT: optional:configtree:/run/secrets/
       IOT_DB_URL: ${IOT_DB_URL:?set IOT_DB_URL}
       IOT_DB_USERNAME: ${IOT_DB_USERNAME:?set IOT_DB_USERNAME}
-      IOT_DB_PASSWORD: ${IOT_DB_PASSWORD:?set IOT_DB_PASSWORD}
+      IOT_FLYWAY_USERNAME: ${IOT_DB_OWNER_USERNAME:?set IOT_DB_OWNER_USERNAME}
       IOT_SECURITY_ISSUER_URI: https://${DOMAIN:?set DOMAIN}/auth/realms/${KEYCLOAK_REALM:?set KEYCLOAK_REALM}
       IOT_SECURITY_JWK_SET_URI: http://keycloak:8080/auth/realms/${KEYCLOAK_REALM:?set KEYCLOAK_REALM}/protocol/openid-connect/certs
-      IOT_WEB_ALLOWED_ORIGINS: ${IOT_WEB_ORIGIN:?set IOT_WEB_ORIGIN}
-      IOT_BOOTSTRAP_OWNER_SUBJECT: ${IOT_BOOTSTRAP_OWNER_SUBJECT:?set IOT_BOOTSTRAP_OWNER_SUBJECT}
+      IOT_WEB_ALLOWED_ORIGINS: ${IOT_ALLOWED_ORIGINS:?set IOT_ALLOWED_ORIGINS}
+      IOT_BOOTSTRAP_OWNER_SUBJECT: ${IOT_BOOTSTRAP_OWNER_SUBJECT:-}
       IOT_BOOTSTRAP_OWNER_USERNAME: ${IOT_BOOTSTRAP_OWNER_USERNAME:?set IOT_BOOTSTRAP_OWNER_USERNAME}
       IOT_BOOTSTRAP_OWNER_DISPLAY_NAME: ${IOT_BOOTSTRAP_OWNER_DISPLAY_NAME:-}
       IOT_BOOTSTRAP_OWNER_EMAIL: ${IOT_BOOTSTRAP_OWNER_EMAIL:-}
+      IOT_BOOTSTRAP_INTEGRATION_IDENTITIES_ENABLED: ${IOT_CREATE_INTEGRATION_IDENTITIES:-false}
+      IOT_BOOTSTRAP_ADMIN_SUBJECT: ${IOT_BOOTSTRAP_ADMIN_SUBJECT:-}
+      IOT_BOOTSTRAP_ADMIN_USERNAME: ${IOT_ADMIN_USERNAME:-}
+      IOT_BOOTSTRAP_ADMIN_DISPLAY_NAME: ${IOT_ADMIN_DISPLAY_NAME:-}
+      IOT_BOOTSTRAP_ADMIN_EMAIL: ${IOT_ADMIN_EMAIL:-}
+      IOT_BOOTSTRAP_OPERATOR_SUBJECT: ${IOT_BOOTSTRAP_OPERATOR_SUBJECT:-}
+      IOT_BOOTSTRAP_OPERATOR_USERNAME: ${IOT_OPERATOR_USERNAME:-}
+      IOT_BOOTSTRAP_OPERATOR_DISPLAY_NAME: ${IOT_OPERATOR_DISPLAY_NAME:-}
+      IOT_BOOTSTRAP_OPERATOR_EMAIL: ${IOT_OPERATOR_EMAIL:-}
+      IOT_BOOTSTRAP_VIEWER_SUBJECT: ${IOT_BOOTSTRAP_VIEWER_SUBJECT:-}
+      IOT_BOOTSTRAP_VIEWER_USERNAME: ${IOT_VIEWER_USERNAME:-}
+      IOT_BOOTSTRAP_VIEWER_DISPLAY_NAME: ${IOT_VIEWER_DISPLAY_NAME:-}
+      IOT_BOOTSTRAP_VIEWER_EMAIL: ${IOT_VIEWER_EMAIL:-}
       IOT_BOOTSTRAP_ORGANIZATION_CODE: ${IOT_BOOTSTRAP_ORGANIZATION_CODE:?set IOT_BOOTSTRAP_ORGANIZATION_CODE}
       IOT_BOOTSTRAP_ORGANIZATION_NAME: ${IOT_BOOTSTRAP_ORGANIZATION_NAME:?set IOT_BOOTSTRAP_ORGANIZATION_NAME}
       IOT_BOOTSTRAP_SITE_CODE: ${IOT_BOOTSTRAP_SITE_CODE:?set IOT_BOOTSTRAP_SITE_CODE}
       IOT_BOOTSTRAP_SITE_NAME: ${IOT_BOOTSTRAP_SITE_NAME:?set IOT_BOOTSTRAP_SITE_NAME}
+      IOT_BOOTSTRAP_SECONDARY_SITE_CODE: ${IOT_BOOTSTRAP_SECONDARY_SITE_CODE:-}
+      IOT_BOOTSTRAP_SECONDARY_SITE_NAME: ${IOT_BOOTSTRAP_SECONDARY_SITE_NAME:-}
       IOT_BOOTSTRAP_SPACE_PATH: ${IOT_BOOTSTRAP_SPACE_PATH:-/operations}
       IOT_BOOTSTRAP_SPACE_NAME: ${IOT_BOOTSTRAP_SPACE_NAME:-Operations}
       IOT_RATE_LIMIT_READS_PER_MINUTE: ${IOT_RATE_LIMIT_READS_PER_MINUTE:-120}
       IOT_RATE_LIMIT_COMMANDS_PER_MINUTE: ${IOT_RATE_LIMIT_COMMANDS_PER_MINUTE:-30}
-      IOT_WEATHER_FINGERPRINT_SECRET: ${IOT_WEATHER_FINGERPRINT_SECRET:?set IOT_WEATHER_FINGERPRINT_SECRET}
       TZ: ${TZ:-Asia/Shanghai}
     depends_on:
       postgres:
         condition: service_healthy
       keycloak:
-        condition: service_started
+        condition: service_healthy
     expose:
       - "8080"
+    secrets:
+      - source: iot_db_app_password
+        target: IOT_DB_PASSWORD
+      - source: iot_db_owner_password
+        target: IOT_FLYWAY_PASSWORD
+      - source: weather_fingerprint_secret
+        target: IOT_WEATHER_FINGERPRINT_SECRET
+      - source: metrics_scrape_token
+        target: IOT_METRICS_SCRAPE_TOKEN
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--spider", "http://127.0.0.1:8080/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 45s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     networks: [internal, egress]
 
   backup:
-    image: postgres:16-alpine
+    image: postgres:16-bookworm@sha256:bb3e1a57e5407e0a5280b4211980a5e537f4abd234a87014ac979849a78dd825
+    profiles: [application]
     restart: unless-stopped
+    stop_grace_period: 30s
+    # This service overrides the official image entrypoint, so explicitly
+    # retain PostgreSQL's unprivileged UID instead of inheriting root.
+    user: "999:999"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=32m
+    entrypoint: ["/bin/sh", "/scripts/backup-entrypoint.sh"]
     command: ["/bin/sh", "/scripts/backup-loop.sh"]
     environment:
       PGHOST: postgres
       PGPORT: "5432"
       PGDATABASE: ${IOT_DB_DATABASE:?set IOT_DB_DATABASE}
-      PGUSER: ${IOT_DB_USERNAME:?set IOT_DB_USERNAME}
-      PGPASSWORD: ${IOT_DB_PASSWORD:?set IOT_DB_PASSWORD}
+      # A logical backup must lock and read every platform-owned relation,
+      # including recovery-drill schemas that are intentionally not exposed to
+      # the Backend DML role. Keep this operational sidecar on the constrained
+      # migration/backup owner, never on the application's write credential.
+      PGUSER: ${IOT_DB_OWNER_USERNAME:?set IOT_DB_OWNER_USERNAME}
+      PGPASSWORD_SECRET_FILE: /run/secrets/iot_db_owner_password
       BACKUP_DIR: /backups
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      # When unset, the health script derives a conservative interval + ten
+      # minute grace window. Operators may tighten this independently.
+      BACKUP_MAX_AGE_SECONDS: ${BACKUP_MAX_AGE_SECONDS:-}
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
       - postgres-backups:/backups
       - ./backup:/scripts:ro
+    secrets:
+      - iot_db_owner_password
+    healthcheck:
+      test: ["CMD-SHELL", "/bin/sh /scripts/backup-healthcheck.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks: [internal]
+
+  wal-g-archive:
+    build: *postgres-build
+    image: iot-manager-postgres:16-walg
+    profiles: [application]
+    # Archive upload is a long-lived operational loop. It must recover after
+    # PostgreSQL or the container engine returns, not give up after five
+    # transient dependency failures.
+    restart: unless-stopped
+    stop_grace_period: 30s
+    # WAL-G operates on PostgreSQL-owned volumes; keep it on the same
+    # unprivileged UID and prepare its initial repository layout above.
+    user: "999:999"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=32m
+    command: ["/bin/sh", "/usr/local/bin/wal-g-archive-loop.sh"]
+    environment:
+      <<: *walg-environment
+      WAL_ARCHIVE_DIR: /var/lib/wal-archive
+      # This service owns the spool retry loop. Disable WAL-G's adjacent-file
+      # scanner, which assumes it runs inside PostgreSQL's PGDATA and would
+      # otherwise access a database volume that this sidecar must not mount.
+      TOTAL_BG_UPLOADED_LIMIT: "1"
+      WALG_PREVENT_WAL_OVERWRITE: "true"
+      WALG_STATUS_DIR: /var/lib/wal-g/status
+      WALG_ARCHIVE_REMOTE_PROBE_INTERVAL_SECONDS: ${WALG_ARCHIVE_REMOTE_PROBE_INTERVAL_SECONDS:-60}
+      WALG_ARCHIVE_REMOTE_MAX_AGE_SECONDS: ${WALG_ARCHIVE_REMOTE_MAX_AGE_SECONDS:-120}
+      WALG_ARCHIVE_MAX_PENDING_SECONDS: ${WALG_ARCHIVE_MAX_PENDING_SECONDS:-900}
+      HOME: /tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - wal-archive:/var/lib/wal-archive
+      - wal-g-data:/var/lib/wal-g
+    secrets:
+      - walg_s3_access_key
+      - walg_s3_secret_key
+    healthcheck:
+      test: ["CMD-SHELL", "/usr/local/bin/wal-g-archive-healthcheck.sh"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks: [internal, egress]
+
+  wal-g-backup:
+    build: *postgres-build
+    image: iot-manager-postgres:16-walg
+    profiles: [application]
+    # Base-backup scheduling has the same dependency-recovery requirement as
+    # WAL archival; restart continuously unless explicitly stopped.
+    restart: unless-stopped
+    stop_grace_period: 30s
+    user: "999:999"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=32m
+    command: ["/bin/sh", "/usr/local/bin/wal-g-backup-loop.sh"]
+    environment:
+      <<: *walg-environment
+      HOME: /tmp
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: ${IOT_DB_DATABASE:?set IOT_DB_DATABASE}
+      PGUSER: ${IOT_DB_OWNER_USERNAME:?set IOT_DB_OWNER_USERNAME}
+      PGDATA: /var/lib/postgresql/data
+      WALG_BACKUP_INTERVAL_SECONDS: ${WALG_BACKUP_INTERVAL_SECONDS:-900}
+      WALG_BACKUP_MAX_AGE_SECONDS: ${WALG_BACKUP_MAX_AGE_SECONDS:-}
+      WALG_STATUS_DIR: /var/lib/wal-g/status
+    depends_on:
+      postgres:
+        condition: service_healthy
+      wal-g-archive:
+        condition: service_healthy
+    volumes:
+      - postgres-data:/var/lib/postgresql/data:ro
+      - wal-g-data:/var/lib/wal-g
+    secrets:
+      - iot_db_owner_password
+      - walg_s3_access_key
+      - walg_s3_secret_key
+    healthcheck:
+      test: ["CMD-SHELL", "/usr/local/bin/wal-g-backup-healthcheck.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks: [internal, egress]
+
+  # This one-shot initializer keeps the long-running monitoring images
+  # unprivileged while ensuring their named data volumes are writable.
+  observability-volume-init:
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    profiles: [observability]
+    restart: "no"
+    command:
+      - /bin/sh
+      - -ec
+      - >-
+        mkdir -p /prometheus /alertmanager
+        && chown -R 65534:65534 /prometheus /alertmanager
+    volumes:
+      - prometheus-data:/prometheus
+      - alertmanager-data:/alertmanager
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # A named volume is initially root-owned. This one-shot container needs
+    # precisely CAP_CHOWN to hand it to the unprivileged Prometheus and
+    # Alertmanager UID, then exits; the long-running services retain no
+    # capability.
+    cap_add:
+      - CHOWN
+    networks: [internal]
+
+  prometheus:
+    image: prom/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+    profiles: [observability]
+    restart: unless-stopped
+    stop_grace_period: 30s
+    user: "65534:65534"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=32m
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-15d}
+      - --web.listen-address=:9090
+      # Prometheus enables this mutation endpoint only when the flag is
+      # present. Omitting it keeps the secure default (disabled); passing
+      # "=false" is parsed as an invalid positional argument by v2.55.
+    volumes:
+      - prometheus-data:/prometheus
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+    secrets:
+      - metrics_scrape_token
+    depends_on:
+      observability-volume-init:
+        condition: service_completed_successfully
+      backend:
+        condition: service_healthy
+      alertmanager:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:9090/-/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks: [internal]
+
+  alertmanager:
+    image: prom/alertmanager:v0.33.1@sha256:9e082985f56f4c8c9f724e18f2288c6708f472e56a5286b8863d080434ea065d
+    profiles: [observability]
+    restart: unless-stopped
+    stop_grace_period: 30s
+    user: "65534:65534"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=32m
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --web.listen-address=:9093
+    volumes:
+      - alertmanager-data:/alertmanager
+      - ./observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    depends_on:
+      observability-volume-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:9093/-/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     networks: [internal]
 
   caddy:
     build:
       context: ..
       dockerfile: deploy/Caddy.Dockerfile
+    image: iot-manager-caddy:local
     restart: unless-stopped
+    stop_grace_period: 30s
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=32m
     depends_on:
-      - backend
-      - keycloak
+      volume-init:
+        condition: service_completed_successfully
+      keycloak:
+        condition: service_healthy
     environment:
       DOMAIN: ${DOMAIN:?set DOMAIN to your public domain}
       ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
@@ -126,18 +517,63 @@ services:
     volumes:
       - caddy-data:/data
       - caddy-config:/config
+    healthcheck:
+      test: ["CMD", "/usr/bin/caddy", "validate", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      # Required solely to bind the container's HTTP(S) ports 80 and 443
+      # while the Caddy process itself runs as UID/GID 65534.
+      - NET_BIND_SERVICE
     networks: [internal, egress]
 
 networks:
   internal:
     internal: true
-  # Only Caddy and the backend need outbound access (ACME and Open-Meteo).
-  # Backend still has no published port and is reverse-proxied through the
-  # private internal network only.
+  # Only Caddy, Backend and the WAL-G sidecars can reach external services.
+  # PostgreSQL writes completed WAL segments to a private spool volume instead.
   egress:
 
 volumes:
   postgres-data:
   postgres-backups:
+  wal-archive:
+  wal-g-data:
+  prometheus-data:
+  alertmanager-data:
   caddy-data:
   caddy-config:
+
+secrets:
+  postgres_admin_password:
+    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/postgres_admin_password
+  iot_db_owner_password:
+    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/iot_db_owner_password
+  iot_db_app_password:
+    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/iot_db_app_password
+  keycloak_db_password:
+    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/keycloak_db_password
+  keycloak_bootstrap_admin_password:
+    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/keycloak_bootstrap_admin_password
+  keycloak_owner_password:
+    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/keycloak_owner_password
+  keycloak_admin_password:
+    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/keycloak_admin_password
+  keycloak_operator_password:
+    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/keycloak_operator_password
+  keycloak_viewer_password:
+    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/keycloak_viewer_password
+  weather_fingerprint_secret:
+    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/weather_fingerprint_secret
+  metrics_scrape_token:
+    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/metrics_scrape_token
+  walg_s3_access_key:
+    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/walg_s3_access_key
+  walg_s3_secret_key:
+    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/walg_s3_secret_key

@@ -1,0 +1,21 @@
+# Keep source and deployment assets reproducible across Windows and Linux.
+* text=auto eol=lf
+
+# Windows command launchers are the sole CRLF exception.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Do not subject binary artifacts to text normalization.
+*.jar binary
+*.apk binary
+*.aab binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tar binary
+*.dump binary

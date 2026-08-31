@@ -45,7 +45,7 @@ public class CommandAuditService {
             String requestOrigin, LocalDateTime from, LocalDateTime to, int page, int size,
             Collection<Long> allowedSiteIds
     ) {
-        Specification<DeviceCommand> specification = Specification.where(null);
+        Specification<DeviceCommand> specification = Specification.unrestricted();
         if (allowedSiteIds != null) {
             specification = specification.and((root, query, builder) -> {
                 if (allowedSiteIds.isEmpty()) return builder.disjunction();

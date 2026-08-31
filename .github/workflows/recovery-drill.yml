@@ -1,0 +1,131 @@
+name: Protected WAL-G Recovery Drill
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_project:
+        description: Existing approved source Compose project (never the recovery target)
+        required: true
+        default: iot-manager
+        type: string
+  # A real protected runner performs the scheduled drill only after the
+  # repository variable IOT_RECOVERY_SOURCE_PROJECT identifies the approved
+  # source Compose project. The workflow fails closed rather than guessing a
+  # production target.
+  schedule:
+    - cron: "17 3 1 * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: protected-wal-g-recovery-drill
+  cancel-in-progress: false
+
+jobs:
+  physical-recovery:
+    # This runner must be a protected, network-restricted host that can reach
+    # both the running source Compose project and the approved recovery bucket.
+    # Do not switch this to GitHub-hosted runners: they cannot validate the
+    # production recovery path and would turn this into a synthetic test.
+    runs-on: [self-hosted, linux, iot-manager-recovery]
+    environment: r1-recovery-drill
+    timeout-minutes: 75
+    env:
+      IOT_COMPOSE_PROJECT: ${{ inputs.source_project || vars.IOT_RECOVERY_SOURCE_PROJECT }}
+      IOT_RECOVERY_PROJECT: iot-manager-gate2-pitr-${{ github.run_id }}
+      IOT_ENVIRONMENT_FILE: ${{ github.workspace }}/deploy/.env.recovery
+      IOT_RECOVERY_REPORT_DIR: ${{ github.workspace }}/artifacts/recovery-drill/${{ github.run_id }}
+      IOT_RECOVERY_TIMEOUT_SECONDS: "3600"
+      IOT_EXPECTED_FLYWAY_VERSION: "18"
+      IOT_RECOVERY_ENV_FILE_BASE64: ${{ secrets.IOT_RECOVERY_ENV_FILE_BASE64 }}
+      IOT_RECOVERY_SECRETS_TGZ_BASE64: ${{ secrets.IOT_RECOVERY_SECRETS_TGZ_BASE64 }}
+    steps:
+      - name: Check out the approved Git SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Materialize protected recovery configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$IOT_COMPOSE_PROJECT" || {
+            echo '::error::Set repository variable IOT_RECOVERY_SOURCE_PROJECT before enabling scheduled recovery drills.' >&2
+            exit 64
+          }
+          test -n "$IOT_RECOVERY_ENV_FILE_BASE64"
+          test -n "$IOT_RECOVERY_SECRETS_TGZ_BASE64"
+          printf '%s' "$IOT_RECOVERY_ENV_FILE_BASE64" | base64 --decode > deploy/.env.recovery
+          install -d -m 0700 deploy/.runtime/recovery-secrets
+          printf '%s' "$IOT_RECOVERY_SECRETS_TGZ_BASE64" | base64 --decode | tar -xzf - -C deploy/.runtime/recovery-secrets
+          chmod 0700 deploy/.runtime/recovery-secrets
+          find deploy/.runtime/recovery-secrets -type f -exec chmod 0400 {} +
+          required=(postgres_admin_password iot_db_owner_password iot_db_app_password keycloak_db_password walg_s3_access_key walg_s3_secret_key)
+          for secret_name in "${required[@]}"; do
+            test -s "deploy/.runtime/recovery-secrets/$secret_name"
+          done
+          # The protected env template carries only non-secret values. Make
+          # the checked secret directory authoritative for this runner.
+          printf '\nIOT_SECRET_DIR=%s\n' "$GITHUB_WORKSPACE/deploy/.runtime/recovery-secrets" >> deploy/.env.recovery
+          grep -q '^WALG_STORAGE_MODE=s3$' deploy/.env.recovery
+
+      - name: Validate physical recovery configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The real drill creates and exports a named PostgreSQL restore
+          # point after its marker commit. Configuration validation only needs
+          # a syntactically valid placeholder; a wall-clock target is unsafe
+          # when the source becomes quiet after WAL upload.
+          export IOT_RECOVERY_TARGET_NAME=validation_restore_point
+          export IOT_RECOVERY_BASE_BACKUP=base_validation_placeholder
+          docker compose --project-name "$IOT_RECOVERY_PROJECT" --env-file "$IOT_ENVIRONMENT_FILE" \
+            -f deploy/docker-compose.yml -f deploy/docker-compose.recovery.yml config --quiet
+          docker info >/dev/null
+
+      - name: Run isolated WAL-G physical recovery drill
+        shell: bash
+        run: IOT_PITR_CONFIRM=PITR bash scripts/runtime/wal-recovery-drill.sh
+
+      - name: Refuse recovery evidence containing a protected secret
+        id: artifact-scan
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          report_root="${IOT_RECOVERY_REPORT_DIR}"
+          test -d "$report_root" || exit 0
+          for secret_file in deploy/.runtime/recovery-secrets/*; do
+            test -f "$secret_file" || continue
+            secret_value="$(cat "$secret_file")"
+            test -n "$secret_value" || continue
+            if grep -R -a -F -q -- "$secret_value" "$report_root"; then
+              echo '::error::Refusing recovery evidence upload because it contains a protected secret.'
+              exit 1
+            fi
+          done
+
+      - name: Upload redacted recovery evidence
+        if: ${{ always() && steps.artifact-scan.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: wal-g-recovery-drill-${{ github.sha }}-${{ github.run_id }}
+          path: artifacts/recovery-drill/
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Remove only this workflow's isolated recovery target
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$IOT_RECOVERY_PROJECT" in
+            iot-manager-gate2-pitr-*) ;;
+            *) echo 'Refusing to remove a non-workflow recovery project.' >&2; exit 1 ;;
+          esac
+          export IOT_RECOVERY_TARGET_NAME=cleanup_restore_point
+          export IOT_RECOVERY_BASE_BACKUP=base_cleanup_placeholder
+          docker compose --project-name "$IOT_RECOVERY_PROJECT" --env-file "$IOT_ENVIRONMENT_FILE" \
+            -f deploy/docker-compose.yml -f deploy/docker-compose.recovery.yml down -v --remove-orphans || true
+          rm -rf deploy/.runtime deploy/.env.recovery

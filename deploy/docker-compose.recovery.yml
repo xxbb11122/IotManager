@@ -1,0 +1,86 @@
+# Physical recovery is intentionally a separate override. It is used only by
+# scripts/runtime/wal-recovery-drill.sh against an approved S3-compatible
+# recovery bucket; it must never be added to the normal application startup.
+services:
+  wal-g-recovery:
+    build:
+      context: .
+      dockerfile: postgres/Dockerfile
+    image: iot-manager-postgres:16-walg
+    restart: "no"
+    user: "0"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        : "$${IOT_RECOVERY_TARGET_NAME:?IOT_RECOVERY_TARGET_NAME is required}"
+        : "$${IOT_RECOVERY_BASE_BACKUP:?IOT_RECOVERY_BASE_BACKUP is required}"
+        : "$${PGDATA:=/var/lib/postgresql/data}"
+        test ! -e "$${PGDATA}/PG_VERSION" || { echo "Refusing to overwrite an initialized recovery data directory" >&2; exit 73; }
+        /usr/local/bin/wal-g-env.sh /usr/local/bin/wal-g backup-fetch "$${IOT_RECOVERY_BASE_BACKUP}" "$${PGDATA}"
+        test -f "$${PGDATA}/PG_VERSION" || { echo "WAL-G did not restore a PostgreSQL data directory" >&2; exit 1; }
+        cat >> "$${PGDATA}/postgresql.auto.conf" <<EOF
+        restore_command = '/usr/local/bin/wal-g-fetch.sh "%f" "%p"'
+        # The drill uses a named restore point recorded after its marker,
+        # rather than wall-clock time sampled after WAL upload. That makes the
+        # target an actual record in the already-fetched WAL and prevents a
+        # quiet source database from making archive recovery wait forever for
+        # a later, nonexistent WAL record.
+        recovery_target_name = '$${IOT_RECOVERY_TARGET_NAME}'
+        recovery_target_action = 'promote'
+        EOF
+        touch "$${PGDATA}/recovery.signal"
+        chown -R 999:999 "$${PGDATA}"
+        chmod 0700 "$${PGDATA}"
+    environment:
+      PGDATA: /var/lib/postgresql/data
+      WALG_STORAGE_MODE: ${WALG_STORAGE_MODE:?set WALG_STORAGE_MODE}
+      WALG_S3_PREFIX: ${WALG_S3_PREFIX:?set WALG_S3_PREFIX}
+      AWS_ENDPOINT: ${AWS_ENDPOINT:-}
+      AWS_REGION: ${AWS_REGION:?set AWS_REGION}
+      AWS_S3_FORCE_PATH_STYLE: ${AWS_S3_FORCE_PATH_STYLE:-true}
+      WALG_COMPRESSION_METHOD: ${WALG_COMPRESSION_METHOD:-zstd}
+      IOT_RECOVERY_TARGET_NAME: ${IOT_RECOVERY_TARGET_NAME:?set IOT_RECOVERY_TARGET_NAME}
+      IOT_RECOVERY_BASE_BACKUP: ${IOT_RECOVERY_BASE_BACKUP:?set IOT_RECOVERY_BASE_BACKUP}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    secrets:
+      - walg_s3_access_key
+      - walg_s3_secret_key
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # The recovery data directory is fetched as root, then handed to the
+    # unprivileged PostgreSQL UID. This one-shot service needs exactly
+    # CAP_CHOWN for that ownership transition; the recovered PostgreSQL
+    # service itself remains capability-free.
+    cap_add:
+      - CHOWN
+    networks: [internal, egress]
+
+  postgres:
+    # A recovered cluster must not archive to the source repository. Recovery
+    # settings are written by wal-g-recovery before this service starts.
+    command: ["postgres", "-c", "archive_mode=off", "-c", "archive_command="]
+    environment:
+      WALG_STORAGE_MODE: ${WALG_STORAGE_MODE:?set WALG_STORAGE_MODE}
+      WALG_S3_PREFIX: ${WALG_S3_PREFIX:?set WALG_S3_PREFIX}
+      AWS_ENDPOINT: ${AWS_ENDPOINT:-}
+      AWS_REGION: ${AWS_REGION:?set AWS_REGION}
+      AWS_S3_FORCE_PATH_STYLE: ${AWS_S3_FORCE_PATH_STYLE:-true}
+      WALG_COMPRESSION_METHOD: ${WALG_COMPRESSION_METHOD:-zstd}
+    secrets:
+      - postgres_admin_password
+      - iot_db_owner_password
+      - iot_db_app_password
+      - keycloak_db_password
+      - walg_s3_access_key
+      - walg_s3_secret_key
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
+      wal-g-recovery:
+        condition: service_completed_successfully

@@ -63,25 +63,40 @@ See the bilingual [weather feature development guide](docs/weather-feature-devel
 
 ## 当前状态 / Current status
 
-**中文：** 当前版本是可运行的 MVP 与受控试点基础，仍不是已审批的生产发布版。生产代码与部署资产已包含 JWT/RBAC、组织/站点授权、三端 Authorization Code + PKCE、Android Keystore 令牌存储、PostgreSQL 16、备份脚本、Actuator/Prometheus、结构化日志、限流和严格 WSS 边界。真实 Compose/Keycloak 部署、独立恢复演练、供应商审查和真实设备 Gate 证据仍需完成。
+**中文：** 当前版本是可运行的 MVP 与受控试点基础，仍不是已审批的生产发布版。生产代码与部署资产已包含 JWT/RBAC、组织/站点授权、三端 Authorization Code + PKCE、Android Keystore 令牌存储、PostgreSQL 16、Secret 挂载、最小权限数据库角色、两阶段 Keycloak 四角色集成引导、Caddy TLS/WSS、逻辑备份、WAL-G、内部 Prometheus/Alertmanager 与独立恢复演练入口。历史本地 Docker 全链路、真实 PKCE/JWT/RBAC 与逻辑恢复冒烟证据可追溯，但不能替代干净 GitHub Runner、真实 S3 WAL/PITR、供应商审查和真实设备 Gate 证据。
 
 **English:** This is a functional MVP and controlled-pilot foundation, **not an
 approved production release**. The production code and deployment assets now
 include JWT/RBAC, organization/site scoping, Authorization Code + PKCE on all
 three operator surfaces, Android Keystore token storage, PostgreSQL 16,
-backup scripts, Actuator/Prometheus, structured logging, rate limiting, and a
-strict WSS boundary. A live Compose/Keycloak deployment, independent restore
-rehearsal, supplier review, and physical-device Gate evidence still remain.
+backup scripts, Actuator/Prometheus, structured logging, rate limiting, a
+strict WSS boundary, Docker Secret mounts, least-privilege database roles,
+two-phase Keycloak four-role integration bootstrap, Caddy TLS/WSS, WAL-G,
+and an isolated restore-drill entry point. Historical local full-stack
+PKCE/JWT/RBAC and isolated logical-recovery smoke evidence exists under
+`artifacts/p0-runtime/`; it is not a replacement for a clean GitHub Runner
+execution. The current source tree additionally contains four-role/two-site
+runtime coverage, internal Prometheus/Alertmanager checks, and a protected
+physical WAL/PITR drill. Clean Runner evidence, protected S3 recovery
+evidence, supplier review, and physical-device Gate evidence still remain.
+Runtime images are pinned and continuously scanned, but the latest local
+assessment still contains unresolved upstream HIGH/CRITICAL findings; see the
+[runtime image security status](docs/IMAGE-SECURITY-STATUS.md). This is a
+release gate, not a claim that those findings have been accepted.
 
 See [Device Profiles](profiles/README.md), [Edge Agent](edge-agent/README.md),
-the [project progress overview](docs/PROJECT-PROGRESS-OVERVIEW.md), and
-[release verification](docs/VERIFICATION.md) for the supported contracts and
-acceptance checks.
+the [project progress overview](docs/PROJECT-PROGRESS-OVERVIEW.md), the
+[P0 Docker full-chain development plan](docs/P0-DOCKER-FULL-CHAIN-DEVELOPMENT-PLAN.md),
+the [R1 completion implementation status](docs/R1-COMPLETION-IMPLEMENTATION-STATUS.md),
+the [runtime image security status](docs/IMAGE-SECURITY-STATUS.md),
+the [strict project audit](docs/PROJECT-AUDIT-2026-08-30.md),
+and [release verification](docs/VERIFICATION.md) for the supported contracts
+and acceptance checks.
 
 ## Prerequisites
 
-- Node.js 22+ and npm.
-- JDK 17 for the Spring Boot backend. The host default Maven Java runtime may be Java 8, so select JDK 17 before running backend commands.
+- Node.js 22.x and npm (the strict verifier rejects a different major version).
+- JDK 17 for the Spring Boot backend. The host default Maven Java runtime may be Java 8, so select JDK 17 before running backend commands. The Windows verifier keeps Maven Wrapper downloads in a stable per-user cache and does not require `powershell` to be on `PATH`.
 - JDK 21+ for Android builds. Capacitor 8 cannot be built with JDK 17 source compatibility.
 - Android SDK Platform 36, Build Tools 36.0.0, platform tools, and an API 36 emulator or Android device for App verification.
 
@@ -100,11 +115,11 @@ mvn spring-boot:run
 
 The default `dev` profile uses a local file-backed H2 database at `backend/data/iotdb` and exposes the H2 console at `http://localhost:8080/h2-console`. H2 and its console are development-only; do not use either for a production deployment.
 
-Flyway migrations V1–V18 build the current device, command, agent, site-weather, reliability,
-identity, membership, per-agent credential, and immutable audit-context schema for a new database. The dev profile uses `baseline-on-migrate`
+PostgreSQL Flyway migrations V1–V18 build the current production device, command, agent, site-weather, reliability,
+identity, membership, per-agent credential, and immutable audit-context schema. H2 additionally applies V19 to align its long-text compatibility types with Hibernate. V19 is permanently H2-only; the next shared or PostgreSQL production migration is V20. The dev profile uses `baseline-on-migrate`
 so an existing local H2 database is registered at its current baseline and then checked by
 Hibernate validation, rather than being recreated or mutated by Hibernate. Future production
-migrations continue at V19; see `docs/PROJECT-IMPROVEMENT-PLAN.md` for the reserved version
+migrations continue after V20; see `docs/PROJECT-IMPROVEMENT-PLAN.md` for the reserved version
 ranges and Gate 2 requirements.
 
 ### Mobile/web client (`http://localhost:5175`)

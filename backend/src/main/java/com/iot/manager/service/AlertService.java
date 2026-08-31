@@ -36,7 +36,7 @@ public class AlertService {
             LocalDateTime from, LocalDateTime to, String query, int page, int size,
             Collection<Long> allowedSiteIds
     ) {
-        Specification<Alert> specification = Specification.where(null);
+        Specification<Alert> specification = Specification.unrestricted();
         if (allowedSiteIds != null) {
             specification = specification.and((root, criteriaQuery, builder) -> {
                 if (allowedSiteIds.isEmpty()) return builder.disjunction();

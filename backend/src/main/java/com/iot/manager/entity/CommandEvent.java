@@ -7,13 +7,15 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.Lob;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+
+import java.sql.Types;
 
 import java.time.LocalDateTime;
 
@@ -57,7 +59,7 @@ public class CommandEvent {
     @Column(length = 2000)
     private String detail;
 
-    @Lob
+    @JdbcTypeCode(Types.LONGVARCHAR)
     @Column(name = "payload_json")
     private String payloadJson;
 

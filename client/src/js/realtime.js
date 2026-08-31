@@ -285,5 +285,5 @@ function webSocketUrl(url, siteCode) {
 
 function webSocketProtocols(accessToken) {
   const token = String(accessToken ?? '').trim();
-  return token ? [`iot-bearer.${token}`] : undefined;
+  return token ? ['iot-v1', `iot-bearer.${token}`] : undefined;
 }

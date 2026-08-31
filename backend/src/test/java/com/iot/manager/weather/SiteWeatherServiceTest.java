@@ -27,7 +27,7 @@ import java.util.Optional;
 import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.catchThrowableOfType;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -176,8 +176,8 @@ class SiteWeatherServiceTest {
         when(siteRepository.findFirstByCode("demo-site")).thenReturn(Optional.of(site));
         when(settingsRepository.findBySiteId(7L)).thenReturn(Optional.of(settings));
 
-        WeatherRefreshRateLimitedException exception = catchThrowableOfType(
-                () -> service().refresh("demo-site"), WeatherRefreshRateLimitedException.class
+        WeatherRefreshRateLimitedException exception = assertThrows(
+                WeatherRefreshRateLimitedException.class, () -> service().refresh("demo-site")
         );
 
         assertThat(exception).hasMessageContaining("秒后再试");

@@ -12,6 +12,12 @@
   "failureFactor": 5,
   "waitIncrementSeconds": 60,
   "maxFailureWaitSeconds": 900,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 28800,
+  "offlineSessionIdleTimeout": 2592000,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
   "roles": {
     "realm": [
       { "name": "OWNER", "description": "Platform owner" },
@@ -31,11 +37,11 @@
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
-      "redirectUris": ["${IOT_WEB_REDIRECT_URI}"],
+      "redirectUris": ["${IOT_DASHBOARD_REDIRECT_URI}", "${IOT_CONSOLE_REDIRECT_URI}"],
       "webOrigins": ["${IOT_WEB_ORIGIN}"],
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "${IOT_WEB_REDIRECT_URI}"
+        "post.logout.redirect.uris": "${IOT_DASHBOARD_REDIRECT_URI}##${IOT_CONSOLE_REDIRECT_URI}"
       }
     },
     {

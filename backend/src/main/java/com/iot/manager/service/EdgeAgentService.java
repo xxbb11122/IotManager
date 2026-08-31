@@ -62,6 +62,7 @@ public class EdgeAgentService {
     private final ObjectMapper objectMapper;
     private final IotSecurityProperties securityProperties;
     private final AgentCredentialService credentialService;
+    private final ScheduledDatabaseTaskGuard scheduledDatabaseTaskGuard;
 
     private final Map<String, WebSocketSession> sessionsByAgentId = new ConcurrentHashMap<>();
     private final Map<String, String> agentIdBySessionId = new ConcurrentHashMap<>();
@@ -106,17 +107,20 @@ public class EdgeAgentService {
 
     @Scheduled(fixedDelayString = "${iot.edge-agent.dispatch-interval-ms:500}")
     public void dispatchPendingCommands() {
-        commandRepository.findByStatusAndSource("PENDING", "EDGE_AGENT").forEach(this::dispatch);
+        scheduledDatabaseTaskGuard.run("edge-agent-command-dispatch",
+                () -> commandRepository.findByStatusAndSource("PENDING", "EDGE_AGENT").forEach(this::dispatch));
     }
 
     @Scheduled(fixedDelayString = "${iot.edge-agent.timeout-interval-ms:1000}")
     public void markExpiredCommandsUnconfirmed() {
-        LocalDateTime now = LocalDateTime.now();
-        commandRepository.findByStatusAndSource("SENT", "EDGE_AGENT").stream()
-                .filter(command -> command.getExpiresAt() != null && command.getExpiresAt().isBefore(now))
-                .forEach(command -> commandService.markUnconfirmed(
-                        command.getCommandId(), "The edge agent did not return a confirmation before expiry"
-                ));
+        scheduledDatabaseTaskGuard.run("edge-agent-command-timeout", () -> {
+            LocalDateTime now = LocalDateTime.now();
+            commandRepository.findByStatusAndSource("SENT", "EDGE_AGENT").stream()
+                    .filter(command -> command.getExpiresAt() != null && command.getExpiresAt().isBefore(now))
+                    .forEach(command -> commandService.markUnconfirmed(
+                            command.getCommandId(), "The edge agent did not return a confirmation before expiry"
+                    ));
+        });
     }
 
     private void dispatch(DeviceCommand pending) {

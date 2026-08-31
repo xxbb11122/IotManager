@@ -49,7 +49,10 @@ async function initializeAuthentication() {
     onUnauthorized: () => browserAuth.tryRefresh()
   });
   wsService.setAccessTokenProvider(() => browserAuth.getAccessToken());
-  const authState = await browserAuth.initialize();
+  // An HTTPS deployment has OIDC configured, but the dashboard deliberately
+  // keeps a visible, user-initiated login action. This also leaves a stable
+  // signed-out state after logout instead of immediately redirecting again.
+  const authState = await browserAuth.initialize({ redirectIfUnauthenticated: false });
   updateAuthenticationUi(authState);
   return authState.authenticated;
 }

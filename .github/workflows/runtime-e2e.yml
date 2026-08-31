@@ -1,0 +1,262 @@
+name: P0 Docker Runtime
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "backend/**"
+      - "edge-agent/**"
+      - "deploy/**"
+      - "scripts/runtime/**"
+      - "frontend/**"
+      - "console/**"
+      - "profiles/**"
+      - "shared/**"
+      - "client/**"
+      - ".github/workflows/**"
+  push:
+    branches:
+      - main
+      - master
+      - "codex/**"
+    paths:
+      - "backend/**"
+      - "edge-agent/**"
+      - "deploy/**"
+      - "scripts/runtime/**"
+      - "frontend/**"
+      - "console/**"
+      - "profiles/**"
+      - "shared/**"
+      - "client/**"
+      - ".github/workflows/**"
+
+concurrency:
+  group: p0-runtime-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  full-stack:
+    name: Compose, Keycloak, PostgreSQL, Caddy, Backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      IOT_COMPOSE_PROJECT: iot-manager-p0
+      IOT_ENVIRONMENT_FILE: ${{ github.workspace }}/deploy/.env.integration
+      IOT_RUNTIME_STATE_FILE: ${{ github.workspace }}/deploy/.runtime/iot-manager-p0/runtime.env
+      IOT_RUNTIME_TIMEOUT_SECONDS: "300"
+      # S3 observability is part of the R1 pilot surface. The profile remains
+      # internal-only and has no published host port.
+      IOT_ENABLE_OBSERVABILITY: "true"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Create non-secret integration configuration
+        run: cp deploy/.env.integration.example deploy/.env.integration
+
+      - name: Validate Compose configuration before startup
+        run: docker compose --env-file deploy/.env.integration -f deploy/docker-compose.yml -f deploy/docker-compose.integration.yml config --quiet
+
+      - name: Start the two-phase integration stack
+        run: bash scripts/runtime/start-integration.sh
+
+      - name: Verify non-root PostgreSQL and Caddy runtime hardening
+        run: |
+          set -euo pipefail
+          compose=(docker compose --project-name "$IOT_COMPOSE_PROJECT" --env-file "$IOT_ENVIRONMENT_FILE" --env-file "$IOT_RUNTIME_STATE_FILE" -f deploy/docker-compose.yml -f deploy/docker-compose.integration.yml)
+          postgres_id="$("${compose[@]}" ps -q postgres)"
+          caddy_id="$("${compose[@]}" ps -q caddy)"
+          backup_id="$("${compose[@]}" --profile application ps -q backup)"
+          test -n "$postgres_id"
+          test -n "$caddy_id"
+          test -n "$backup_id"
+
+          test "$(docker exec "$postgres_id" id -u)" = '999'
+          test "$(docker exec "$caddy_id" id -u)" = '65534'
+          test "$(docker exec "$backup_id" id -u)" = '999'
+          test "$(docker inspect --format '{{.Config.User}}' "$postgres_id")" = 'postgres'
+          test "$(docker inspect --format '{{.Config.User}}' "$caddy_id")" = '65534:65534'
+          test "$(docker inspect --format '{{.Config.User}}' "$backup_id")" = '999:999'
+
+          caddy_cap_add="$(docker inspect --format '{{json .HostConfig.CapAdd}}' "$caddy_id")"
+          caddy_cap_drop="$(docker inspect --format '{{json .HostConfig.CapDrop}}' "$caddy_id")"
+          backup_cap_drop="$(docker inspect --format '{{json .HostConfig.CapDrop}}' "$backup_id")"
+          test "$caddy_cap_add" = '["CAP_NET_BIND_SERVICE"]'
+          test "$caddy_cap_drop" = '["ALL"]'
+          test "$backup_cap_drop" = '["ALL"]'
+
+      - name: Run runtime smoke and boundary checks
+        run: bash scripts/runtime/verify-stack.sh
+
+      - name: Verify Backend database role cannot perform DDL
+        run: |
+          set -euo pipefail
+          compose=(docker compose --project-name "$IOT_COMPOSE_PROJECT" --profile application --env-file "$IOT_ENVIRONMENT_FILE" --env-file "$IOT_RUNTIME_STATE_FILE" -f deploy/docker-compose.yml -f deploy/docker-compose.integration.yml)
+          denial_log="$RUNNER_TEMP/application-ddl-denial.log"
+          table_name="p0_runtime_ddl_denied_${GITHUB_RUN_ID:-$$}"
+          "${compose[@]}" exec -T postgres application-role-psql.sh \
+            -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -c "CREATE TABLE ${table_name} (id integer)" >"$denial_log" 2>&1 && {
+              echo "Application role unexpectedly created a table" >&2
+              exit 1
+            }
+          if ! grep -Fq 'ERROR:  42501:' "$denial_log"; then
+            echo '::error::Application DDL probe failed for a reason other than PostgreSQL privilege denial.' >&2
+            cat "$denial_log" >&2
+            exit 1
+          fi
+
+      - name: Verify owner-only backup exports recovery-drill relations
+        run: |
+          set -euo pipefail
+          compose=(docker compose --project-name "$IOT_COMPOSE_PROJECT" --profile application --env-file "$IOT_ENVIRONMENT_FILE" --env-file "$IOT_RUNTIME_STATE_FILE" -f deploy/docker-compose.yml -f deploy/docker-compose.integration.yml)
+          backup_id="$("${compose[@]}" ps -q backup)"
+          test -n "$backup_id"
+          backup_mounts="$(docker inspect --format '{{range .Mounts}}{{println .Destination}}{{end}}' "$backup_id")"
+          grep -Fxq '/run/secrets/iot_db_owner_password' <<<"$backup_mounts"
+          if grep -Fxq '/run/secrets/iot_db_app_password' <<<"$backup_mounts"; then
+            echo '::error::Backup sidecar must not mount the Backend DML password.' >&2
+            exit 1
+          fi
+
+          bootstrap_user="$(sed -n 's/^POSTGRES_BOOTSTRAP_USERNAME=//p' "$IOT_ENVIRONMENT_FILE" | tail -n 1 | tr -d '\r')"
+          database_name="$(sed -n 's/^IOT_DB_DATABASE=//p' "$IOT_ENVIRONMENT_FILE" | tail -n 1 | tr -d '\r')"
+          owner_user="$(sed -n 's/^IOT_DB_OWNER_USERNAME=//p' "$IOT_ENVIRONMENT_FILE" | tail -n 1 | tr -d '\r')"
+          test -n "$bootstrap_user"
+          test -n "$database_name"
+          test -n "$owner_user"
+          marker_id="runtime-owner-backup-${GITHUB_RUN_ID:-$$}"
+          "${compose[@]}" exec -T postgres psql -v ON_ERROR_STOP=1 -U "$bootstrap_user" -d "$database_name" \
+            -v owner_user="$owner_user" -v marker_id="$marker_id" <<'SQL'
+          BEGIN;
+          CREATE SCHEMA IF NOT EXISTS r1_recovery_drill AUTHORIZATION :"owner_user";
+          ALTER SCHEMA r1_recovery_drill OWNER TO :"owner_user";
+          CREATE TABLE IF NOT EXISTS r1_recovery_drill.markers (
+            marker_id text PRIMARY KEY,
+            created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+          );
+          ALTER TABLE r1_recovery_drill.markers OWNER TO :"owner_user";
+          INSERT INTO r1_recovery_drill.markers (marker_id) VALUES (:'marker_id');
+          COMMIT;
+          SQL
+          "${compose[@]}" run --rm --no-deps backup /bin/sh /scripts/backup.sh
+          backup_path="$("${compose[@]}" exec -T backup sh -ec 'ls -1t /backups/*.dump | head -n 1')"
+          test -n "$backup_path"
+          backup_listing="$("${compose[@]}" exec -T backup pg_restore -l "$backup_path")"
+          grep -Fq "SCHEMA - r1_recovery_drill $owner_user" <<<"$backup_listing"
+          grep -Fq "TABLE r1_recovery_drill markers $owner_user" <<<"$backup_listing"
+
+      - name: Install Chromium for real PKCE browser tests
+        working-directory: client
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run PKCE, JWT API, four-role RBAC, session lifecycle, browser WSS, and edge-credential WSS tests
+        working-directory: client
+        run: |
+          compose=(docker compose --project-name "$IOT_COMPOSE_PROJECT" --profile application --env-file "$IOT_ENVIRONMENT_FILE" --env-file "$IOT_RUNTIME_STATE_FILE" -f ../deploy/docker-compose.yml -f ../deploy/docker-compose.integration.yml)
+          "${compose[@]}" cp caddy:/data/caddy/pki/authorities/local/root.crt "$RUNNER_TEMP/iot-manager-root.crt"
+          sudo install -m 0644 "$RUNNER_TEMP/iot-manager-root.crt" /usr/local/share/ca-certificates/iot-manager-root.crt
+          sudo update-ca-certificates
+          owner_password="$(cat ../deploy/.runtime/iot-manager-p0/secrets/keycloak_owner_password)"
+          admin_password="$(cat ../deploy/.runtime/iot-manager-p0/secrets/keycloak_admin_password)"
+          operator_password="$(cat ../deploy/.runtime/iot-manager-p0/secrets/keycloak_operator_password)"
+          viewer_password="$(cat ../deploy/.runtime/iot-manager-p0/secrets/keycloak_viewer_password)"
+          echo "::add-mask::$owner_password"
+          echo "::add-mask::$admin_password"
+          echo "::add-mask::$operator_password"
+          echo "::add-mask::$viewer_password"
+          NODE_EXTRA_CA_CERTS="$RUNNER_TEMP/iot-manager-root.crt" \
+          IOT_RUNTIME_CA_CERTIFICATE="$RUNNER_TEMP/iot-manager-root.crt" \
+          IOT_RUNTIME_BASE_URL=https://iot-manager.localhost \
+          IOT_E2E_OWNER_USERNAME=integration-owner \
+          IOT_E2E_OWNER_PASSWORD="$owner_password" \
+          IOT_E2E_ADMIN_USERNAME=integration-admin \
+          IOT_E2E_ADMIN_PASSWORD="$admin_password" \
+          IOT_E2E_OPERATOR_USERNAME=integration-operator \
+          IOT_E2E_OPERATOR_PASSWORD="$operator_password" \
+          IOT_E2E_VIEWER_USERNAME=integration-viewer \
+          IOT_E2E_VIEWER_PASSWORD="$viewer_password" \
+          npx playwright test e2e/runtime-auth.spec.js
+
+      - name: Verify PostgreSQL restart persistence and Backend fail-closed readiness
+        env:
+          IOT_RESILIENCE_CONFIRM: RESILIENCE
+        run: bash scripts/runtime/verify-resilience.sh
+
+      - name: Restore a logical backup into an independent Compose project
+        run: |
+          compose=(docker compose --project-name "$IOT_COMPOSE_PROJECT" --profile application --env-file "$IOT_ENVIRONMENT_FILE" --env-file "$IOT_RUNTIME_STATE_FILE" -f deploy/docker-compose.yml -f deploy/docker-compose.integration.yml)
+          backup_path="$("${compose[@]}" exec -T backup sh -ec 'ls -1t /backups/*.dump | head -n 1')"
+          test -n "$backup_path"
+          backup_name="$(basename "$backup_path")"
+          "${compose[@]}" cp "backup:$backup_path" "$RUNNER_TEMP/$backup_name"
+          "${compose[@]}" cp "backup:$backup_path.sha256" "$RUNNER_TEMP/$backup_name.sha256"
+          IOT_RESTORE_CONFIRM=RESTORE bash scripts/runtime/recovery-drill.sh "$RUNNER_TEMP/$backup_name"
+
+      - name: Refuse a tampered logical backup before restore
+        run: |
+          set -euo pipefail
+          compose=(docker compose --project-name "$IOT_COMPOSE_PROJECT" --profile application --env-file "$IOT_ENVIRONMENT_FILE" --env-file "$IOT_RUNTIME_STATE_FILE" -f deploy/docker-compose.yml -f deploy/docker-compose.integration.yml)
+          backup_path="$("${compose[@]}" exec -T backup sh -ec 'ls -1t /backups/*.dump | head -n 1')"
+          test -n "$backup_path"
+          backup_name="$(basename "$backup_path")"
+          tampered_dump="$RUNNER_TEMP/tampered-$backup_name"
+          cp "$RUNNER_TEMP/$backup_name" "$tampered_dump"
+          cp "$RUNNER_TEMP/$backup_name.sha256" "$tampered_dump.sha256"
+          printf 'tamper-proof-negative-test' >> "$tampered_dump"
+          if "${compose[@]}" run --rm --no-deps \
+            -e IOT_RESTORE_CONFIRM=RESTORE \
+            -v "$tampered_dump:/restore/$backup_name:ro" \
+            -v "$tampered_dump.sha256:/restore/$backup_name.sha256:ro" \
+            backup /bin/sh /scripts/restore.sh "/restore/$backup_name"; then
+            echo '::error::A checksum-mismatched backup unexpectedly reached restore.' >&2
+            exit 1
+          fi
+
+      - name: Collect redacted Compose diagnostics on failure
+        if: ${{ failure() }}
+        run: bash scripts/runtime/collect-runtime-diagnostics.sh || true
+
+      - name: Refuse runtime evidence containing generated Secret values
+        id: artifact-scan
+        if: ${{ always() }}
+        run: |
+          scan_paths=(artifacts/p0-runtime client/test-results)
+          for secret_file in deploy/.runtime/iot-manager-p0/secrets/*; do
+            test -f "$secret_file" || continue
+            secret_value="$(cat "$secret_file")"
+            test -n "$secret_value" || continue
+            if grep -R -a -F -q -- "$secret_value" "${scan_paths[@]}" 2>/dev/null; then
+              echo "::error::Refusing artifact upload because a generated secret value was found in runtime evidence."
+              exit 1
+            fi
+          done
+          if grep -R -a -E -q -- 'iat_[A-Za-z0-9_-]{20,}' "${scan_paths[@]}" 2>/dev/null; then
+            echo "::error::Refusing artifact upload because a one-time edge-agent credential token was found in runtime evidence."
+            exit 1
+          fi
+
+      - name: Upload redacted runtime evidence
+        if: ${{ always() && steps.artifact-scan.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: p0-runtime-evidence-${{ github.sha }}
+          path: |
+            artifacts/p0-runtime/
+            client/test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Stop only the dedicated Compose projects
+        if: ${{ always() }}
+        run: |
+          docker compose --project-name iot-manager-p0 --env-file deploy/.env.integration --env-file deploy/.runtime/iot-manager-p0/runtime.env -f deploy/docker-compose.yml -f deploy/docker-compose.integration.yml down --remove-orphans || true
+          docker compose --project-name iot-manager-p0-recovery --env-file deploy/.env.integration -f deploy/docker-compose.yml -f deploy/docker-compose.integration.yml down --remove-orphans || true
+          rm -rf deploy/.runtime

@@ -5,13 +5,15 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+
+import java.sql.Types;
 
 import java.time.LocalDateTime;
 
@@ -42,7 +44,7 @@ public class DeviceProfile {
     @Column(name = "device_type", nullable = false, length = 50)
     private String deviceType;
 
-    @Lob
+    @JdbcTypeCode(Types.LONGVARCHAR)
     @Column(name = "definition_json", nullable = false)
     private String definitionJson;
 

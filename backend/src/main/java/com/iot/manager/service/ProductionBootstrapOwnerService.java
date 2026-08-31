@@ -22,8 +22,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Production cannot start with an unowned organization. This runner maps one
- * explicitly supplied Keycloak subject to the first organization and site. It
- * is idempotent and deliberately has no password or Keycloak admin credential.
+ * explicitly supplied Keycloak owner subject to the first organization and
+ * site. The isolated integration runtime may additionally map ADMIN,
+ * OPERATOR and VIEWER subjects to that site so the real Keycloak role matrix
+ * can be exercised end-to-end. It is idempotent and deliberately has no
+ * password or Keycloak administrator credential.
  */
 @Component
 @RequiredArgsConstructor
@@ -54,6 +57,7 @@ public class ProductionBootstrapOwnerService implements ApplicationRunner {
         String siteName = required(properties.getSiteName(), "iot.bootstrap.site-name");
         String spacePath = required(properties.getSpacePath(), "iot.bootstrap.space-path");
         String spaceName = required(properties.getSpaceName(), "iot.bootstrap.space-name");
+        validateIntegrationIdentityConfiguration();
 
         Organization organization = organizationRepository.findByCode(organizationCode)
                 .orElseGet(() -> organizationRepository.save(Organization.builder()
@@ -73,30 +77,148 @@ public class ProductionBootstrapOwnerService implements ApplicationRunner {
                         .path(spacePath)
                         .build()));
 
-        AppUser owner = appUserRepository.findBySubject(ownerSubject)
+        AppUser owner = provisionUser(
+                "owner", ownerSubject, ownerUsername,
+                properties.getOwnerDisplayName(), properties.getOwnerEmail()
+        );
+        ensureOrganizationMembership(owner, organization);
+        ensureSiteMembership(owner, site);
+        log.info("Initial platform owner membership is ready for organization {} and site {}", organizationCode, siteCode);
+        provisionSecondarySiteIfConfigured(organization, owner, site);
+        provisionAdditionalIdentities(organization, site);
+    }
+
+    private void provisionSecondarySiteIfConfigured(Organization organization, AppUser owner, Site primarySite) {
+        String secondaryCode = blankToNull(properties.getSecondarySiteCode());
+        if (secondaryCode == null) {
+            return;
+        }
+        String secondaryName = required(properties.getSecondarySiteName(), "iot.bootstrap.secondary-site-name");
+        if (secondaryCode.equals(primarySite.getCode())) {
+            throw new IllegalStateException("Production bootstrap secondary site must differ from iot.bootstrap.site-code");
+        }
+        Site secondary = siteRepository.findByOrganizationAndCode(organization, secondaryCode)
+                .orElseGet(() -> siteRepository.save(Site.builder()
+                        .organization(organization)
+                        .code(secondaryCode)
+                        .name(secondaryName)
+                        .build()));
+        spaceRepository.findBySiteAndPath(secondary, properties.getSpacePath())
+                .orElseGet(() -> spaceRepository.save(Space.builder()
+                        .site(secondary)
+                        .name(properties.getSpaceName())
+                        .path(properties.getSpacePath())
+                        .build()));
+        // OWNER holds organization membership, but retain an explicit site
+        // membership so the initial topology stays intelligible if that
+        // broader grant is later replaced by site-only access.
+        ensureSiteMembership(owner, secondary);
+        log.info("Initial secondary site is ready for organization {} and site {}", organization.getCode(), secondaryCode);
+    }
+
+    private void provisionAdditionalIdentities(Organization organization, Site site) {
+        if (properties.isIntegrationIdentitiesEnabled()) {
+            provisionIntegrationIdentity(
+                    "admin", properties.getAdminSubject(), properties.getAdminUsername(),
+                    properties.getAdminDisplayName(), properties.getAdminEmail(), organization, site
+            );
+            provisionIntegrationIdentity(
+                    "operator", properties.getOperatorSubject(), properties.getOperatorUsername(),
+                    properties.getOperatorDisplayName(), properties.getOperatorEmail(), organization, site
+            );
+            provisionIntegrationIdentity(
+                    "viewer", properties.getViewerSubject(), properties.getViewerUsername(),
+                    properties.getViewerDisplayName(), properties.getViewerEmail(), organization, site
+            );
+            return;
+        }
+
+        // Keep the pre-existing, deliberate production viewer onboarding path
+        // compatible. Unlike integration identities it is never created by
+        // Keycloak bootstrap unless a deployment explicitly configures it.
+        String viewerSubject = blankToNull(properties.getViewerSubject());
+        if (viewerSubject != null) {
+            provisionIntegrationIdentity(
+                    "viewer", viewerSubject, properties.getViewerUsername(),
+                    properties.getViewerDisplayName(), properties.getViewerEmail(), organization, site
+            );
+        }
+    }
+
+    private void validateIntegrationIdentityConfiguration() {
+        if (!properties.isIntegrationIdentitiesEnabled()) {
+            return;
+        }
+        validateIntegrationIdentity("admin", properties.getAdminSubject(), properties.getAdminUsername(),
+                properties.getAdminDisplayName(), properties.getAdminEmail());
+        validateIntegrationIdentity("operator", properties.getOperatorSubject(), properties.getOperatorUsername(),
+                properties.getOperatorDisplayName(), properties.getOperatorEmail());
+        validateIntegrationIdentity("viewer", properties.getViewerSubject(), properties.getViewerUsername(),
+                properties.getViewerDisplayName(), properties.getViewerEmail());
+    }
+
+    private void validateIntegrationIdentity(
+            String identity, String subject, String username, String displayName, String email
+    ) {
+        required(subject, "iot.bootstrap." + identity + "-subject");
+        required(username, "iot.bootstrap." + identity + "-username");
+        required(displayName, "iot.bootstrap." + identity + "-display-name");
+        required(email, "iot.bootstrap." + identity + "-email");
+    }
+
+    private void provisionIntegrationIdentity(
+            String identity,
+            String subject,
+            String username,
+            String displayName,
+            String email,
+            Organization organization,
+            Site site
+    ) {
+        AppUser user = provisionUser(identity, required(subject, "iot.bootstrap." + identity + "-subject"),
+                required(username, "iot.bootstrap." + identity + "-username"), displayName, email);
+        ensureSiteMembership(user, site);
+        log.info("Initial platform {} membership is ready for organization {} and site {}",
+                identity, organization.getCode(), site.getCode());
+    }
+
+    private AppUser provisionUser(
+            String identity,
+            String subject,
+            String username,
+            String displayName,
+            String email
+    ) {
+        AppUser user = appUserRepository.findBySubject(subject)
                 .orElseGet(() -> appUserRepository.save(AppUser.builder()
-                        .subject(ownerSubject)
-                        .username(ownerUsername)
-                        .displayName(blankToNull(properties.getOwnerDisplayName()))
-                        .email(blankToNull(properties.getOwnerEmail()))
+                        .subject(subject)
+                        .username(username)
+                        .displayName(blankToNull(displayName))
+                        .email(blankToNull(email))
                         .enabled(true)
                         .build()));
-        if (!owner.isEnabled()) {
-            throw new IllegalStateException("Configured production owner is disabled");
+        if (!user.isEnabled()) {
+            throw new IllegalStateException("Configured production " + identity + " is disabled");
         }
-        if (!organizationMembershipRepository.existsByUserIdAndOrganizationId(owner.getId(), organization.getId())) {
+        return user;
+    }
+
+    private void ensureOrganizationMembership(AppUser user, Organization organization) {
+        if (!organizationMembershipRepository.existsByUserIdAndOrganizationId(user.getId(), organization.getId())) {
             organizationMembershipRepository.save(OrganizationMembership.builder()
-                    .user(owner)
+                    .user(user)
                     .organization(organization)
                     .build());
         }
-        if (!siteMembershipRepository.existsByUserIdAndSiteId(owner.getId(), site.getId())) {
+    }
+
+    private void ensureSiteMembership(AppUser user, Site site) {
+        if (!siteMembershipRepository.existsByUserIdAndSiteId(user.getId(), site.getId())) {
             siteMembershipRepository.save(SiteMembership.builder()
-                    .user(owner)
+                    .user(user)
                     .site(site)
                     .build());
         }
-        log.info("Initial platform owner membership is ready for organization {} and site {}", organizationCode, siteCode);
     }
 
     private String required(String value, String property) {

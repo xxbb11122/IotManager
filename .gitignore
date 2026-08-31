@@ -13,5 +13,11 @@ client/android/**/build/
 **/test-results/
 **/playwright-report/
 deploy/.env
+deploy/.env.integration
+deploy/.env.recovery
+deploy/.runtime/
+deploy/secrets/
+artifacts/p0-runtime/
+artifacts/recovery-drill/
 client/.env.local
 client/.env.*.local

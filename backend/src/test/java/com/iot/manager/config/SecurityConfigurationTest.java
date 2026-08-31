@@ -25,6 +25,7 @@ import com.iot.manager.service.BootstrapService;
 import com.iot.manager.service.DeviceService;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -40,6 +41,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
 import java.util.List;
@@ -47,16 +49,24 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
                 "iot.security.enabled=true",
-                "iot.web.allowed-origins[0]=https://iot.example.test"
+                "iot.web.allowed-origins[0]=https://iot.example.test",
+                "iot.observability.scrape-token=metrics-test-token",
+                "management.defaults.metrics.export.enabled=true",
+                "management.endpoint.prometheus.enabled=true",
+                "management.endpoints.web.exposure.include=health,info,prometheus"
         }
 )
 @ActiveProfiles("test")
 @Import(SecurityConfigurationTest.JwtDecoderConfiguration.class)
+@AutoConfigureMockMvc
 class SecurityConfigurationTest {
 
     @LocalServerPort
@@ -94,11 +104,57 @@ class SecurityConfigurationTest {
     @Autowired
     private SpaceRepository spaceRepository;
 
+    @Autowired
+    private MockMvc mockMvc;
+
     @Test
     void unauthenticatedBusinessApiReturns401() {
         ResponseEntity<String> response = restTemplate.getForEntity(url("/api/devices"), String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void privatePrometheusEndpointAcceptsOnlyTheInternalScrapeTokenInTheTestSecurityContext() {
+        ResponseEntity<String> denied = restTemplate.getForEntity(url("/actuator/prometheus"), String.class);
+
+        HttpHeaders wrongScrapeHeaders = new HttpHeaders();
+        wrongScrapeHeaders.add(MetricsScrapeAuthenticationFilter.TOKEN_HEADER, "wrong-metrics-test-token");
+        ResponseEntity<String> wrongToken = restTemplate.exchange(
+                url("/actuator/prometheus"), HttpMethod.GET, new HttpEntity<>(wrongScrapeHeaders), String.class
+        );
+
+        HttpHeaders scrapeHeaders = new HttpHeaders();
+        scrapeHeaders.add(MetricsScrapeAuthenticationFilter.TOKEN_HEADER, "metrics-test-token");
+        ResponseEntity<String> allowed = restTemplate.exchange(
+                url("/actuator/prometheus"), HttpMethod.GET, new HttpEntity<>(scrapeHeaders), String.class
+        );
+
+        assertThat(denied.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(wrongToken.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        // A focused security test is allowed to run without an exposed
+        // Prometheus payload. What matters here is that a valid internal
+        // Docker-secret request passes the security boundary while neither an
+        // anonymous nor a bad-token request does. The runtime verifier checks
+        // the actual 200 Prometheus payload in a fully started application.
+        assertThat(allowed.getStatusCode())
+                .isNotEqualTo(HttpStatus.UNAUTHORIZED)
+                .isNotEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    void corsPreflightAllowsOnlyTheConfiguredWebOrigin() throws Exception {
+        mockMvc.perform(options("/api/v1/devices")
+                        .header(HttpHeaders.ORIGIN, "https://iot.example.test")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "https://iot.example.test"));
+
+        mockMvc.perform(options("/api/v1/devices")
+                        .header(HttpHeaders.ORIGIN, "https://untrusted-origin.invalid")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
+                .andExpect(status().isForbidden())
+                .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
     }
 
     @Test

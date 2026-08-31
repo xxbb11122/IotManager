@@ -156,7 +156,11 @@ export class BrowserOidcSession {
   constructor({
     config = resolveBrowserOidcConfig(),
     storage = globalThis.sessionStorage,
-    fetchImpl = globalThis.fetch,
+    // Window.fetch is a Web IDL operation and therefore needs Window as its
+    // receiver in Chromium. Storing it directly and later calling it as
+    // this.fetchImpl(...) makes `this` the session instance, which results in
+    // an "Illegal invocation" before any OIDC request reaches Keycloak.
+    fetchImpl = (...args) => globalThis.fetch(...args),
     navigate = (url) => globalThis.location.assign(url),
     historyRef = globalThis.history,
     locationRef = globalThis.location,

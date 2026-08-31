@@ -63,7 +63,7 @@ test('probe forwards a bearer token to REST and the restricted WebSocket handsha
   });
   assert.equal(result.ok, true);
   assert.equal(requestOptions.headers.authorization, 'Bearer probe-token');
-  assert.deepEqual(socketProtocols, ['iot-bearer.probe-token']);
+  assert.deepEqual(socketProtocols, ['iot-v1', 'iot-bearer.probe-token']);
   assert.equal(new URL(socketUrl).searchParams.get('siteCode'), 'site-a');
 });
 

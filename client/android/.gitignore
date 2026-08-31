@@ -52,10 +52,13 @@ captures/
 # Comment next line if keeping position of elements in Navigation Editor is relevant for you
 .idea/navEditor.xml
 
-# Keystore files
-# Uncomment the following lines if you do not want to check your keystore files in.
-#*.jks
-#*.keystore
+# Release signing material is always injected through protected CI secrets and
+# must never be committed with the Android project.
+*.jks
+*.keystore
+*.p12
+*.pfx
+signing.properties
 
 # External native build folder generated in Android Studio 2.2 and later
 .externalNativeBuild

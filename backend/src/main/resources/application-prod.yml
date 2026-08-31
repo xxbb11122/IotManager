@@ -3,6 +3,11 @@ server:
   forward-headers-strategy: framework
 
 spring:
+  config:
+    # Docker Compose mounts runtime credentials as files. Keeping this import
+    # optional preserves explicit non-container startup diagnostics while the
+    # production compose path never puts secrets in `docker inspect` output.
+    import: optional:configtree:/run/secrets/
   datasource:
     url: ${IOT_DB_URL:jdbc:postgresql://postgres:5432/iot_manager}
     username: ${IOT_DB_USERNAME:iot_manager}
@@ -19,11 +24,22 @@ spring:
       enabled: false
   flyway:
     baseline-on-migrate: false
+    # Do not make a short PostgreSQL or Docker-engine recovery permanently
+    # strand Backend during its first Flyway connection. The finite retry
+    # window keeps startup bounded while allowing normal dependency ordering
+    # and a controlled database restart to converge without operator action.
+    connect-retries: ${IOT_FLYWAY_CONNECT_RETRIES:24}
+    connect-retries-interval: ${IOT_FLYWAY_CONNECT_RETRIES_INTERVAL:5s}
     # PostgreSQL uses equivalent V2/V5/V6/V8 scripts for syntax and TEXT
     # handling that differ from the long-lived H2 development history.
     locations:
       - classpath:db/migration
       - classpath:db/migration-postgresql
+    # Migrations own the schema; the long-lived application role has DML-only
+    # grants. In non-Docker production launches the values may still be set
+    # as protected environment variables.
+    user: ${IOT_FLYWAY_USERNAME:${IOT_DB_USERNAME}}
+    password: ${IOT_FLYWAY_PASSWORD:${IOT_DB_PASSWORD}}
   security:
     oauth2:
       resourceserver:
@@ -32,6 +48,16 @@ spring:
           # Public issuer validation with an internal JWK URL avoids relying on
           # public-DNS hairpinning from the Docker network during boot.
           jwk-set-uri: ${IOT_SECURITY_JWK_SET_URI}
+
+# Docker uses readiness, rather than liveness, to decide whether the backend
+# may receive traffic. Include the real database contributor so a PostgreSQL
+# outage fails closed instead of leaving an application-process-only probe UP.
+management:
+  endpoint:
+    health:
+      group:
+        readiness:
+          include: readinessState,db
 
 iot:
   security:
@@ -54,6 +80,10 @@ iot:
   weather:
     privacy:
       fingerprint-secret: ${IOT_WEATHER_FINGERPRINT_SECRET}
+  observability:
+    # Docker Compose mounts this opaque value from a secret file. It only
+    # authorizes /actuator/prometheus on the internal Docker network.
+    scrape-token: ${IOT_METRICS_SCRAPE_TOKEN:}
   bootstrap:
     # The Keycloak subject is not a secret, but it must be explicitly supplied
     # after the initial OWNER user has been created in the imported realm.
@@ -62,9 +92,27 @@ iot:
     owner-username: ${IOT_BOOTSTRAP_OWNER_USERNAME:}
     owner-display-name: ${IOT_BOOTSTRAP_OWNER_DISPLAY_NAME:}
     owner-email: ${IOT_BOOTSTRAP_OWNER_EMAIL:}
+    # Integration identities are enabled only by the isolated test launcher.
+    # Production still maps only its explicit OWNER by default; a deliberately
+    # supplied viewer remains supported for controlled onboarding.
+    integration-identities-enabled: ${IOT_BOOTSTRAP_INTEGRATION_IDENTITIES_ENABLED:false}
+    admin-subject: ${IOT_BOOTSTRAP_ADMIN_SUBJECT:}
+    admin-username: ${IOT_BOOTSTRAP_ADMIN_USERNAME:}
+    admin-display-name: ${IOT_BOOTSTRAP_ADMIN_DISPLAY_NAME:}
+    admin-email: ${IOT_BOOTSTRAP_ADMIN_EMAIL:}
+    operator-subject: ${IOT_BOOTSTRAP_OPERATOR_SUBJECT:}
+    operator-username: ${IOT_BOOTSTRAP_OPERATOR_USERNAME:}
+    operator-display-name: ${IOT_BOOTSTRAP_OPERATOR_DISPLAY_NAME:}
+    operator-email: ${IOT_BOOTSTRAP_OPERATOR_EMAIL:}
+    viewer-subject: ${IOT_BOOTSTRAP_VIEWER_SUBJECT:}
+    viewer-username: ${IOT_BOOTSTRAP_VIEWER_USERNAME:}
+    viewer-display-name: ${IOT_BOOTSTRAP_VIEWER_DISPLAY_NAME:}
+    viewer-email: ${IOT_BOOTSTRAP_VIEWER_EMAIL:}
     organization-code: ${IOT_BOOTSTRAP_ORGANIZATION_CODE:}
     organization-name: ${IOT_BOOTSTRAP_ORGANIZATION_NAME:}
     site-code: ${IOT_BOOTSTRAP_SITE_CODE:}
     site-name: ${IOT_BOOTSTRAP_SITE_NAME:}
+    secondary-site-code: ${IOT_BOOTSTRAP_SECONDARY_SITE_CODE:}
+    secondary-site-name: ${IOT_BOOTSTRAP_SECONDARY_SITE_NAME:}
     space-path: ${IOT_BOOTSTRAP_SPACE_PATH:/operations}
     space-name: ${IOT_BOOTSTRAP_SPACE_NAME:Operations}

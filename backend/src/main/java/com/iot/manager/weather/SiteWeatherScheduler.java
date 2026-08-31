@@ -1,5 +1,6 @@
 package com.iot.manager.weather;
 
+import com.iot.manager.service.ScheduledDatabaseTaskGuard;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -13,21 +14,24 @@ import org.springframework.stereotype.Component;
 public class SiteWeatherScheduler {
 
     private final SiteWeatherService siteWeatherService;
+    private final ScheduledDatabaseTaskGuard scheduledDatabaseTaskGuard;
 
     @Scheduled(
             fixedDelayString = "${iot.weather.refresh-interval-ms:1800000}",
             initialDelayString = "${iot.weather.initial-delay-ms:30000}"
     )
     public void refreshEnabledSites() {
-        for (Long siteId : siteWeatherService.enabledSiteIds()) {
-            try {
-                siteWeatherService.refreshSiteById(siteId);
-            } catch (WeatherRefreshInProgressException ignored) {
-                // A manual refresh already owns the site; the next cycle will retry.
-            } catch (RuntimeException exception) {
-                log.warn("Weather refresh failed for site {}: {}", siteId, exception.getMessage());
+        scheduledDatabaseTaskGuard.run("weather-enabled-site-refresh", () -> {
+            for (Long siteId : siteWeatherService.enabledSiteIds()) {
+                try {
+                    siteWeatherService.refreshSiteById(siteId);
+                } catch (WeatherRefreshInProgressException ignored) {
+                    // A manual refresh already owns the site; the next cycle will retry.
+                } catch (RuntimeException exception) {
+                    log.warn("Weather refresh failed for site {}: {}", siteId, exception.getMessage());
+                }
             }
-        }
+        });
     }
 
     /**
@@ -39,14 +43,16 @@ public class SiteWeatherScheduler {
             initialDelayString = "${iot.weather.retry-initial-delay-ms:30000}"
     )
     public void retryFailedSites() {
-        for (Long siteId : siteWeatherService.retryDueSiteIds()) {
-            try {
-                siteWeatherService.retrySiteById(siteId);
-            } catch (WeatherRefreshInProgressException ignored) {
-                // The active request owns the site. The next short check can retry it.
-            } catch (RuntimeException exception) {
-                log.warn("Weather retry failed for site {}: {}", siteId, exception.getMessage());
+        scheduledDatabaseTaskGuard.run("weather-failed-site-retry", () -> {
+            for (Long siteId : siteWeatherService.retryDueSiteIds()) {
+                try {
+                    siteWeatherService.retrySiteById(siteId);
+                } catch (WeatherRefreshInProgressException ignored) {
+                    // The active request owns the site. The next short check can retry it.
+                } catch (RuntimeException exception) {
+                    log.warn("Weather retry failed for site {}: {}", siteId, exception.getMessage());
+                }
             }
-        }
+        });
     }
 }

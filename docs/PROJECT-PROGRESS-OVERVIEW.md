@@ -1,12 +1,17 @@
 # IoT Manager 项目进度介绍 / Project Progress Overview
 
-**更新日期：** 2026-08-22<br>
+> **当前状态入口：** 本文已在 2026-08-30 与当前实现对齐；详细的 R1 实施、Gate
+> 阻塞项和证据入口以
+> [R1-COMPLETION-IMPLEMENTATION-STATUS.md](R1-COMPLETION-IMPLEMENTATION-STATUS.md)
+> 与 [IMAGE-SECURITY-STATUS.md](IMAGE-SECURITY-STATUS.md) 为准。
+
+**更新日期：** 2026-08-30<br>
 **当前定位：** 面向现场局域网与云端设备的物联网运维平台，当前处于“可运行 MVP + R1 受控试点代码基础”阶段。<br>
 **发布结论：** 可用于本地开发、内部演示和受控联调；尚不是已审批的生产发布版本。
 
 > 本文用于项目介绍和进度汇报。发布授权、验收 Gate 和范围优先级以
 > [项目审批意见](PROJECT-APPROVAL-REVIEW.md) 为准；已实现代码与验证证据以
-> [实施状态](IMPLEMENTATION-STATUS.md) 为准。
+> [R1 收尾实施状态](R1-COMPLETION-IMPLEMENTATION-STATUS.md) 为准。
 
 ## 1. 项目简介
 
@@ -63,18 +68,19 @@ flowchart LR
 
 ## 4. 已验证质量快照
 
-验证快照日期为 **2026-08-21**。本地结果如下：
+验证快照日期为 **2026-08-30**。本地结果如下：
 
 | 模块 | 验证结果 |
 | --- | --- |
-| Backend（JDK 17） | 111 项测试，0 失败、0 错误、1 项因 Docker 未运行而跳过 |
+| Backend（JDK 17） | 121 项测试，0 失败、0 错误、0 跳过；PostgreSQL 16 Testcontainers 冒烟真实运行 |
 | Edge Agent（JDK 17） | 7 项测试全部通过 |
-| Android/PDA Web 客户端 | 84 项单元测试全部通过；1 项 Playwright 场景通过 |
-| Android | 清洁构建、1 项单元测试、Lint、Debug APK 打包和 APK v2 签名校验均通过；Lint 为 0 错误、15 警告 |
-| 监控大屏与控制台 | 生产构建通过 |
+| Android/PDA Web 客户端 | 86 项单元测试全部通过；1 项 Playwright 场景通过 |
+| Android | JDK 21、Node 22、API 36 / Build Tools 36.0.0 下完成 Capacitor 同步、公开资源凭据扫描与 Debug APK 构建 |
+| 监控大屏与控制台 | 各 1 项 Playwright 场景和生产构建通过 |
 | 真实后端冒烟 | 健康检查、站点 API、天气刷新、预报、旧 API 弃用头、刷新限流与 WebSocket 联调通过 |
-| LAN 可达性 | 后端已验证监听全部网卡；已通过主机 WLAN 地址完成 API 可达性冒烟 |
-| 部署静态检查 | Compose 变量展开、YAML、Shell 语法和 Git 差异空白检查通过 |
+| Docker 全链路 | TLS/OIDC/401/403/CORS/WSS、四角色两站点、逻辑备份独立恢复、篡改备份拒绝和断库 fail-closed 验证通过 |
+| 部署静态检查 | 严格验证脚本、Compose 变量展开和 Caddy 配置通过 |
+| 运行镜像安全 | Backend 镜像无 HIGH/CRITICAL；其余运行镜像仍有上游无 fixed version 或版本元数据风险，尚未通过 Gate 2 |
 
 最新 Debug APK 由 Android 构建生成在本地 `client/android/app/build/outputs/apk/debug/app-debug.apk`；该构建产物不纳入 Git，且仅用于内部测试，尚未使用生产签名。
 
@@ -88,8 +94,9 @@ flowchart LR
 
 ### 暂不能对外声明为“生产已上线”的原因
 
-- Docker Engine 未运行，尚未完成真实 Compose、PostgreSQL Testcontainers、Keycloak 和 Caddy 的运行态验证；
-- PostgreSQL 独立恢复演练、不可变备份副本、WAL/RPO/RTO 证据尚未形成；
+- 本地 Compose、PostgreSQL Testcontainers、Keycloak/Caddy、PKCE/WSS 和逻辑独立恢复已验证；仍缺同一 Git SHA 的干净 CI Runtime Artifact；
+- 受保护 S3/Object Lock 上的物理 WAL/PITR、RPO≤15 分钟 / RTO≤60 分钟证据尚未形成；
+- 运行镜像仍有未关闭的 HIGH/CRITICAL 上游或元数据发现，未获得批准的 VEX / 风险接受前不能通过 Gate 2；
 - nRF52840、Shelly 和真实 Android 手机的定位、BLE、网络切换、覆盖安装测试尚未完成；
 - 生产域名、Keycloak OWNER 身份、密钥与天气备用源/逆地理供应商审查尚未完成；
 - R1.1 的事件闭环、健康分、命令模板、二维码，以及 R2 的 Redis、mTLS、工单和报表，均未获得提前实施/发布授权。
@@ -98,26 +105,28 @@ flowchart LR
 
 | 优先级 | 项目 | 说明 |
 | --- | --- | --- |
-| P1 | 前端开发依赖升级 | 三个前端锁文件均包含 Vite 5 相关的 3 个高危、1 个中危开发依赖漏洞；生产依赖审计为 0 漏洞。升级后需完整回归。 |
+| P0 | 运行镜像漏洞闭环 | Backend 已清零，但 Keycloak、PostgreSQL/WAL-G、Prometheus、Alertmanager 与部分元数据发现仍需上游修复、支持的基础镜像替换或带审批的精确 VEX；详见 `IMAGE-SECURITY-STATUS.md`。 |
 | P1 | 正式发布包 | 当前 APK 为 Debug 签名；发布前需要配置 Release 签名、覆盖安装和回滚验证。 |
 | P1 | 本机 Java 环境 | 后端必须使用 JDK 17，Android 必须使用 JDK 21+；应清理系统中畸形的 Java 8 `PATH` 项。 |
-| P2 | Android Lint 警告 | 包含依赖版本、启动图密度、未使用资源等 15 项警告；不阻断 Debug 构建。 |
-| P2 | 前端自动化覆盖 | 监控大屏和运维控制台目前以生产构建验证为主，建议补充关键业务 E2E 场景。 |
+| P2 | Android 编译警告 | Capacitor BLE 依赖仍会产生 Kotlin/Android API 废弃警告和 Gradle 9 兼容性提示；不阻断当前 Debug 构建，但应在依赖升级时复查。 |
+| P2 | 前端业务自动化覆盖 | 三端已有启动级 Playwright 覆盖；设备批控、天气异常与告警确认等关键业务路径仍应扩展场景。 |
 
 ## 7. 下一阶段计划
 
 按照当前审批基线，下一步不应先扩展新功能，而应依次完成：
 
-1. 启动 Docker Engine，完成 PostgreSQL、Keycloak、Caddy、后端容器和浏览器/Android PKCE 的完整联调；
-2. 完成独立 PostgreSQL 备份恢复演练，形成恢复时长、迁移版本和读写验证证据；
+1. 关闭或获得批准的运行镜像 HIGH/CRITICAL 风险例外，并取得同一 Git SHA 的绿色供应链/Runtime CI 证据；
+2. 在受保护 S3/Object Lock 环境完成物理 WAL/PITR 演练，形成 RPO/RTO 报告；
 3. 以低压负载完成 nRF52840、Shelly 与 Android 真机最小验收矩阵；
-4. 修复开发依赖和正式签名问题后，提交 Gate 2 / Gate 3 所需证据；
+4. 完成 Release 签名、覆盖安装、正式域名/ACME 与天气供应商审查后，提交 Gate 2 / Gate 3 所需证据；
 5. 只有通过 R1 Gate 后，才按变更审批进入 R1.1 或 R2 的增强功能。
 
 ## 8. 相关文档
 
 - [项目 README](../README.md)：项目功能、启动方式和客户端配置；
-- [实施状态](IMPLEMENTATION-STATUS.md)：代码实现与可重复验证证据；
+- [R1 收尾实施状态](R1-COMPLETION-IMPLEMENTATION-STATUS.md)：代码实现与可重复验证证据；
+- [运行镜像安全状态](IMAGE-SECURITY-STATUS.md)：镜像审计、未关闭风险与审批动作；
+- [严格项目审计](PROJECT-AUDIT-2026-08-30.md)：已证实能力与 Gate 阻断项；
 - [验证说明](VERIFICATION.md)：本地、CI、Android 与部署校验命令；
 - [项目审批意见](PROJECT-APPROVAL-REVIEW.md)：发布 Gate 与授权边界；
 - [项目整改基线](PROJECT-IMPROVEMENT-PLAN.md)：R0/R1/R2 技术整改计划；

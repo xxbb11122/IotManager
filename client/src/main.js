@@ -29,8 +29,9 @@ const DEMO_CONTEXT = Object.freeze({
 });
 
 // A public checkout starts with the Android-emulator endpoint. A physical
-// Android/PDA build supplies its LAN endpoint through VITE_NATIVE_* variables
-// in client/.env.local, which is intentionally excluded from Git.
+// Android/PDA build may supply only public endpoint and OIDC client metadata
+// through VITE_NATIVE_* variables in client/.env.local. Credentials are never
+// build-time variables; OIDC owns them in the secure runtime session store.
 const nativeBuildEnv = import.meta.env ?? {};
 function defaultOidcFields({ native = false } = {}) {
   const issuerUrl = native
@@ -57,7 +58,6 @@ function defaultOidcFields({ native = false } = {}) {
 const DEFAULT_NATIVE_ENDPOINT = Object.freeze({
   apiBaseUrl: nativeBuildEnv.VITE_NATIVE_API_BASE_URL ?? 'http://10.0.2.2:8080/api/v1',
   wsUrl: nativeBuildEnv.VITE_NATIVE_WS_URL ?? 'ws://10.0.2.2:8080/ws/devices',
-  accessToken: nativeBuildEnv.VITE_NATIVE_ACCESS_TOKEN ?? null,
   ...defaultOidcFields({ native: true })
 });
 const WEATHER_READ_CACHE_MS = 10 * 60 * 1000;
@@ -946,7 +946,7 @@ async function bootstrapRuntime() {
     apiBaseUrl: defaults.apiBaseUrl,
     wsUrl: defaults.wsUrl,
     organizationCode: clientState.context.organizationCode,
-    accessToken: defaults.accessToken ?? nativeBuildEnv.VITE_ACCESS_TOKEN ?? null,
+    accessToken: defaults.accessToken ?? null,
     ...defaultOidcFields({ native: nativeRuntime })
   });
   await activateEndpoint(profile);

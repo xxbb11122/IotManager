@@ -31,6 +31,11 @@ management:
       probes:
         enabled: true
       show-details: never
+    prometheus:
+      # Keep the endpoint explicitly enabled because the R1 Compose profile
+      # performs an authenticated, Docker-internal scrape rather than relying
+      # on the framework's endpoint-enable default.
+      enabled: true
   endpoints:
     web:
       exposure:

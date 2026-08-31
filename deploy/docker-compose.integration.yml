@@ -1,0 +1,22 @@
+services:
+  caddy:
+    volumes:
+      - ./Caddyfile.integration:/etc/caddy/Caddyfile:ro
+
+  # The integration profile uses WAL-G's isolated filesystem backend. It is
+  # intentionally separate from postgres-data; production must use S3 with an
+  # encrypted immutable bucket as documented in DEPLOYMENT.md.
+  postgres:
+    environment:
+      WALG_STORAGE_MODE: filesystem
+      WALG_FILE_PREFIX: /var/lib/wal-g
+
+  wal-g-archive:
+    environment:
+      WALG_STORAGE_MODE: filesystem
+      WALG_FILE_PREFIX: /var/lib/wal-g
+
+  wal-g-backup:
+    environment:
+      WALG_STORAGE_MODE: filesystem
+      WALG_FILE_PREFIX: /var/lib/wal-g

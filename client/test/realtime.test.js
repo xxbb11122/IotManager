@@ -81,7 +81,7 @@ test('realtime client notifies valid events and reconnects after an unexpected c
   assert.equal(realtime.getHealth().state, 'disconnected');
 });
 
-test('realtime client places an optional bearer token in a WebSocket subprotocol instead of the URL', () => {
+test('realtime client offers a static negotiated protocol and bearer token outside the URL', () => {
   FakeWebSocket.instances = [];
   let protocols;
   const realtime = new RealtimeClient({
@@ -99,7 +99,7 @@ test('realtime client places an optional bearer token in a WebSocket subprotocol
     FakeWebSocket.instances[0].url,
     'wss://iot.example.test/ws/devices'
   );
-  assert.deepEqual(protocols, ['iot-bearer.access-token-2']);
+  assert.deepEqual(protocols, ['iot-v1', 'iot-bearer.access-token-2']);
   realtime.disconnect();
 });
 
