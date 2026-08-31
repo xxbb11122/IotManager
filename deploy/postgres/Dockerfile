@@ -38,8 +38,17 @@ RUN set -eux; \
 # uses module mode rather than WAL-G's historical vendored dependency set.
 RUN --mount=type=cache,id=iot-manager-walg-go-mod,target=/go/pkg/mod \
     set -eux; \
-    go get github.com/golang-jwt/jwt/v4@v4.5.2 github.com/jackc/pgx/v5@v5.9.0 golang.org/x/oauth2@v0.36.0 golang.org/x/crypto@v0.55.0 golang.org/x/net@v0.57.0 google.golang.org/grpc@v1.82.1; \
-    go mod tidy; \
+    # Keep externally fetched module resolution resilient to temporary Go
+    # proxy transport failures without accepting an incomplete dependency set.
+    for attempt in 1 2 3 4 5; do \
+      if go get github.com/golang-jwt/jwt/v4@v4.5.2 github.com/jackc/pgx/v5@v5.9.0 golang.org/x/oauth2@v0.36.0 golang.org/x/crypto@v0.55.0 golang.org/x/net@v0.57.0 google.golang.org/grpc@v1.82.1 && go mod tidy; then \
+        break; \
+      fi; \
+      if [ "$attempt" -eq 5 ]; then \
+        exit 1; \
+      fi; \
+      sleep "$((attempt * 5))"; \
+    done; \
     go mod verify
 
 RUN --mount=type=cache,id=iot-manager-walg-go-mod,target=/go/pkg/mod \

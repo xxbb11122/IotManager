@@ -15,8 +15,19 @@ RUN set -eux; \
     test "$(git rev-parse HEAD)" = "${CADDY_SOURCE_COMMIT}"
 RUN --mount=type=cache,id=iot-manager-caddy-go-mod,target=/go/pkg/mod \
     set -eux; \
-    go get golang.org/x/crypto@v0.55.0 golang.org/x/net@v0.57.0 google.golang.org/grpc@v1.82.1; \
-    go mod tidy
+    # proxy.golang.org occasionally terminates an HTTP/2 download mid-stream.
+    # Retry only transient module resolution work; a final checksum/compile
+    # failure remains fatal and therefore cannot be hidden by this loop.
+    for attempt in 1 2 3 4 5; do \
+      if go get golang.org/x/crypto@v0.55.0 golang.org/x/net@v0.57.0 google.golang.org/grpc@v1.82.1 && go mod tidy; then \
+        break; \
+      fi; \
+      if [ "$attempt" -eq 5 ]; then \
+        exit 1; \
+      fi; \
+      sleep "$((attempt * 5))"; \
+    done; \
+    go mod verify
 RUN --mount=type=cache,id=iot-manager-caddy-go-mod,target=/go/pkg/mod \
     --mount=type=cache,id=iot-manager-caddy-go-build,target=/root/.cache/go-build \
     set -eux; \
