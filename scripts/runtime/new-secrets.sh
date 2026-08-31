@@ -11,10 +11,16 @@ umask 077
 
 random_hex() {
   if command -v openssl >/dev/null 2>&1; then
-    openssl rand -hex 48
+    # Windows-native OpenSSL can write CRLF even when invoked by Git Bash.
+    # PostgreSQL's .pgpass parser treats a final CR as a line terminator while
+    # SQL password initialization preserves it, producing a credential that
+    # can be created but never used. Normalize every generated value to one
+    # LF-terminated hexadecimal line before it reaches a Compose volume.
+    openssl rand -hex 48 | tr -d '\r\n'
   else
-    od -An -N48 -tx1 /dev/urandom | tr -d ' \n'
+    od -An -N48 -tx1 /dev/urandom | tr -d ' \r\n'
   fi
+  printf '\n'
 }
 
 for secret_name in \

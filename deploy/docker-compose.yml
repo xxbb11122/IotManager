@@ -44,6 +44,37 @@ services:
       - FOWNER
     networks: [internal]
 
+  # Docker Compose file secrets are host bind mounts, so their host UID/mode
+  # are not safe to expose directly to the deliberately non-root services
+  # below. This one-shot initializer reads the 0700/0600 host directory and
+  # copies only the necessary values into service-owned named volumes.
+  secret-volume-init:
+    image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+    restart: "no"
+    command: ["/bin/sh", "/scripts/secret-volume-init.sh"]
+    volumes:
+      - ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}:/source:ro
+      - ./secret-volume-init.sh:/scripts/secret-volume-init.sh:ro
+      - runtime-secrets-postgres:/targets/postgres
+      - runtime-secrets-keycloak:/targets/keycloak
+      - runtime-secrets-backend:/targets/backend
+      - runtime-secrets-backup:/targets/backup
+      - runtime-secrets-walg-archive:/targets/walg-archive
+      - runtime-secrets-walg-backup:/targets/walg-backup
+      - runtime-secrets-walg-recovery:/targets/walg-recovery
+      - runtime-secrets-prometheus:/targets/prometheus
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # It needs these capabilities only while reading the private host source
+    # and handing copies to service-specific runtime UIDs.
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+    networks: [internal]
+
   postgres:
     build: *postgres-build
     image: iot-manager-postgres:16-walg
@@ -75,16 +106,15 @@ services:
       - wal-archive:/var/lib/wal-archive
       - wal-g-data:/var/lib/wal-g
       - ./postgres/init-databases.sh:/docker-entrypoint-initdb.d/10-init-databases.sh:ro
-    secrets:
-      - postgres_admin_password
-      - iot_db_owner_password
-      - iot_db_app_password
-      - keycloak_db_password
+      - runtime-secrets-postgres:/run/secrets:ro
     depends_on:
       volume-init:
         condition: service_completed_successfully
+      secret-volume-init:
+        condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      test:
+        ["CMD-SHELL", 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
       interval: 10s
       timeout: 5s
       retries: 12
@@ -107,6 +137,11 @@ services:
       - --http-enabled=true
       - --http-relative-path=/auth
       - --hostname=https://${DOMAIN:?set DOMAIN}/auth
+      # Keep browser-facing URLs fixed while allowing the private Backend and
+      # one-shot administration helpers to reach Keycloak directly over the
+      # internal Docker network. Without this, kcadm follows the public URL
+      # and can hang before Caddy/DNS is available during bootstrap.
+      - --hostname-backchannel-dynamic=true
       - --hostname-strict=true
       - --proxy-headers=xforwarded
       - --health-enabled=true
@@ -142,23 +177,25 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      secret-volume-init:
+        condition: service_completed_successfully
     expose:
       - "8080"
       - "9000"
     volumes:
       - ./keycloak/iot-manager-realm.json:/opt/keycloak/data/import/iot-manager-realm.json:ro
-    secrets:
-      - keycloak_db_password
-      - keycloak_bootstrap_admin_password
-      - keycloak_owner_password
-      - keycloak_admin_password
-      - keycloak_operator_password
-      - keycloak_viewer_password
+      - runtime-secrets-keycloak:/run/secrets:ro
     healthcheck:
       # Keycloak deliberately ships no HTTP client. This is the documented
       # raw-TCP ready probe for the management interface on port 9000. The
       # management endpoints inherit the configured /auth relative path.
-      test: ["CMD", "/bin/bash", "-ec", "{ printf 'HEAD /auth/health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&0; grep -Eq 'HTTP/1\\.[01] 200'; } 0<>/dev/tcp/localhost/9000"]
+      test:
+        [
+          "CMD",
+          "/bin/bash",
+          "-ec",
+          "{ printf 'HEAD /auth/health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&0; grep -Eq 'HTTP/1\\.[01] 200'; } 0<>/dev/tcp/localhost/9000",
+        ]
       interval: 10s
       timeout: 5s
       retries: 18
@@ -223,19 +260,21 @@ services:
         condition: service_healthy
       keycloak:
         condition: service_healthy
+      secret-volume-init:
+        condition: service_completed_successfully
     expose:
       - "8080"
-    secrets:
-      - source: iot_db_app_password
-        target: IOT_DB_PASSWORD
-      - source: iot_db_owner_password
-        target: IOT_FLYWAY_PASSWORD
-      - source: weather_fingerprint_secret
-        target: IOT_WEATHER_FINGERPRINT_SECRET
-      - source: metrics_scrape_token
-        target: IOT_METRICS_SCRAPE_TOKEN
+    volumes:
+      - runtime-secrets-backend:/run/secrets:ro
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--spider", "http://127.0.0.1:8080/actuator/health/readiness"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--spider",
+          "http://127.0.0.1:8080/actuator/health/readiness",
+        ]
       interval: 10s
       timeout: 5s
       retries: 18
@@ -278,11 +317,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      secret-volume-init:
+        condition: service_completed_successfully
     volumes:
       - postgres-backups:/backups
       - ./backup:/scripts:ro
-    secrets:
-      - iot_db_owner_password
+      - runtime-secrets-backup:/run/secrets:ro
     healthcheck:
       test: ["CMD-SHELL", "/bin/sh /scripts/backup-healthcheck.sh"]
       interval: 30s
@@ -327,12 +367,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      secret-volume-init:
+        condition: service_completed_successfully
     volumes:
       - wal-archive:/var/lib/wal-archive
       - wal-g-data:/var/lib/wal-g
-    secrets:
-      - walg_s3_access_key
-      - walg_s3_secret_key
+      - runtime-secrets-walg-archive:/run/secrets:ro
     healthcheck:
       test: ["CMD-SHELL", "/usr/local/bin/wal-g-archive-healthcheck.sh"]
       interval: 15s
@@ -374,13 +414,12 @@ services:
         condition: service_healthy
       wal-g-archive:
         condition: service_healthy
+      secret-volume-init:
+        condition: service_completed_successfully
     volumes:
       - postgres-data:/var/lib/postgresql/data:ro
       - wal-g-data:/var/lib/wal-g
-    secrets:
-      - iot_db_owner_password
-      - walg_s3_access_key
-      - walg_s3_secret_key
+      - runtime-secrets-walg-backup:/run/secrets:ro
     healthcheck:
       test: ["CMD-SHELL", "/usr/local/bin/wal-g-backup-healthcheck.sh"]
       interval: 30s
@@ -441,8 +480,7 @@ services:
       - prometheus-data:/prometheus
       - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./observability/alerts.yml:/etc/prometheus/alerts.yml:ro
-    secrets:
-      - metrics_scrape_token
+      - runtime-secrets-prometheus:/run/secrets:ro
     depends_on:
       observability-volume-init:
         condition: service_completed_successfully
@@ -450,6 +488,8 @@ services:
         condition: service_healthy
       alertmanager:
         condition: service_started
+      secret-volume-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:9090/-/ready"]
       interval: 15s
@@ -518,7 +558,16 @@ services:
       - caddy-data:/data
       - caddy-config:/config
     healthcheck:
-      test: ["CMD", "/usr/bin/caddy", "validate", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+      test:
+        [
+          "CMD",
+          "/usr/bin/caddy",
+          "validate",
+          "--config",
+          "/etc/caddy/Caddyfile",
+          "--adapter",
+          "caddyfile",
+        ]
       interval: 15s
       timeout: 5s
       retries: 8
@@ -549,31 +598,11 @@ volumes:
   alertmanager-data:
   caddy-data:
   caddy-config:
-
-secrets:
-  postgres_admin_password:
-    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/postgres_admin_password
-  iot_db_owner_password:
-    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/iot_db_owner_password
-  iot_db_app_password:
-    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/iot_db_app_password
-  keycloak_db_password:
-    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/keycloak_db_password
-  keycloak_bootstrap_admin_password:
-    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/keycloak_bootstrap_admin_password
-  keycloak_owner_password:
-    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/keycloak_owner_password
-  keycloak_admin_password:
-    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/keycloak_admin_password
-  keycloak_operator_password:
-    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/keycloak_operator_password
-  keycloak_viewer_password:
-    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/keycloak_viewer_password
-  weather_fingerprint_secret:
-    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/weather_fingerprint_secret
-  metrics_scrape_token:
-    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/metrics_scrape_token
-  walg_s3_access_key:
-    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/walg_s3_access_key
-  walg_s3_secret_key:
-    file: ${IOT_SECRET_DIR:?set IOT_SECRET_DIR}/walg_s3_secret_key
+  runtime-secrets-postgres:
+  runtime-secrets-keycloak:
+  runtime-secrets-backend:
+  runtime-secrets-backup:
+  runtime-secrets-walg-archive:
+  runtime-secrets-walg-backup:
+  runtime-secrets-walg-recovery:
+  runtime-secrets-prometheus:

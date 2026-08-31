@@ -43,11 +43,11 @@ services:
       IOT_RECOVERY_BASE_BACKUP: ${IOT_RECOVERY_BASE_BACKUP:?set IOT_RECOVERY_BASE_BACKUP}
     volumes:
       - postgres-data:/var/lib/postgresql/data
-    secrets:
-      - walg_s3_access_key
-      - walg_s3_secret_key
+      - runtime-secrets-walg-recovery:/run/secrets:ro
     depends_on:
       volume-init:
+        condition: service_completed_successfully
+      secret-volume-init:
         condition: service_completed_successfully
     security_opt:
       - no-new-privileges:true
@@ -72,15 +72,10 @@ services:
       AWS_REGION: ${AWS_REGION:?set AWS_REGION}
       AWS_S3_FORCE_PATH_STYLE: ${AWS_S3_FORCE_PATH_STYLE:-true}
       WALG_COMPRESSION_METHOD: ${WALG_COMPRESSION_METHOD:-zstd}
-    secrets:
-      - postgres_admin_password
-      - iot_db_owner_password
-      - iot_db_app_password
-      - keycloak_db_password
-      - walg_s3_access_key
-      - walg_s3_secret_key
     depends_on:
       volume-init:
+        condition: service_completed_successfully
+      secret-volume-init:
         condition: service_completed_successfully
       wal-g-recovery:
         condition: service_completed_successfully

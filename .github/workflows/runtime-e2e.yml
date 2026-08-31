@@ -117,9 +117,12 @@ jobs:
           compose=(docker compose --project-name "$IOT_COMPOSE_PROJECT" --profile application --env-file "$IOT_ENVIRONMENT_FILE" --env-file "$IOT_RUNTIME_STATE_FILE" -f deploy/docker-compose.yml -f deploy/docker-compose.integration.yml)
           backup_id="$("${compose[@]}" ps -q backup)"
           test -n "$backup_id"
-          backup_mounts="$(docker inspect --format '{{range .Mounts}}{{println .Destination}}{{end}}' "$backup_id")"
-          grep -Fxq '/run/secrets/iot_db_owner_password' <<<"$backup_mounts"
-          if grep -Fxq '/run/secrets/iot_db_app_password' <<<"$backup_mounts"; then
+          # Compose file secrets are bind mounts and retain the host UID. The
+          # initializer must instead provide this non-root sidecar a private,
+          # read-only volume containing only its owner credential.
+          backup_secret_file="$(docker exec "$backup_id" sh -ec 'test -r /run/secrets/iot_db_owner_password && stat -c "%u:%g:%a" /run/secrets/iot_db_owner_password')"
+          test "$backup_secret_file" = '999:999:400'
+          if docker exec "$backup_id" sh -ec 'test -e /run/secrets/iot_db_app_password'; then
             echo '::error::Backup sidecar must not mount the Backend DML password.' >&2
             exit 1
           fi

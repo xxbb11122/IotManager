@@ -44,6 +44,34 @@ The verification script proves the public `404`, a private authenticated
 scrape, and an `up` Prometheus target before storing redacted evidence. The
 GitHub `P0 Docker Runtime` workflow enables this profile automatically.
 
+## Runtime secret delivery
+
+`IOT_SECRET_DIR` is a host directory, not a Docker-managed secret object.
+Compose `file:` secrets are bind mounts and retain the host UID; a `0600` file
+owned by the deployment account is therefore unreadable by the deliberately
+non-root PostgreSQL, Backend, Keycloak, WAL-G and Prometheus containers on a
+Linux runner. The one-shot `secret-volume-init` service copies the required
+source values into one named volume per service. It assigns each target
+directory `0700` and each target file `0400` to that service's runtime UID.
+
+Keep the host directory root-controlled (`0700`) with non-empty, LF-terminated
+`0400` files. Do not put secret values in `.env`. The initializer gives each
+service only its minimum set: for example, `backup` receives the owner database
+credential but never the Backend DML credential, and Prometheus receives only
+the scrape token. The runtime validation asserts those positive and negative
+mount checks.
+
+After an approved secret rotation, stop the dependent services, recreate
+`secret-volume-init`, then restart the affected services so they reopen their
+private volumes. Database-role password rotation remains a separately planned,
+transactional operation; do not overwrite a running database credential by
+editing a source file alone.
+
+Keycloak keeps the public `https://<DOMAIN>/auth` issuer fixed and enables its
+documented dynamic backchannel only for private Docker-network clients. This
+allows the bootstrap/reconciliation helpers to use the internal endpoint before
+public DNS and Caddy are available; Keycloak itself has no published host port.
+
 ## 前置条件
 
 - Linux Docker Engine 与 Docker Compose v2；不要只安装 Docker Client。

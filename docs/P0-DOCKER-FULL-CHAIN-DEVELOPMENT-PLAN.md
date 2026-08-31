@@ -194,7 +194,11 @@ tmpfs。健康探针不得调用需要管理员权限的 Actuator 端点。
 - integration 凭据由 `scripts/runtime/new-secrets.ps1/.sh` 随机生成到 Git 已忽略的
   `deploy/.runtime/iot-manager-p0/secrets/`；Windows 仅授予当前用户 ACL，Linux 权限固定为 `600`；
 - 生产凭据固定从宿主机 `/etc/iot-manager/secrets/` 读取，由 `root:root` 持有且权限为 `0400`，
-  通过 Compose `secrets` 挂载到容器 `/run/secrets`；凭据必须通过带审计的带外流程写入；
+  通过受控的 `secret-volume-init` 一次性服务写入每个容器私有的 `/run/secrets` 命名卷；
+  原始 `IOT_SECRET_DIR` 仅供该服务以只读方式读取，凭据必须通过带审计的带外流程写入。
+  不能直接使用 Compose `file:` secrets：它们是保留宿主 UID 的 bind mount，Linux 上会使
+  非 root 服务无法读取宿主用户拥有的 `0600` 文件。目标卷目录必须为服务 UID 所有的 `0700`，
+  文件必须为 `0400`，并按最小权限分发。
 - PostgreSQL 使用 `POSTGRES_PASSWORD_FILE`，Backend 使用 Spring Boot `configtree`，Keycloak
   通过最小入口脚本从 Secret 文件加载密码后 `exec kc.sh`；
 - Compose 配置、`docker inspect`、进程参数、CI 日志和 Artifact 都不得出现 Secret 值；
