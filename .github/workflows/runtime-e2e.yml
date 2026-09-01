@@ -170,6 +170,20 @@ jobs:
           "${compose[@]}" cp caddy:/data/caddy/pki/authorities/local/root.crt "$RUNNER_TEMP/iot-manager-root.crt"
           sudo install -m 0644 "$RUNNER_TEMP/iot-manager-root.crt" /usr/local/share/ca-certificates/iot-manager-root.crt
           sudo update-ca-certificates
+          # Playwright's bundled Chromium reads the runner user's NSS trust
+          # database rather than reliably reloading the Debian CA bundle.
+          # Trust only this ephemeral Caddy root in the disposable CI user;
+          # the browser test remains a normal certificate-verified HTTPS flow.
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libnss3-tools
+          nss_database="$HOME/.pki/nssdb"
+          install -d -m 0700 "$nss_database"
+          if [ ! -f "$nss_database/cert9.db" ]; then
+            certutil -d "sql:$nss_database" -N --empty-password
+          fi
+          certutil -d "sql:$nss_database" -D -n iot-manager-runtime-local-ca >/dev/null 2>&1 || true
+          certutil -d "sql:$nss_database" -A -t 'C,,' -n iot-manager-runtime-local-ca -i "$RUNNER_TEMP/iot-manager-root.crt"
+          certutil -d "sql:$nss_database" -L -n iot-manager-runtime-local-ca
           owner_password="$(cat ../deploy/.runtime/iot-manager-p0/secrets/keycloak_owner_password)"
           admin_password="$(cat ../deploy/.runtime/iot-manager-p0/secrets/keycloak_admin_password)"
           operator_password="$(cat ../deploy/.runtime/iot-manager-p0/secrets/keycloak_operator_password)"
