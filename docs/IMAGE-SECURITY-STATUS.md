@@ -1,8 +1,8 @@
 # 运行镜像安全状态 / Runtime Image Security Status
 
-**版本：** 1.0
-**日期：** 2026-08-30
-**状态：** 已完成本地审计；**不构成 Gate 2 批准或生产发布授权。**
+**版本：** 1.1
+**日期：** 2026-09-01
+**状态：** 已完成 CI 复验；**不构成 Gate 2 批准或生产发布授权。**
 
 本文件是 [P0 Docker 全链路开发方案](P0-DOCKER-FULL-CHAIN-DEVELOPMENT-PLAN.md) 和
 [R1 收尾实施状态](R1-COMPLETION-IMPLEMENTATION-STATUS.md) 的安全补充。它刻意记录
@@ -43,6 +43,23 @@
    SQL Server 驱动会导致 Keycloak 启动失败，因此该“裁剪”被明确撤销。
 5. Prometheus / Alertmanager 已升级到当前选定的 `v3.14.0` / `v0.33.1`，其配置、私有抓取和
    目标健康状态已在运行态验证。
+
+## 2026-09-01 CI 复验
+
+最新提交 `b8628c5` 的严格 CI 证据见
+[security-baseline](https://github.com/xxbb11122/IotManager/actions/runs/33472836972/job/99745915660)
+和 [Docker Runtime E2E](https://github.com/xxbb11122/IotManager/actions/runs/33472837038/job/99745915759)。
+
+- Caddy 采用官方自定义构建模式：一个独立的微型 main module 导入固定的 Caddy `v2.11.4` 源码，
+  同时保留 `x/crypto@0.55.0` 等已审查依赖更新。二进制 build information 现在能准确声明 Caddy
+  版本，Trivy 的 Caddy HIGH / CRITICAL 为 `0 / 0`。
+- SBOM 目录已在生成前创建，CycloneDX 制品已经上传；秘密扫描、Maven/npm 清单扫描、Backend 与
+  initializer 镜像扫描均通过。
+- Runtime E2E 完整通过，包括真正浏览器 PKCE、四角色、WSS、数据库重启 fail-closed、逻辑备份恢复
+  与篡改校验和副本拒绝。备份恢复只在独立 Compose 项目中执行。
+- Keycloak、PostgreSQL/WAL-G、逻辑备份、Prometheus、Alertmanager 仍存在未关闭的实际扫描结果，
+  因此聚合安全门禁继续失败。它们必须通过上游修复或已批准的精确风险接受关闭，不能以 Caddy 的
+  元数据修复为由降低扫描标准。
 
 ## Gate 2 前必须完成的决策
 
