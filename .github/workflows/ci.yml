@@ -167,6 +167,19 @@ jobs:
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # trivy-action installs Trivy when invoked unless told otherwise.  In a
+      # cold runner that previously made nine separate downloads of the now
+      # retired v0.65.0 asset, so every security check was skipped before it
+      # could examine the repository.  Prepare one pinned, currently
+      # published scanner instead; all scan steps below deliberately remain
+      # blocking through the aggregate release gate.
+      - name: Install pinned Trivy scanner once
+        id: setup-trivy
+        continue-on-error: true
+        uses: aquasecurity/setup-trivy@e6c2c5e321ed9123bda567646e2f96565e34abe1
+        with:
+          version: v0.70.0
+          cache: true
       - name: Scan Maven and npm dependency manifests
         id: dependency-scan
         continue-on-error: true
@@ -177,6 +190,7 @@ jobs:
           scanners: vuln,secret,misconfig,license
           severity: HIGH,CRITICAL
           exit-code: "1"
+          skip-setup-trivy: true
       - name: Generate CycloneDX SBOM with license metadata
         id: generate-sbom
         if: ${{ always() }}
@@ -188,6 +202,7 @@ jobs:
           format: cyclonedx
           output: artifacts/security/iot-manager.cdx.json
           exit-code: "0"
+          skip-setup-trivy: true
       - name: Build images for vulnerability scanning
         id: build-scan-images
         if: ${{ always() }}
@@ -204,6 +219,7 @@ jobs:
           image-ref: iot-manager-backend:local
           severity: HIGH,CRITICAL
           exit-code: "1"
+          skip-setup-trivy: true
       - name: Scan Caddy image
         id: scan-caddy-image
         if: ${{ always() }}
@@ -213,6 +229,7 @@ jobs:
           image-ref: iot-manager-caddy:local
           severity: HIGH,CRITICAL
           exit-code: "1"
+          skip-setup-trivy: true
       - name: Scan Keycloak image
         id: scan-keycloak-image
         if: ${{ always() }}
@@ -222,6 +239,7 @@ jobs:
           image-ref: iot-manager-keycloak:26.7.2
           severity: HIGH,CRITICAL
           exit-code: "1"
+          skip-setup-trivy: true
       - name: Scan PostgreSQL/WAL-G image
         id: scan-postgres-image
         if: ${{ always() }}
@@ -231,6 +249,7 @@ jobs:
           image-ref: iot-manager-postgres:16-walg
           severity: HIGH,CRITICAL
           exit-code: "1"
+          skip-setup-trivy: true
       # Every image referenced by the production-shaped Compose file belongs
       # to the release attack surface, including images that are pulled rather
       # than built by this job. Every scan is collected even if another one
@@ -246,6 +265,7 @@ jobs:
           image-ref: postgres:16-bookworm@sha256:bb3e1a57e5407e0a5280b4211980a5e537f4abd234a87014ac979849a78dd825
           severity: HIGH,CRITICAL
           exit-code: "1"
+          skip-setup-trivy: true
       - name: Scan volume initializer image
         id: scan-volume-init-image
         if: ${{ always() }}
@@ -255,6 +275,7 @@ jobs:
           image-ref: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
           severity: HIGH,CRITICAL
           exit-code: "1"
+          skip-setup-trivy: true
       - name: Scan Prometheus image
         id: scan-prometheus-image
         if: ${{ always() }}
@@ -264,6 +285,7 @@ jobs:
           image-ref: prom/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
           severity: HIGH,CRITICAL
           exit-code: "1"
+          skip-setup-trivy: true
       - name: Scan Alertmanager image
         id: scan-alertmanager-image
         if: ${{ always() }}
@@ -273,6 +295,7 @@ jobs:
           image-ref: prom/alertmanager:v0.33.1@sha256:9e082985f56f4c8c9f724e18f2288c6708f472e56a5286b8863d080434ea065d
           severity: HIGH,CRITICAL
           exit-code: "1"
+          skip-setup-trivy: true
       - name: Upload SBOM
         id: upload-sbom
         if: ${{ always() }}
@@ -288,6 +311,7 @@ jobs:
         shell: bash
         env:
           GITLEAKS_OUTCOME: ${{ steps.gitleaks.outcome }}
+          TRIVY_SETUP_OUTCOME: ${{ steps.setup-trivy.outcome }}
           DEPENDENCY_SCAN_OUTCOME: ${{ steps.dependency-scan.outcome }}
           SBOM_GENERATION_OUTCOME: ${{ steps.generate-sbom.outcome }}
           IMAGE_BUILD_OUTCOME: ${{ steps.build-scan-images.outcome }}
@@ -305,6 +329,7 @@ jobs:
           failed=()
           for outcome_name in \
             GITLEAKS_OUTCOME \
+            TRIVY_SETUP_OUTCOME \
             DEPENDENCY_SCAN_OUTCOME \
             SBOM_GENERATION_OUTCOME \
             IMAGE_BUILD_OUTCOME \
