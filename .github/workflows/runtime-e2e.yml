@@ -218,6 +218,14 @@ jobs:
           backup_name="$(basename "$backup_path")"
           "${compose[@]}" cp "backup:$backup_path" "$RUNNER_TEMP/$backup_name"
           "${compose[@]}" cp "backup:$backup_path.sha256" "$RUNNER_TEMP/$backup_name.sha256"
+          # The owner-only backup sidecar creates its dump pair under umask
+          # 077. Docker's container-to-host copy preserves that restrictive
+          # mode, but the isolated recovery sidecar deliberately runs as UID
+          # 999 rather than the GitHub runner UID. The files are read-only
+          # bind mounts in this disposable runner-only directory, so expose
+          # exactly the read bit that lets the non-root verifier consume the
+          # pair without relaxing any production backup volume permission.
+          chmod 0644 "$RUNNER_TEMP/$backup_name" "$RUNNER_TEMP/$backup_name.sha256"
           IOT_RESTORE_CONFIRM=RESTORE bash scripts/runtime/recovery-drill.sh "$RUNNER_TEMP/$backup_name"
 
       - name: Refuse a tampered logical backup before restore
