@@ -28,11 +28,32 @@ RUN --mount=type=cache,id=iot-manager-caddy-go-mod,target=/go/pkg/mod \
       sleep "$((attempt * 5))"; \
     done; \
     go mod verify
+# Caddy documents custom builds as a small external main module that imports
+# its command and standard modules. Keep that module separate from the pinned
+# source checkout so Go embeds the real Caddy v2.11.4 dependency in the
+# executable build information instead of labelling the checked-out main
+# module as an unversioned pseudo-version. The replace is build-local only;
+# it preserves the reviewed source commit and the transitive fixes above.
+COPY deploy/caddy-build/ /build/
+WORKDIR /build
+RUN --mount=type=cache,id=iot-manager-caddy-go-mod,target=/go/pkg/mod \
+    set -eux; \
+    for attempt in 1 2 3 4 5; do \
+      if go mod tidy && go mod verify; then \
+        break; \
+      fi; \
+      if [ "$attempt" -eq 5 ]; then \
+        exit 1; \
+      fi; \
+      sleep "$((attempt * 5))"; \
+    done
 RUN --mount=type=cache,id=iot-manager-caddy-go-mod,target=/go/pkg/mod \
     --mount=type=cache,id=iot-manager-caddy-go-build,target=/root/.cache/go-build \
     set -eux; \
-    CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/caddyserver/caddy/v2.Version=${CADDY_VERSION#v}" -o /out/caddy ./cmd/caddy; \
+    CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/caddyserver/caddy/v2.Version=${CADDY_VERSION#v}" -o /out/caddy .; \
     /out/caddy version; \
+    go version -m /out/caddy | grep -Eq '^[[:space:]]*dep[[:space:]]+github.com/caddyserver/caddy/v2[[:space:]]+v2.11.4'; \
+    go version -m /out/caddy | grep -Eq '^[[:space:]]*dep[[:space:]]+golang.org/x/crypto[[:space:]]+v0.55.0'; \
     mkdir -p /runtime/data /runtime/config /runtime/srv/frontend /runtime/srv/console; \
     chown -R 65534:65534 /runtime
 
