@@ -2,8 +2,8 @@
 
 **版本 / Version:** 1.1<br>
 **审计日期 / Audit date:** 2026-09-01<br>
-**发布基线 / Release baseline:** `main` @ `a3239cf2b7b90584abc7db75b9c510d2f66b6035`<br>
-**补充审阅分支 / Supplementary branch reviewed:** `codex/enterprise-foundation` @ `7f2a0feb4b3f91fb9a0445a46cf4b7a1776f39a9`<br>
+**审计代码基线 / Audited code baseline:** `7f2a0feb4b3f91fb9a0445a46cf4b7a1776f39a9`<br>
+**比较基线 / Comparison baseline:** previous `main` @ `a3239cf2b7b90584abc7db75b9c510d2f66b6035`<br>
 **审计结论 / Audit conclusion:** **可用于受控试点；不批准生产发布。** / **Suitable for a controlled pilot; not approved for production release.**
 
 > 本报告以代码、部署清单、自动化工作流和可定位的历史运行证据为依据。它不把“已写代码”误记为“生产验证通过”，也不取代既有审批门禁。
@@ -23,7 +23,7 @@
 | **E3 历史运行证据 / Historical runtime evidence** | 早期 SHA 的端到端证据，可证明设计曾运行；代码、镜像或配置变动后必须重新取得。 |
 | **E0 待验证/待决 / Pending** | 缺少可复现证据、需要真实环境/设备，或依赖管理审批。 |
 
-`7f2a0fe` 相对发布基线只调整 Prometheus/Alertmanager 源码构建的依赖处理和并发度，以避免 CI 超时；在本报告截点，其镜像构建和 Docker Runtime E2E 尚未形成新的绿色证据。因此它是**待验证的工程优化**，不是新发布版本。
+`7f2a0fe` 相对比较基线只调整 Prometheus/Alertmanager 源码构建的依赖处理和并发度，以避免 CI 超时；在本报告截点，其镜像构建和 Docker Runtime E2E 尚未形成新的绿色证据。因此它是**待验证的工程优化**，不是新发布版本。
 
 ## 2. 执行摘要与总体评价 / Executive summary and assessment
 
