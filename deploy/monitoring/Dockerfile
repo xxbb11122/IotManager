@@ -61,7 +61,8 @@ WORKDIR /workspace
 RUN npm ci --ignore-scripts
 COPY --from=alertmanager-source /src/ui/app/ /workspace/
 RUN npm run build; \
-    test -f /workspace/dist/index.html
+    test -f /workspace/dist/index.html; \
+    test -d /workspace/dist/assets
 
 FROM alertmanager-source AS alertmanager-build
 

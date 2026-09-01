@@ -1,5 +1,16 @@
 # IoT Manager
 
+> **Current delivery / 当前交付（2026-09-01）** — IoT Manager is a
+> controlled-pilot IoT operations platform, not a production-approved release.
+> The current source, verified Android Debug APK checksum, resolved defects,
+> release blockers, and acceptance boundary are recorded in the bilingual
+> [current project report](docs/CURRENT-PROJECT-REPORT-2026-09-01.md).
+>
+> **当前交付（2026-09-01）**：IoT Manager 已具备受控试点所需的核心能力，
+> 但尚未获得生产发布批准。最新源码、已验证的 Android Debug 安装包校验值、
+> 已修复缺陷、遗留风险与验收边界，见双语
+> [项目现状报告](docs/CURRENT-PROJECT-REPORT-2026-09-01.md)。
+
 <p align="center">
   <img src="docs/images/iot-manager-overview.svg" alt="IoT Manager project overview / 项目概览" width="100%" />
 </p>
