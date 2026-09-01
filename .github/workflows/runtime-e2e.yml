@@ -78,7 +78,10 @@ jobs:
           test -n "$backup_id"
 
           test "$(docker exec "$postgres_id" id -u)" = '999'
-          test "$(docker exec "$caddy_id" id -u)" = '65534'
+          # The pinned Caddy image is intentionally minimal and has no `id`
+          # binary. `docker top` verifies the actual process UID instead of
+          # weakening this to a configuration-only assertion.
+          docker top "$caddy_id" -eo pid,uid | awk 'NR > 1 && $2 == "65534" { found = 1 } END { exit !found }'
           test "$(docker exec "$backup_id" id -u)" = '999'
           test "$(docker inspect --format '{{.Config.User}}' "$postgres_id")" = 'postgres'
           test "$(docker inspect --format '{{.Config.User}}' "$caddy_id")" = '65534:65534'
