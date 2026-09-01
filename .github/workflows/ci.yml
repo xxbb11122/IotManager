@@ -142,10 +142,10 @@ jobs:
             -v "$GITHUB_WORKSPACE/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
             caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648 \
             caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-      - name: Build deployable Backend, Caddy, Keycloak, and PostgreSQL images
+      - name: Build deployable Backend, Caddy, Keycloak, PostgreSQL, and observability images
         env:
           IOT_SECRET_DIR: ${{ runner.temp }}/iot-manager-compose-secrets
-        run: docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml build backend caddy keycloak postgres
+        run: docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml build backend caddy keycloak postgres prometheus alertmanager
 
   security-baseline:
     name: Secrets, dependencies, containers, and SBOM
@@ -212,7 +212,7 @@ jobs:
         continue-on-error: true
         env:
           IOT_SECRET_DIR: ${{ runner.temp }}/iot-manager-compose-secrets
-        run: docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml build backend caddy keycloak postgres
+        run: docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml build backend caddy keycloak postgres prometheus alertmanager
       - name: Scan Backend image
         id: scan-backend-image
         if: ${{ always() }}
@@ -285,7 +285,7 @@ jobs:
         continue-on-error: true
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
         with:
-          image-ref: prom/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+          image-ref: iot-manager-prometheus:3.14.0
           severity: HIGH,CRITICAL
           exit-code: "1"
           skip-setup-trivy: true
@@ -295,7 +295,7 @@ jobs:
         continue-on-error: true
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
         with:
-          image-ref: prom/alertmanager:v0.33.1@sha256:9e082985f56f4c8c9f724e18f2288c6708f472e56a5286b8863d080434ea065d
+          image-ref: iot-manager-alertmanager:0.33.1
           severity: HIGH,CRITICAL
           exit-code: "1"
           skip-setup-trivy: true

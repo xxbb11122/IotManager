@@ -460,7 +460,11 @@ services:
     networks: [internal]
 
   prometheus:
-    image: prom/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+    build:
+      context: ..
+      dockerfile: deploy/monitoring/Dockerfile
+      target: prometheus
+    image: iot-manager-prometheus:3.14.0
     profiles: [observability]
     restart: unless-stopped
     stop_grace_period: 30s
@@ -491,7 +495,7 @@ services:
       secret-volume-init:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:9090/-/ready"]
+      test: ["CMD", "/usr/bin/http-ready", "http://127.0.0.1:9090/-/ready"]
       interval: 15s
       timeout: 5s
       retries: 8
@@ -503,7 +507,11 @@ services:
     networks: [internal]
 
   alertmanager:
-    image: prom/alertmanager:v0.33.1@sha256:9e082985f56f4c8c9f724e18f2288c6708f472e56a5286b8863d080434ea065d
+    build:
+      context: ..
+      dockerfile: deploy/monitoring/Dockerfile
+      target: alertmanager
+    image: iot-manager-alertmanager:0.33.1
     profiles: [observability]
     restart: unless-stopped
     stop_grace_period: 30s
@@ -522,7 +530,7 @@ services:
       observability-volume-init:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:9093/-/ready"]
+      test: ["CMD", "/usr/bin/http-ready", "http://127.0.0.1:9093/-/ready"]
       interval: 15s
       timeout: 5s
       retries: 8
