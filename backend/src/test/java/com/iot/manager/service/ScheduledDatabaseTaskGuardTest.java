@@ -25,6 +25,10 @@ class ScheduledDatabaseTaskGuardTest {
         assertThat(invoked).isTrue();
         assertThat(guard.isTransientDatabaseFailure(new RuntimeException(new SQLException("connection lost", "08006"))))
                 .isTrue();
+        // Hibernate can throw this during rollback after the pool has already
+        // closed the JDBC connection, so there is no SQLState to inspect.
+        assertThat(guard.isTransientDatabaseFailure(new RuntimeException(new SQLException("Connection is closed"))))
+                .isTrue();
     }
 
     @Test

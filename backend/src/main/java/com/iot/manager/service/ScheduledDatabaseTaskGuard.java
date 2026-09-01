@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import java.sql.SQLException;
 import java.util.Collections;
 import java.util.IdentityHashMap;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -22,6 +23,17 @@ public class ScheduledDatabaseTaskGuard {
 
     private static final long WARNING_INTERVAL_MILLIS = 30_000L;
     private static final Set<String> DATABASE_UNAVAILABLE_SQL_STATES = Set.of("57P01", "57P02", "57P03");
+    // A PostgreSQL stop can close Hikari's connection before Hibernate reaches
+    // the server, leaving the driver without an SQLState while it rolls a
+    // transaction back. Limit this fallback to SQLException messages so an
+    // unrelated application exception can never be mistaken for an outage.
+    private static final Set<String> DATABASE_UNAVAILABLE_MESSAGE_MARKERS = Set.of(
+            "connection is closed",
+            "connection has been closed",
+            "this connection has been closed",
+            "connection is not available",
+            "connection refused"
+    );
 
     private final ConcurrentMap<String, Long> lastWarningAtMillis = new ConcurrentHashMap<>();
 
@@ -43,6 +55,13 @@ public class ScheduledDatabaseTaskGuard {
                 String sqlState = sqlException.getSQLState();
                 if (sqlState != null && (sqlState.startsWith("08") || DATABASE_UNAVAILABLE_SQL_STATES.contains(sqlState))) {
                     return true;
+                }
+                String message = sqlException.getMessage();
+                if (message != null) {
+                    String normalizedMessage = message.toLowerCase(Locale.ROOT);
+                    if (DATABASE_UNAVAILABLE_MESSAGE_MARKERS.stream().anyMatch(normalizedMessage::contains)) {
+                        return true;
+                    }
                 }
             }
         }

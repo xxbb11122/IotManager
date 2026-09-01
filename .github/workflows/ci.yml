@@ -191,6 +191,9 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: "1"
           skip-setup-trivy: true
+      - name: Prepare SBOM evidence directory
+        if: ${{ always() }}
+        run: mkdir -p artifacts/security
       - name: Generate CycloneDX SBOM with license metadata
         id: generate-sbom
         if: ${{ always() }}
