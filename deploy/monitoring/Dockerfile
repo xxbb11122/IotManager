@@ -36,7 +36,7 @@ RUN --mount=type=cache,id=iot-manager-prometheus-go-mod,target=/go/pkg/mod \
     go version -m /out/prometheus | grep -Eq '^[[:space:]]*dep[[:space:]]+golang.org/x/crypto[[:space:]]+v0.55.0'
 RUN mkdir -p /out/rootfs/etc/prometheus
 
-FROM golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36 AS alertmanager-build
+FROM golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36 AS alertmanager-source
 
 ARG ALERTMANAGER_VERSION=v0.33.1
 ARG ALERTMANAGER_SOURCE_COMMIT=2c8da51e03f3dbbed24f9711ca2d76aab4eef9c5
@@ -48,6 +48,24 @@ RUN set -eux; \
     git fetch --depth 1 origin "${ALERTMANAGER_SOURCE_COMMIT}"; \
     git checkout --detach FETCH_HEAD; \
     test "$(git rev-parse HEAD)" = "${ALERTMANAGER_SOURCE_COMMIT}"
+
+# The Alertmanager release tag deliberately excludes ui/app/dist. The Go
+# server embeds that directory at compile time, so rebuild the signed release
+# UI with its locked npm dependency graph before compiling the patched server.
+# This stage is not part of either runtime image; the Node image is pinned to
+# the current linux/amd64 Docker Hub manifest for reproducible CI builds.
+FROM node:22-bookworm-slim@sha256:4d676821dff059fd00d277ee4261ef34ea712317fed0737c03941481b5760c96 AS alertmanager-ui-build
+
+COPY --from=alertmanager-source /src/ui/app/package.json /src/ui/app/package-lock.json /workspace/
+WORKDIR /workspace
+RUN npm ci --ignore-scripts
+COPY --from=alertmanager-source /src/ui/app/ /workspace/
+RUN npm run build; \
+    test -f /workspace/dist/index.html
+
+FROM alertmanager-source AS alertmanager-build
+
+COPY --from=alertmanager-ui-build /workspace/dist /src/ui/app/dist
 RUN --mount=type=cache,id=iot-manager-alertmanager-go-mod,target=/go/pkg/mod \
     set -eux; \
     for attempt in 1 2 3 4 5; do \
