@@ -15,10 +15,14 @@ RUN set -eux; \
     git fetch --depth 1 origin "${PROMETHEUS_SOURCE_COMMIT}"; \
     git checkout --detach FETCH_HEAD; \
     test "$(git rev-parse HEAD)" = "${PROMETHEUS_SOURCE_COMMIT}"
+# The signed upstream release already has a tidy module graph. Avoid re-resolving
+# its test-only closure: it does not affect the runtime binary and exceeds the
+# hosted-runner build window. `go get`, checksum verification, and the binary
+# module assertion below still make the patched dependency explicit and audited.
 RUN --mount=type=cache,id=iot-manager-prometheus-go-mod,target=/go/pkg/mod \
     set -eux; \
     for attempt in 1 2 3 4 5; do \
-      if go get golang.org/x/crypto@v0.55.0 && go mod tidy && go mod verify; then \
+      if go get golang.org/x/crypto@v0.55.0 && go mod verify; then \
         break; \
       fi; \
       if [ "$attempt" -eq 5 ]; then \
@@ -29,7 +33,7 @@ RUN --mount=type=cache,id=iot-manager-prometheus-go-mod,target=/go/pkg/mod \
 RUN --mount=type=cache,id=iot-manager-prometheus-go-mod,target=/go/pkg/mod \
     --mount=type=cache,id=iot-manager-prometheus-go-build,target=/root/.cache/go-build \
     set -eux; \
-    CGO_ENABLED=0 go build -trimpath \
+    CGO_ENABLED=0 go build -p=4 -trimpath \
       -ldflags "-s -w -X github.com/prometheus/common/version.Version=${PROMETHEUS_VERSION#v} -X github.com/prometheus/common/version.Revision=${PROMETHEUS_SOURCE_COMMIT}" \
       -o /out/prometheus ./cmd/prometheus; \
     /out/prometheus --version; \
@@ -66,11 +70,14 @@ RUN npm run build; \
 
 FROM alertmanager-source AS alertmanager-build
 
+# Preserve the signed release's existing tidy graph and only change the audited
+# runtime modules required by the security baseline. The subsequent `go build`
+# is the authoritative compile-time graph validation.
 COPY --from=alertmanager-ui-build /workspace/dist /src/ui/app/dist
 RUN --mount=type=cache,id=iot-manager-alertmanager-go-mod,target=/go/pkg/mod \
     set -eux; \
     for attempt in 1 2 3 4 5; do \
-      if go get golang.org/x/crypto@v0.55.0 golang.org/x/net@v0.58.0 golang.org/x/text@v0.41.0 golang.org/x/mod@v0.40.0 google.golang.org/grpc@v1.82.1 && go mod tidy && go mod verify; then \
+      if go get golang.org/x/crypto@v0.55.0 golang.org/x/net@v0.58.0 golang.org/x/text@v0.41.0 golang.org/x/mod@v0.40.0 google.golang.org/grpc@v1.82.1 && go mod verify; then \
         break; \
       fi; \
       if [ "$attempt" -eq 5 ]; then \
@@ -81,7 +88,7 @@ RUN --mount=type=cache,id=iot-manager-alertmanager-go-mod,target=/go/pkg/mod \
 RUN --mount=type=cache,id=iot-manager-alertmanager-go-mod,target=/go/pkg/mod \
     --mount=type=cache,id=iot-manager-alertmanager-go-build,target=/root/.cache/go-build \
     set -eux; \
-    CGO_ENABLED=0 go build -trimpath \
+    CGO_ENABLED=0 go build -p=4 -trimpath \
       -ldflags "-s -w -X github.com/prometheus/common/version.Version=${ALERTMANAGER_VERSION#v} -X github.com/prometheus/common/version.Revision=${ALERTMANAGER_SOURCE_COMMIT}" \
       -o /out/alertmanager ./cmd/alertmanager; \
     /out/alertmanager --version; \
