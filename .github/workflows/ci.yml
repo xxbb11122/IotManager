@@ -216,6 +216,8 @@ jobs:
         with:
           version: v0.70.0
           cache: true
+      - name: Prepare repository security evidence directory
+        run: mkdir -p artifacts/security
       - name: Scan source, dependencies, secrets, configuration, and licenses
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
         with:
@@ -225,8 +227,6 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: "1"
           skip-setup-trivy: true
-      - name: Prepare security artifact directory
-        run: mkdir -p artifacts/security
       - name: Generate repository CycloneDX SBOM
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
         with:
@@ -242,7 +242,7 @@ jobs:
         with:
           name: source-security-${{ github.sha }}
           path: artifacts/security/
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
 
   quick-gate:
