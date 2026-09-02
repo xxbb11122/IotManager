@@ -12,10 +12,17 @@ recovery_timeout_seconds="${IOT_RECOVERY_TIMEOUT_SECONDS:-3600}"
 archive_timeout_seconds="${IOT_WAL_ARCHIVE_TIMEOUT_SECONDS:-300}"
 expected_flyway_version="${IOT_EXPECTED_FLYWAY_VERSION:-18}"
 report_directory="${IOT_RECOVERY_REPORT_DIR:-$repository_root/artifacts/recovery-drill/$(date -u +%Y%m%dT%H%M%SZ)}"
+mode="$(printenv IOT_RUNTIME_MODE 2>/dev/null || true)"
+digest_manifest="$(printenv IOT_DIGEST_MANIFEST 2>/dev/null || true)"
+image_environment_file="$(printenv IOT_DIGEST_ENV_FILE 2>/dev/null || true)"
+release_services_file="$(printenv IOT_RELEASE_SERVICES_FILE 2>/dev/null || true)"
+release_candidate_file="$(printenv IOT_RELEASE_CANDIDATE_FILE 2>/dev/null || true)"
+release_topology_file="$(printenv IOT_RELEASE_TOPOLOGY_FILE 2>/dev/null || true)"
+[[ -n "$mode" ]] || mode=local
 
 usage() {
   cat <<'EOF'
-Usage: IOT_PITR_CONFIRM=PITR bash scripts/runtime/wal-recovery-drill.sh
+Usage: IOT_PITR_CONFIRM=PITR bash scripts/runtime/wal-recovery-drill.sh [--mode local|immutable] [--digest-manifest path] [--release-services path] [--release-candidate path] [--release-topology path]
 
 Required environment:
   IOT_PITR_CONFIRM=PITR       Explicitly authorizes an isolated physical recovery.
@@ -30,10 +37,43 @@ Optional environment:
 EOF
 }
 
-if [[ "${1:-}" == "--help" ]]; then
-  usage
-  exit 0
-fi
+while (( $# > 0 )); do
+  case "$1" in
+    --mode)
+      shift
+      mode="$1"
+      ;;
+    --digest-manifest)
+      shift
+      digest_manifest="$1"
+      ;;
+    --digest-env-file)
+      shift
+      image_environment_file="$1"
+      ;;
+    --release-services)
+      shift
+      release_services_file="$1"
+      ;;
+    --release-candidate)
+      shift
+      release_candidate_file="$1"
+      ;;
+    --release-topology)
+      shift
+      release_topology_file="$1"
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'Unknown argument: %s\n' "$1" >&2
+      exit 64
+      ;;
+  esac
+  shift
+done
 
 [[ "${IOT_PITR_CONFIRM:-}" == "PITR" ]] || {
   printf 'Set IOT_PITR_CONFIRM=PITR only after an independent recovery target has been approved.\n' >&2
@@ -49,6 +89,10 @@ fi
   printf 'IOT_WAL_ARCHIVE_TIMEOUT_SECONDS must be between 1 and 900.\n' >&2
   exit 64
 }
+case "$mode" in
+  local|immutable) ;;
+  *) printf 'Recovery mode must be local or immutable.\n' >&2; exit 64 ;;
+esac
 
 environment_value() {
   local key="$1"
@@ -64,6 +108,34 @@ environment_value() {
 }
 
 docker info >/dev/null
+
+if [[ "$mode" == immutable ]]; then
+  [[ -n "$digest_manifest" && -f "$digest_manifest" ]] || {
+    printf 'Immutable mode requires --digest-manifest <image-digests.json>.\n' >&2
+    exit 66
+  }
+  [[ -n "$image_environment_file" ]] || image_environment_file="$(dirname "$digest_manifest")/image-digests.env"
+  [[ -n "$release_services_file" ]] || release_services_file="$(dirname "$digest_manifest")/release-services.json"
+  [[ -n "$release_candidate_file" ]] || release_candidate_file="$(dirname "$digest_manifest")/release-candidate.json"
+  [[ -n "$release_topology_file" ]] || release_topology_file="$(dirname "$digest_manifest")/release-topology.json"
+  for required_file in "$release_services_file" "$release_candidate_file" "$release_topology_file"; do
+    [[ -f "$required_file" ]] || { printf 'Immutable mode requires release evidence input: %s\n' "$required_file" >&2; exit 66; }
+  done
+  manifest_validation_args=(
+    validate-digest-manifest
+    --candidate "$release_candidate_file"
+    --topology "$release_topology_file"
+    --services "$release_services_file"
+    --manifest "$digest_manifest"
+  )
+  [[ -n "${IOT_IMAGE_MANIFEST_SHA256:-}" ]] && manifest_validation_args+=(--expected-manifest-sha256 "$IOT_IMAGE_MANIFEST_SHA256")
+  [[ -n "${IOT_RELEASE_CANDIDATE_ID:-}" ]] && manifest_validation_args+=(--expected-release-candidate-id "$IOT_RELEASE_CANDIDATE_ID")
+  [[ -n "${IOT_SOURCE_SHA:-}" ]] && manifest_validation_args+=(--expected-source-sha "$IOT_SOURCE_SHA")
+  node "$repository_root/scripts/ci/release-tools.mjs" "${manifest_validation_args[@]}"
+  node "$repository_root/scripts/ci/release-tools.mjs" render-digest-env \
+    --manifest "$digest_manifest" \
+    --output "$image_environment_file"
+fi
 
 # Git Bash rewrites Unix-looking container paths before Docker receives them.
 # Pass host-side Compose and volume paths in Docker's native Windows form, then
@@ -84,8 +156,16 @@ docker_container_paths() {
   fi
 }
 
-source_compose=(compose --project-name "$source_project" --env-file "$(docker_host_path "$environment_file")" -f "$(docker_host_path "$repository_root/deploy/docker-compose.yml")")
-recovery_compose=(compose --project-name "$recovery_project" --env-file "$(docker_host_path "$environment_file")" -f "$(docker_host_path "$repository_root/deploy/docker-compose.yml")" -f "$(docker_host_path "$repository_root/deploy/docker-compose.recovery.yml")")
+source_compose=(compose --project-name "$source_project" --env-file "$(docker_host_path "$environment_file")")
+[[ -n "$image_environment_file" ]] && source_compose+=(--env-file "$(docker_host_path "$image_environment_file")")
+source_compose+=(-f "$(docker_host_path "$repository_root/deploy/docker-compose.yml")")
+[[ "$mode" == immutable ]] && source_compose+=(-f "$(docker_host_path "$repository_root/deploy/docker-compose.immutable.yml")")
+recovery_compose=(compose --project-name "$recovery_project" --env-file "$(docker_host_path "$environment_file")")
+[[ -n "$image_environment_file" ]] && recovery_compose+=(--env-file "$(docker_host_path "$image_environment_file")")
+recovery_compose+=(-f "$(docker_host_path "$repository_root/deploy/docker-compose.yml")" -f "$(docker_host_path "$repository_root/deploy/docker-compose.recovery.yml")")
+if [[ "$mode" == immutable ]]; then
+  recovery_compose+=(-f "$(docker_host_path "$repository_root/deploy/docker-compose.immutable.yml")" -f "$(docker_host_path "$repository_root/deploy/docker-compose.immutable.recovery.yml")")
+fi
 source_postgres_id="$(docker "${source_compose[@]}" ps -q postgres | head -n 1)"
 [[ -n "$source_postgres_id" ]] || { printf 'Source PostgreSQL service is not running in project %s.\n' "$source_project" >&2; exit 69; }
 source_health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$source_postgres_id")"
@@ -110,7 +190,11 @@ marker_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # appear after PostgreSQL has replayed a subsequently archived WAL segment.
 # A one-shot invocation uses PGPASSWORD only inside the disposable container;
 # it is never echoed or written into the report.
-backup_output="$(docker_container_paths "${source_compose[@]}" --profile application run --rm --no-deps --entrypoint /bin/sh wal-g-backup \
+run_flags=(--rm --no-deps)
+if [[ "$mode" == immutable ]]; then
+  run_flags=(--pull never "${run_flags[@]}")
+fi
+backup_output="$(docker_container_paths "${source_compose[@]}" --profile application run "${run_flags[@]}" --entrypoint /bin/sh wal-g-backup \
   -ec 'export PGPASSWORD="$(cat /run/secrets/iot_db_owner_password)"; /usr/local/bin/wal-g-env.sh /usr/local/bin/wal-g backup-push "$PGDATA"' 2>&1)"
 base_backup="$(printf '%s\n' "$backup_output" | grep -oE 'base_[0-9A-Z_]+' | tail -n 1 || true)"
 [[ "$base_backup" =~ ^base_[0-9A-Z_]+$ ]] || {
@@ -160,7 +244,8 @@ docker "${source_compose[@]}" exec -T postgres psql -v ON_ERROR_STOP=1 -U "$boot
 archive_deadline=$((SECONDS + archive_timeout_seconds))
 while true; do
   if docker_container_paths "${source_compose[@]}" --profile application exec -T wal-g-archive /bin/sh -ec \
-    "rm -f /tmp/${wal_segment}.pitr-probe; /usr/local/bin/wal-g-env.sh /usr/local/bin/wal-g wal-fetch '${wal_segment}' /tmp/${wal_segment}.pitr-probe; test -s /tmp/${wal_segment}.pitr-probe; rm -f /tmp/${wal_segment}.pitr-probe" >/dev/null 2>&1; then
+    "rm -f /tmp/${wal_segment}.pitr-probe; /usr/local/bin/wal-g-env.sh /usr/local/bin/wal-g wal-fetch '${wal_segment}' /tmp/${wal_segment}.pitr-probe; test -s /tmp/${wal_segment}.pitr-probe; rm -f /tmp/${wal_segment}.pitr-probe" >/dev/null 2>&1
+  then
     break
   fi
   (( SECONDS < archive_deadline )) || {
@@ -181,7 +266,13 @@ fi
 
 mkdir -p "$report_directory"
 docker "${recovery_compose[@]}" config --quiet
-docker "${recovery_compose[@]}" up -d --build volume-init wal-g-recovery postgres
+start_flags=(-d)
+if [[ "$mode" == local ]]; then
+  start_flags+=(--build)
+else
+  start_flags+=(--no-build)
+fi
+docker "${recovery_compose[@]}" up "${start_flags[@]}" volume-init wal-g-recovery postgres
 
 deadline=$((SECONDS + recovery_timeout_seconds))
 while true; do
@@ -239,5 +330,20 @@ cat > "$report_file" <<EOF
 EOF
 
 printf 'WAL-G physical recovery drill passed. RPO marker age: %ss; RTO: %ss.\n' "$marker_age_seconds" "$rto_seconds"
+if [[ "$mode" == immutable ]]; then
+  digest_evidence_file="${IOT_RECOVERY_DIGEST_EVIDENCE_FILE:-$report_directory/service-digests.json}"
+  node "$repository_root/scripts/ci/release-tools.mjs" verify-service-digests \
+    --phase recovery \
+    --project "$recovery_project" \
+    --env "$environment_file" \
+    --image-env "$image_environment_file" \
+    --base-compose "$repository_root/deploy/docker-compose.yml" \
+    --recovery-compose "$repository_root/deploy/docker-compose.recovery.yml" \
+    --immutable-compose "$repository_root/deploy/docker-compose.immutable.yml" \
+    --immutable-compose "$repository_root/deploy/docker-compose.immutable.recovery.yml" \
+    --services "$release_services_file" \
+    --manifest "$digest_manifest" \
+    --output "$digest_evidence_file"
+fi
 printf 'Redacted evidence: %s\n' "$report_file"
 printf 'The independent recovery project is retained for inspection: %s\n' "$recovery_project"

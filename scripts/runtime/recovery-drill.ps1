@@ -5,6 +5,13 @@ param(
     [string]$SourceProjectName = 'iot-manager-p0',
     [string]$RecoveryProjectName = 'iot-manager-p0-recovery',
     [string]$EnvironmentFile = 'deploy/.env.integration',
+    [ValidateSet('local', 'immutable')]
+    [string]$Mode = 'local',
+    [string]$DigestManifest,
+    [string]$DigestEnvironmentFile,
+    [string]$ReleaseServicesFile,
+    [string]$ReleaseCandidateFile,
+    [string]$ReleaseTopologyFile,
     [ValidateSet('RESTORE')]
     [string]$Confirm
 )
@@ -18,6 +25,24 @@ function Resolve-RepositoryPath {
 }
 
 $environmentPath = Resolve-RepositoryPath $EnvironmentFile
+if ($env:IOT_RUNTIME_MODE -and -not $PSBoundParameters.ContainsKey('Mode')) {
+    $Mode = $env:IOT_RUNTIME_MODE
+}
+if (-not $DigestManifest -and $env:IOT_DIGEST_MANIFEST) {
+    $DigestManifest = $env:IOT_DIGEST_MANIFEST
+}
+if (-not $DigestEnvironmentFile -and $env:IOT_DIGEST_ENV_FILE) {
+    $DigestEnvironmentFile = $env:IOT_DIGEST_ENV_FILE
+}
+if (-not $ReleaseServicesFile -and $env:IOT_RELEASE_SERVICES_FILE) {
+    $ReleaseServicesFile = $env:IOT_RELEASE_SERVICES_FILE
+}
+if (-not $ReleaseCandidateFile -and $env:IOT_RELEASE_CANDIDATE_FILE) {
+    $ReleaseCandidateFile = $env:IOT_RELEASE_CANDIDATE_FILE
+}
+if (-not $ReleaseTopologyFile -and $env:IOT_RELEASE_TOPOLOGY_FILE) {
+    $ReleaseTopologyFile = $env:IOT_RELEASE_TOPOLOGY_FILE
+}
 if ($Confirm -ne 'RESTORE') { throw 'Set -Confirm RESTORE after validating the independent recovery target.' }
 if ($RecoveryProjectName -eq $SourceProjectName) { throw 'Recovery project must differ from the running source project.' }
 if (-not (Test-Path -LiteralPath $environmentPath)) { throw "Environment file was not found: $environmentPath" }
@@ -59,6 +84,42 @@ function Invoke-Docker {
 }
 
 Invoke-Docker -Arguments @('info') -Description 'Docker Engine check' | Out-Null
+$digestEnvironmentPath = $null
+$releaseServicesPath = $null
+$releaseCandidatePath = $null
+$releaseTopologyPath = $null
+if ($Mode -eq 'immutable') {
+    if (-not $DigestManifest) { throw 'Immutable mode requires -DigestManifest <image-digests.json>.' }
+    $digestManifestPath = Resolve-RepositoryPath $DigestManifest
+    if (-not (Test-Path -LiteralPath $digestManifestPath)) { throw "Digest manifest was not found: $digestManifestPath" }
+    if ($DigestEnvironmentFile) {
+        $digestEnvironmentPath = Resolve-RepositoryPath $DigestEnvironmentFile
+    }
+    else {
+        $digestEnvironmentPath = Join-Path (Split-Path -Parent $digestManifestPath) 'image-digests.env'
+    }
+    $releaseServicesPath = if ($ReleaseServicesFile) { Resolve-RepositoryPath $ReleaseServicesFile } else { Join-Path (Split-Path -Parent $digestManifestPath) 'release-services.json' }
+    $releaseCandidatePath = if ($ReleaseCandidateFile) { Resolve-RepositoryPath $ReleaseCandidateFile } else { Join-Path (Split-Path -Parent $digestManifestPath) 'release-candidate.json' }
+    $releaseTopologyPath = if ($ReleaseTopologyFile) { Resolve-RepositoryPath $ReleaseTopologyFile } else { Join-Path (Split-Path -Parent $digestManifestPath) 'release-topology.json' }
+    foreach ($requiredPath in @($releaseServicesPath, $releaseCandidatePath, $releaseTopologyPath)) {
+        if (-not (Test-Path -LiteralPath $requiredPath)) { throw "Immutable mode requires release evidence input: $requiredPath" }
+    }
+    $manifestValidationArgs = @(
+        (Join-Path $repositoryRoot 'scripts/ci/release-tools.mjs'),
+        'validate-digest-manifest',
+        '--candidate', $releaseCandidatePath,
+        '--topology', $releaseTopologyPath,
+        '--services', $releaseServicesPath,
+        '--manifest', $digestManifestPath
+    )
+    if ($env:IOT_IMAGE_MANIFEST_SHA256) { $manifestValidationArgs += @('--expected-manifest-sha256', $env:IOT_IMAGE_MANIFEST_SHA256) }
+    if ($env:IOT_RELEASE_CANDIDATE_ID) { $manifestValidationArgs += @('--expected-release-candidate-id', $env:IOT_RELEASE_CANDIDATE_ID) }
+    if ($env:IOT_SOURCE_SHA) { $manifestValidationArgs += @('--expected-source-sha', $env:IOT_SOURCE_SHA) }
+    & node @manifestValidationArgs
+    if ($LASTEXITCODE -ne 0) { throw 'Immutable digest manifest validation failed.' }
+    & node (Join-Path $repositoryRoot 'scripts/ci/release-tools.mjs') render-digest-env --manifest $digestManifestPath --output $digestEnvironmentPath
+    if ($LASTEXITCODE -ne 0) { throw 'Digest environment rendering failed.' }
+}
 $volumeName = "$RecoveryProjectName`_postgres-data"
 # A missing volume is the expected first-run case. Docker Desktop writes that
 # expected lookup failure to STDERR, which PowerShell 5.1 otherwise promotes
@@ -76,8 +137,10 @@ if ($volumeInspectExitCode -eq 0) {
     throw "Refusing recovery because target volume already exists: $volumeName. Choose a new RecoveryProjectName."
 }
 
-$compose = @('compose', '--project-name', $RecoveryProjectName, '--env-file', $environmentPath,
-    '-f', (Join-Path $repositoryRoot 'deploy/docker-compose.yml'), '-f', (Join-Path $repositoryRoot 'deploy/docker-compose.integration.yml'))
+$compose = @('compose', '--project-name', $RecoveryProjectName, '--env-file', $environmentPath)
+if ($digestEnvironmentPath) { $compose += @('--env-file', $digestEnvironmentPath) }
+$compose += @('-f', (Join-Path $repositoryRoot 'deploy/docker-compose.yml'), '-f', (Join-Path $repositoryRoot 'deploy/docker-compose.integration.yml'))
+if ($Mode -eq 'immutable') { $compose += @('-f', (Join-Path $repositoryRoot 'deploy/docker-compose.immutable.yml')) }
 $bootstrapUser = Get-EnvironmentValue -Key 'POSTGRES_BOOTSTRAP_USERNAME'
 $databaseName = Get-EnvironmentValue -Key 'IOT_DB_DATABASE'
 $ownerUsername = Get-EnvironmentValue -Key 'IOT_DB_OWNER_USERNAME'
@@ -86,7 +149,8 @@ $requiredRoleCodes = if ($env:IOT_REQUIRED_ROLE_CODES) { $env:IOT_REQUIRED_ROLE_
 if ([string]::IsNullOrWhiteSpace($expectedFlywayVersion)) { throw 'IOT_EXPECTED_FLYWAY_VERSION must not be empty.' }
 if ($requiredRoleCodes -notmatch '^[A-Z]+(,[A-Z]+)*$') { throw 'IOT_REQUIRED_ROLE_CODES must be a comma-separated uppercase role-code list.' }
 $requiredRoleCodes = (($requiredRoleCodes -split ',' | Sort-Object -Unique) -join ',')
-Invoke-Docker -Arguments ($compose + @('up', '-d', '--build', 'volume-init', 'postgres')) -Description 'Start isolated recovery PostgreSQL' | Out-Null
+$startFlags = if ($Mode -eq 'local') { @('-d', '--build') } else { @('-d', '--no-build') }
+Invoke-Docker -Arguments ($compose + @('up') + $startFlags + @('volume-init', 'postgres')) -Description 'Start isolated recovery PostgreSQL' | Out-Null
 
 $deadline = (Get-Date).AddSeconds(120)
 do {
@@ -97,7 +161,8 @@ do {
 } while ((Get-Date) -lt $deadline)
 if ($health -ne 'healthy') { throw 'Isolated recovery PostgreSQL did not become healthy.' }
 
-$restoreArgs = $compose + @('--profile', 'application', 'run', '--rm', '--no-deps',
+$runFlags = if ($Mode -eq 'local') { @('--rm', '--no-deps') } else { @('--pull', 'never', '--rm', '--no-deps') }
+$restoreArgs = $compose + @('--profile', 'application', 'run') + $runFlags + @(
     '-e', 'PGHOST=postgres',
     '-e', 'PGPORT=5432',
     '-e', "PGUSER=$ownerUsername",
@@ -142,5 +207,5 @@ $applicationProbeOutput = Invoke-Docker -Arguments $applicationProbeArgs -Descri
 if ($applicationProbeOutput -notmatch '(?m)^1\s*$') { throw 'Recovered database did not complete the application-role read/write transaction.' }
 if ([regex]::Matches($applicationProbeOutput, '(?m)^t\s*$').Count -ne 2) { throw 'Recovered database did not retain required application privileges on the public schema and devices table.' }
 
-Write-Host "Logical recovery drill passed in isolated project: $RecoveryProjectName"
+Write-Host "Logical recovery drill passed in isolated project: $RecoveryProjectName (mode: $Mode)"
 Write-Host "The recovery project and volume were intentionally retained for inspection. Stop it with docker compose --project-name $RecoveryProjectName down (without -v)."

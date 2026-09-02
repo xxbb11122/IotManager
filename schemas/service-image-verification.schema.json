@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iot-manager.example/schemas/service-image-verification.schema.json",
+  "title": "IoT Manager 13-Service Digest Verification",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "releaseCandidateId",
+    "sourceSha",
+    "topologySha256",
+    "manifestSha256",
+    "expectedNormalRuntimeCount",
+    "verifiedNormalRuntimeCount",
+    "expectedRecoveryAddedCount",
+    "verifiedRecoveryAddedCount",
+    "expectedUnionCount",
+    "verifiedUnionCount",
+    "items",
+    "status"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "releaseCandidateId": { "type": "string", "pattern": "^r1-rc[._-].+-[0-9a-f]{12}$" },
+    "sourceSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "topologySha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "manifestSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "expectedNormalRuntimeCount": { "const": 12 },
+    "verifiedNormalRuntimeCount": { "const": 12 },
+    "expectedRecoveryAddedCount": { "const": 1 },
+    "verifiedRecoveryAddedCount": { "const": 1 },
+    "expectedUnionCount": { "const": 13 },
+    "verifiedUnionCount": { "const": 13 },
+    "items": {
+      "type": "array",
+      "minItems": 13,
+      "maxItems": 13,
+      "items": {
+        "type": "object",
+        "required": ["serviceId", "service", "artifactId", "observations", "status"],
+        "properties": {
+          "serviceId": { "pattern": "^SVC-(0[1-9]|1[0-3])$" },
+          "artifactId": { "enum": ["IMG-R01", "IMG-R02", "IMG-R03", "IMG-R04", "IMG-R05", "IMG-R06", "IMG-R07", "IMG-R08"] },
+          "observations": { "type": "array", "minItems": 1 },
+          "status": { "const": "PASS" }
+        }
+      }
+    },
+    "status": { "const": "PASS" }
+  }
+}

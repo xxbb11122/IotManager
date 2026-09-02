@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iot-manager.example/schemas/evidence-manifest.schema.json",
+  "title": "IoT Manager Final Release Evidence Manifest",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "releaseCandidateId",
+    "sourceSha",
+    "topologySha256",
+    "manifestSha256",
+    "serviceVerification",
+    "stages",
+    "security",
+    "decision"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 5 },
+    "releaseCandidateId": { "type": "string", "pattern": "^r1-rc[._-].+-[0-9a-f]{12}$" },
+    "sourceSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "topologySha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "manifestSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "serviceVerification": {
+      "type": "object",
+      "required": ["expectedNormalRuntimeCount", "verifiedNormalRuntimeCount", "expectedRecoveryAddedCount", "verifiedRecoveryAddedCount", "expectedUnionCount", "verifiedUnionCount", "items"],
+      "properties": {
+        "expectedNormalRuntimeCount": { "const": 12 },
+        "verifiedNormalRuntimeCount": { "const": 12 },
+        "expectedRecoveryAddedCount": { "const": 1 },
+        "verifiedRecoveryAddedCount": { "const": 1 },
+        "expectedUnionCount": { "const": 13 },
+        "verifiedUnionCount": { "const": 13 },
+        "items": { "type": "array", "minItems": 13, "maxItems": 13 }
+      }
+    },
+    "stages": { "type": "array", "minItems": 3, "maxItems": 3 },
+    "decision": { "const": "PASS" }
+  }
+}

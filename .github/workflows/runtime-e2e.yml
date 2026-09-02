@@ -1,6 +1,42 @@
 name: P0 Docker Runtime
 
 on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+      release_candidate_id:
+        required: true
+        type: string
+      manifest_sha256:
+        required: true
+        type: string
+      image_evidence_artifact:
+        required: true
+        type: string
+      image_producer_run_id:
+        required: true
+        type: string
+      image_producer_run_attempt:
+        required: true
+        type: string
+      caller_workflow_ref_raw:
+        required: true
+        type: string
+      caller_workflow_sha:
+        required: true
+        type: string
+      orchestrator_run_id:
+        required: true
+        type: string
+    outputs:
+      producer_run_id:
+        description: Exact immutable runtime producer run
+        value: ${{ jobs['immutable-release-runtime'].outputs.producer_run_id }}
+      producer_run_attempt:
+        description: Exact immutable runtime producer attempt
+        value: ${{ jobs['immutable-release-runtime'].outputs.producer_run_attempt }}
   workflow_dispatch:
   pull_request:
     paths:
@@ -33,13 +69,15 @@ on:
 
 concurrency:
   group: p0-runtime-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name != 'workflow_call' }}
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   full-stack:
+    if: ${{ github.event_name != 'workflow_call' }}
     name: Compose, Keycloak, PostgreSQL, Caddy, Backend
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -288,3 +326,187 @@ jobs:
           docker compose --project-name iot-manager-p0 --env-file deploy/.env.integration --env-file deploy/.runtime/iot-manager-p0/runtime.env -f deploy/docker-compose.yml -f deploy/docker-compose.integration.yml down --remove-orphans || true
           docker compose --project-name iot-manager-p0-recovery --env-file deploy/.env.integration -f deploy/docker-compose.yml -f deploy/docker-compose.integration.yml down --remove-orphans || true
           rm -rf deploy/.runtime
+
+  immutable-release-runtime:
+    if: ${{ github.event_name == 'workflow_call' }}
+    name: Immutable 12-service runtime evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    outputs:
+      producer_run_id: ${{ steps.stage-handoff.outputs.producer_run_id }}
+      producer_run_attempt: ${{ steps.stage-handoff.outputs.producer_run_attempt }}
+    env:
+      IOT_COMPOSE_PROJECT: iot-manager-release-${{ github.run_id }}
+      IOT_ENVIRONMENT_FILE: ${{ github.workspace }}/deploy/.env.integration
+      IOT_RUNTIME_STATE_FILE: ${{ github.workspace }}/deploy/.runtime/iot-manager-release-${{ github.run_id }}/runtime.env
+      IOT_ENABLE_OBSERVABILITY: "true"
+      IOT_RELEASE_CANDIDATE_ID: ${{ inputs.release_candidate_id }}
+      IOT_SOURCE_SHA: ${{ inputs.source_sha }}
+      IOT_IMAGE_MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - name: Assert exact source checkout
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: bash scripts/ci/assert-source-checkout.sh --source-sha "$SOURCE_SHA"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ inputs.image_evidence_artifact }}
+          path: artifacts
+      - name: Verify exact image handoff, trusted producer, and pull immutable images
+        env:
+          EXPECTED_MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+          EXPECTED_CANDIDATE_ID: ${{ inputs.release_candidate_id }}
+          IMAGE_PRODUCER_RUN_ID: ${{ inputs.image_producer_run_id }}
+          IMAGE_PRODUCER_RUN_ATTEMPT: ${{ inputs.image_producer_run_attempt }}
+        run: |
+          set -euo pipefail
+          test -f artifacts/release/release-candidate.json
+          test -f artifacts/release/release-topology.json
+          test -f artifacts/release/release-services.json
+          test -f artifacts/release/image-digests.json
+          test -f artifacts/release/image-digests.json.sha256
+          test -f artifacts/release/stage-image.json
+          test -f artifacts/release/stage-image.json.sha256
+          sha256sum -c artifacts/release/image-digests.json.sha256
+          bash scripts/ci/validate-stage-handoff.sh \
+            --candidate artifacts/release/release-candidate.json \
+            --stage artifacts/release/stage-image.json \
+            --artifact artifacts/release/stage-image.json \
+            --artifact-sha256 artifacts/release/stage-image.json.sha256 \
+            --expected-stage image \
+            --producer-run-id "$IMAGE_PRODUCER_RUN_ID" \
+            --producer-run-attempt "$IMAGE_PRODUCER_RUN_ATTEMPT" \
+            --producer-job image-security-aggregate \
+            --artifact-name "${{ inputs.image_evidence_artifact }}" \
+            --source-sha "${{ inputs.source_sha }}" \
+            --approved-repository "$GITHUB_REPOSITORY" \
+            --approved-producer-path .github/workflows/image-security.yml \
+            --approved-caller-path .github/workflows/release-gate.yml \
+            --allowed-event workflow_call \
+            --allowed-invocation-mode orchestrated-reusable
+          bash scripts/ci/validate-digest-manifest.sh \
+            --candidate artifacts/release/release-candidate.json \
+            --topology artifacts/release/release-topology.json \
+            --services artifacts/release/release-services.json \
+            --manifest artifacts/release/image-digests.json \
+            --expected-manifest-sha256 "$EXPECTED_MANIFEST_SHA256" \
+            --expected-release-candidate-id "$EXPECTED_CANDIDATE_ID" \
+            --expected-source-sha "${{ inputs.source_sha }}"
+          actual_manifest="$(sha256sum artifacts/release/image-digests.json | awk '{print $1}')"
+          test "$actual_manifest" = "$EXPECTED_MANIFEST_SHA256"
+          candidate_id="$(node -e "console.log(require('./artifacts/release/release-candidate.json').releaseCandidateId)")"
+          test "$candidate_id" = "$EXPECTED_CANDIDATE_ID"
+          while IFS=$'\t' read -r artifact_id image_ref; do
+            docker pull "$image_ref"
+          done < <(bash scripts/ci/list-digest-artifacts.sh --manifest artifacts/release/image-digests.json)
+      - name: Start immutable integration stack and collect 12 of 12 service evidence
+        run: |
+          set -euo pipefail
+          cp deploy/.env.integration.example deploy/.env.integration
+          bash scripts/runtime/start-integration.sh \
+            --verify \
+            --mode immutable \
+            --digest-manifest artifacts/release/image-digests.json \
+            --release-services artifacts/release/release-services.json
+      - name: Run PKCE, JWT, RBAC, WSS, and edge-credential checks against immutable images
+        working-directory: client
+        run: |
+          set -euo pipefail
+          npm ci
+          npx playwright install --with-deps chromium
+          compose=(docker compose --project-name "$IOT_COMPOSE_PROJECT" --profile application --env-file "$IOT_ENVIRONMENT_FILE" --env-file "$IOT_RUNTIME_STATE_FILE" --env-file ../artifacts/release/image-digests.env -f ../deploy/docker-compose.yml -f ../deploy/docker-compose.integration.yml -f ../deploy/docker-compose.immutable.yml)
+          "${compose[@]}" cp caddy:/data/caddy/pki/authorities/local/root.crt "$RUNNER_TEMP/iot-manager-release-root.crt"
+          sudo install -m 0644 "$RUNNER_TEMP/iot-manager-release-root.crt" /usr/local/share/ca-certificates/iot-manager-release-root.crt
+          sudo update-ca-certificates
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libnss3-tools
+          nss_database="$HOME/.pki/nssdb"
+          install -d -m 0700 "$nss_database"
+          if [ ! -f "$nss_database/cert9.db" ]; then
+            certutil -d "sql:$nss_database" -N --empty-password
+          fi
+          certutil -d "sql:$nss_database" -D -n iot-manager-release-local-ca >/dev/null 2>&1 || true
+          certutil -d "sql:$nss_database" -A -t 'C,,' -n iot-manager-release-local-ca -i "$RUNNER_TEMP/iot-manager-release-root.crt"
+          owner_password="$(cat ../deploy/.runtime/iot-manager-release-${GITHUB_RUN_ID}/secrets/keycloak_owner_password)"
+          admin_password="$(cat ../deploy/.runtime/iot-manager-release-${GITHUB_RUN_ID}/secrets/keycloak_admin_password)"
+          operator_password="$(cat ../deploy/.runtime/iot-manager-release-${GITHUB_RUN_ID}/secrets/keycloak_operator_password)"
+          viewer_password="$(cat ../deploy/.runtime/iot-manager-release-${GITHUB_RUN_ID}/secrets/keycloak_viewer_password)"
+          echo "::add-mask::$owner_password"
+          echo "::add-mask::$admin_password"
+          echo "::add-mask::$operator_password"
+          echo "::add-mask::$viewer_password"
+          NODE_EXTRA_CA_CERTS="$RUNNER_TEMP/iot-manager-release-root.crt" \
+          IOT_RUNTIME_CA_CERTIFICATE="$RUNNER_TEMP/iot-manager-release-root.crt" \
+          IOT_RUNTIME_BASE_URL=https://iot-manager.localhost \
+          IOT_E2E_OWNER_USERNAME=integration-owner \
+          IOT_E2E_OWNER_PASSWORD="$owner_password" \
+          IOT_E2E_ADMIN_USERNAME=integration-admin \
+          IOT_E2E_ADMIN_PASSWORD="$admin_password" \
+          IOT_E2E_OPERATOR_USERNAME=integration-operator \
+          IOT_E2E_OPERATOR_PASSWORD="$operator_password" \
+          IOT_E2E_VIEWER_USERNAME=integration-viewer \
+          IOT_E2E_VIEWER_PASSWORD="$viewer_password" \
+          npx playwright test e2e/runtime-auth.spec.js
+      - name: Validate normal runtime evidence is complete
+        run: |
+          set -euo pipefail
+          node -e "const e=require('./artifacts/release/runtime-service-digests.json'); if(e.status !== 'PASS' || e.verifiedServiceCount !== 12 || e.expectedServiceCount !== 12) process.exit(1)"
+      - name: Write runtime stage handoff result
+        id: stage-handoff
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          CALLER_REF_RAW: ${{ inputs.caller_workflow_ref_raw }}
+          CALLER_WORKFLOW_SHA: ${{ inputs.caller_workflow_sha }}
+        run: |
+          set -euo pipefail
+          caller_path="$(sed -E 's#^[^/]*/[^/]*/(.+)@.*$#\1#' <<< "$CALLER_REF_RAW")"
+          bash scripts/ci/write-stage-result.sh \
+            --candidate artifacts/release/release-candidate.json \
+            --manifest artifacts/release/image-digests.json \
+            --stage runtime \
+            --checked-out-source-sha "$SOURCE_SHA" \
+            --producer-repository "$GITHUB_REPOSITORY" \
+            --producer-event "$GITHUB_EVENT_NAME" \
+            --invocation-mode orchestrated-reusable \
+            --caller-repository "$GITHUB_REPOSITORY" \
+            --caller-workflow-ref-raw "$CALLER_REF_RAW" \
+            --caller-workflow-sha "$CALLER_WORKFLOW_SHA" \
+            --caller-workflow-path "$caller_path" \
+            --caller-workflow-identity "$GITHUB_REPOSITORY/$caller_path@$CALLER_WORKFLOW_SHA" \
+            --producer-run-id "$GITHUB_RUN_ID" \
+            --producer-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --producer-workflow-ref-raw "${{ job.workflow_ref || github.workflow_ref }}" \
+            --producer-workflow-sha "${{ job.workflow_sha || github.workflow_sha }}" \
+            --producer-job immutable-release-runtime \
+            --artifact-name "immutable-runtime-${{ inputs.release_candidate_id }}" \
+            --orchestrator-run-id "${{ inputs.orchestrator_run_id }}" \
+            --runner-class github-hosted \
+            --output artifacts/release/stage-runtime.json
+          echo "producer_run_id=$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "producer_run_attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable runtime evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: immutable-runtime-${{ inputs.release_candidate_id }}
+          path: |
+            artifacts/release/
+            artifacts/p0-runtime/
+          if-no-files-found: warn
+          retention-days: 90
+      - name: Stop only the release Compose project
+        if: ${{ always() }}
+        run: |
+          docker compose --project-name "$IOT_COMPOSE_PROJECT" \
+            --env-file deploy/.env.integration \
+            --env-file "$IOT_RUNTIME_STATE_FILE" \
+            --env-file artifacts/release/image-digests.env \
+            -f deploy/docker-compose.yml \
+            -f deploy/docker-compose.integration.yml \
+            -f deploy/docker-compose.immutable.yml \
+            down --remove-orphans || true
+          rm -rf deploy/.runtime deploy/.env.integration

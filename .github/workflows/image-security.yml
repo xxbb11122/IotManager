@@ -1,0 +1,477 @@
+name: Immutable Image Security
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+      release_candidate_id:
+        required: true
+        type: string
+      caller_workflow_ref_raw:
+        required: true
+        type: string
+      caller_workflow_sha:
+        required: true
+        type: string
+      orchestrator_run_id:
+        required: true
+        type: string
+    outputs:
+      manifest_sha256:
+        description: SHA-256 of the immutable eight-image manifest
+        value: ${{ jobs.aggregate.outputs.manifest_sha256 }}
+      candidate_artifact:
+        description: Exact artifact handoff name
+        value: ${{ jobs.aggregate.outputs.candidate_artifact }}
+      producer_run_id:
+        description: Exact image evidence producer run
+        value: ${{ jobs.aggregate.outputs.producer_run_id }}
+      producer_run_attempt:
+        description: Exact image evidence producer attempt
+        value: ${{ jobs.aggregate.outputs.producer_run_attempt }}
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Immutable source Git SHA; blank means this dispatch SHA
+        required: false
+        type: string
+      release_candidate_id:
+        description: Release candidate ID; blank creates an immutable local ID
+        required: false
+        type: string
+
+concurrency:
+  group: image-security-${{ inputs.release_candidate_id || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  actions: read
+
+jobs:
+  prepare:
+    name: Prepare exact candidate contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      candidate_id: ${{ steps.candidate.outputs.candidate_id }}
+      source_sha: ${{ steps.candidate.outputs.source_sha }}
+      topology_sha256: ${{ steps.candidate.outputs.topology_sha256 }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          persist-credentials: false
+      - name: Assert exact source checkout
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+        run: bash scripts/ci/assert-source-checkout.sh --source-sha "$SOURCE_SHA"
+      - name: Generate topology and candidate handoff
+        id: candidate
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+          REQUESTED_CANDIDATE_ID: ${{ inputs.release_candidate_id }}
+        run: |
+          set -euo pipefail
+          candidate_id="$REQUESTED_CANDIDATE_ID"
+          [[ -n "$candidate_id" ]] || candidate_id="r1-rc-run-$GITHUB_RUN_ID-$(cut -c1-12 <<< "$SOURCE_SHA")"
+          bash scripts/ci/prepare-release-candidate.sh \
+            --source-sha "$SOURCE_SHA" \
+            --release-candidate-id "$candidate_id" \
+            --output-dir artifacts/release \
+            --base-compose deploy/docker-compose.yml \
+            --runtime-compose deploy/docker-compose.integration.yml \
+            --recovery-compose deploy/docker-compose.recovery.yml \
+            --env deploy/.env.integration.example \
+            --profiles application,observability \
+            --recovery-config-stub deploy/.env.recovery-topology.example
+          printf '%s  %s\n' "$(sha256sum artifacts/release/release-candidate.json | awk '{print $1}')" release-candidate.json > artifacts/release/release-candidate.json.sha256
+          echo "candidate_id=$candidate_id" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "topology_sha256=$(sha256sum artifacts/release/release-topology.json | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable candidate contract
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-candidate-${{ steps.candidate.outputs.candidate_id }}
+          path: artifacts/release/
+          if-no-files-found: error
+          retention-days: 30
+
+  build:
+    name: Build ${{ matrix.artifact_id }} by Buildx
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - artifact_id: IMG-R01
+          - artifact_id: IMG-R02
+          - artifact_id: IMG-R03
+          - artifact_id: IMG-R04
+          - artifact_id: IMG-R05
+          - artifact_id: IMG-R06
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+      - name: Assert exact source checkout
+        env:
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+        run: bash scripts/ci/assert-source-checkout.sh --source-sha "$SOURCE_SHA"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-candidate-${{ needs.prepare.outputs.candidate_id }}
+          path: artifacts/release
+      - name: Authenticate for trusted GHCR publication
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Build and push exact image
+        env:
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          CALLER_REF_RAW: ${{ inputs.caller_workflow_ref_raw }}
+          CALLER_WORKFLOW_SHA: ${{ inputs.caller_workflow_sha }}
+        run: |
+          set -euo pipefail
+          repository_cache_key="$(tr '/' '-' <<< "$GITHUB_REPOSITORY")"
+          source_short="$(cut -c1-12 <<< "$SOURCE_SHA")"
+          cache_scope="release-$repository_cache_key-${{ matrix.artifact_id }}-linux-amd64"
+          caller_args=()
+          if [[ -n "$CALLER_REF_RAW" ]]; then
+            caller_args=(
+              --caller-repository "$GITHUB_REPOSITORY"
+              --caller-workflow-ref-raw "$CALLER_REF_RAW"
+              --caller-workflow-sha "$CALLER_WORKFLOW_SHA"
+            )
+          fi
+          bash scripts/ci/build-release-image.sh \
+            --artifact-id "${{ matrix.artifact_id }}" \
+            --candidate artifacts/release/release-candidate.json \
+            --topology artifacts/release/release-topology.json \
+            --registry "ghcr.io/$GITHUB_REPOSITORY_OWNER" \
+            --tag "sha-$source_short" \
+            --platform linux/amd64 \
+            --cache-scope "$cache_scope" \
+            --push true \
+            --checked-out-source-sha "$SOURCE_SHA" \
+            --producer-repository "$GITHUB_REPOSITORY" \
+            --producer-event "$GITHUB_EVENT_NAME" \
+            --invocation-mode orchestrated-reusable \
+            --producer-run-id "$GITHUB_RUN_ID" \
+            --producer-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --producer-workflow-ref-raw "${{ job.workflow_ref || github.workflow_ref }}" \
+            --producer-workflow-sha "${{ job.workflow_sha || github.workflow_sha }}" \
+            --producer-job "build-${{ matrix.artifact_id }}" \
+            --runner-class github-hosted \
+            "${caller_args[@]}" \
+            --output "artifacts/image-build/${{ matrix.artifact_id }}.json"
+      - name: Upload per-artifact immutable build result
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: image-build-${{ needs.prepare.outputs.candidate_id }}-${{ matrix.artifact_id }}
+          path: artifacts/image-build/
+          if-no-files-found: warn
+          retention-days: 30
+
+  infra-supervisor:
+    name: Classify heavy build outcome independently
+    needs: [prepare, build]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        continue-on-error: true
+        with:
+          name: release-candidate-${{ needs.prepare.outputs.candidate_id }}
+          path: artifacts/release
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        continue-on-error: true
+        with:
+          pattern: image-build-${{ needs.prepare.outputs.candidate_id }}-*
+          path: artifacts/image-build
+          merge-multiple: true
+      - name: Record non-success semantics without masking failures
+        env:
+          BUILD_CONCLUSION: ${{ needs.build.result }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/runner
+          bash scripts/ci/classify-runner-outcome.sh \
+            --job-conclusion "$BUILD_CONCLUSION" > artifacts/runner/image-build-classification.json || true
+          cat artifacts/runner/image-build-classification.json
+      - name: Build an exact retry manifest for missing or invalid artifacts
+        run: |
+          set -euo pipefail
+          bash scripts/ci/build-retry-manifest.sh \
+            --candidate artifacts/release/release-candidate.json \
+            --topology artifacts/release/release-topology.json \
+            --build-results-dir artifacts/image-build \
+            --attempt 2 \
+            --output artifacts/runner/image-build-retry-manifest.json
+      - name: Upload runner classification
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: runner-classification-${{ needs.prepare.outputs.candidate_id }}
+          path: artifacts/runner/
+          if-no-files-found: warn
+          retention-days: 30
+
+  resolve:
+    name: Resolve eight immutable artifact digests
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      manifest_sha256: ${{ steps.manifest.outputs.manifest_sha256 }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+      - name: Assert exact source checkout
+        env:
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+        run: bash scripts/ci/assert-source-checkout.sh --source-sha "$SOURCE_SHA"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-candidate-${{ needs.prepare.outputs.candidate_id }}
+          path: artifacts/release
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: image-build-${{ needs.prepare.outputs.candidate_id }}-*
+          path: artifacts/image-build
+          merge-multiple: true
+      - name: Assemble immutable eight-image manifest
+        id: manifest
+        run: |
+          set -euo pipefail
+          bash scripts/ci/assemble-image-manifest.sh \
+            --candidate artifacts/release/release-candidate.json \
+            --topology artifacts/release/release-topology.json \
+            --build-results-dir artifacts/image-build \
+            --output artifacts/release/image-digests.json
+          bash scripts/ci/validate-digest-manifest.sh \
+            --candidate artifacts/release/release-candidate.json \
+            --topology artifacts/release/release-topology.json \
+            --services artifacts/release/release-services.json \
+            --manifest artifacts/release/image-digests.json
+          bash scripts/ci/render-digest-env.sh \
+            --manifest artifacts/release/image-digests.json \
+            --output artifacts/release/image-digests.env
+          echo "manifest_sha256=$(sha256sum artifacts/release/image-digests.json | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+      - name: Upload immutable manifest handoff
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: image-manifest-${{ needs.prepare.outputs.candidate_id }}
+          path: artifacts/release/
+          if-no-files-found: error
+          retention-days: 90
+
+  scan:
+    name: Scan ${{ matrix.artifact_id }} by immutable digest
+    needs: [prepare, resolve]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - artifact_id: IMG-R01
+          - artifact_id: IMG-R02
+          - artifact_id: IMG-R03
+          - artifact_id: IMG-R04
+          - artifact_id: IMG-R05
+          - artifact_id: IMG-R06
+          - artifact_id: IMG-R07
+          - artifact_id: IMG-R08
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+      - name: Assert exact source checkout
+        env:
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+        run: bash scripts/ci/assert-source-checkout.sh --source-sha "$SOURCE_SHA"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: image-manifest-${{ needs.prepare.outputs.candidate_id }}
+          path: artifacts/release
+      - uses: aquasecurity/setup-trivy@e6c2c5e321ed9123bda567646e2f96565e34abe1
+        with:
+          version: v0.70.0
+          cache: true
+      - name: Scan the assigned immutable digest and produce one JSON result
+        env:
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          CALLER_REF_RAW: ${{ inputs.caller_workflow_ref_raw }}
+          CALLER_WORKFLOW_SHA: ${{ inputs.caller_workflow_sha }}
+        run: |
+          set -euo pipefail
+          artifact_id="${{ matrix.artifact_id }}"
+          image_ref="$(bash scripts/ci/list-digest-artifacts.sh --manifest artifacts/release/image-digests.json | awk -F '\t' -v id="$artifact_id" '$1 == id { print $2 }')"
+          test -n "$image_ref"
+          mkdir -p artifacts/image-scan/reports artifacts/image-scan/results
+          report="artifacts/image-scan/reports/$artifact_id.json"
+          scanner_exit=0
+          trivy image --scanners vuln --severity HIGH,CRITICAL --format json --output "$report" "$image_ref" || scanner_exit=$?
+          caller_args=()
+          if [[ -n "$CALLER_REF_RAW" ]]; then
+            caller_args=(
+              --caller-repository "$GITHUB_REPOSITORY"
+              --caller-workflow-ref-raw "$CALLER_REF_RAW"
+              --caller-workflow-sha "$CALLER_WORKFLOW_SHA"
+            )
+          fi
+          bash scripts/ci/create-image-scan-result.sh \
+            --candidate artifacts/release/release-candidate.json \
+            --manifest artifacts/release/image-digests.json \
+            --artifact-id "$artifact_id" \
+            --report "$report" \
+            --vex-dir security/vex \
+            --scanner-exit-code "$scanner_exit" \
+            --trivy-version "$(trivy --version | head -n 1)" \
+            --checked-out-source-sha "$SOURCE_SHA" \
+            --producer-repository "$GITHUB_REPOSITORY" \
+            --producer-event "$GITHUB_EVENT_NAME" \
+            --invocation-mode orchestrated-reusable \
+            --producer-run-id "$GITHUB_RUN_ID" \
+            --producer-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --producer-workflow-ref-raw "${{ job.workflow_ref || github.workflow_ref }}" \
+            --producer-workflow-sha "${{ job.workflow_sha || github.workflow_sha }}" \
+            --producer-job "image-scan-$artifact_id" \
+            --runner-class github-hosted \
+            "${caller_args[@]}" \
+            --output "artifacts/image-scan/results/$artifact_id.json"
+      - name: Upload per-artifact immutable scan result
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: image-scan-${{ needs.prepare.outputs.candidate_id }}-${{ matrix.artifact_id }}
+          path: artifacts/image-scan/
+          if-no-files-found: warn
+          retention-days: 30
+
+  aggregate:
+    name: Aggregate eight scans and publish image evidence
+    needs: [prepare, resolve, scan]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    outputs:
+      manifest_sha256: ${{ needs.resolve.outputs.manifest_sha256 }}
+      candidate_artifact: release-evidence-${{ needs.prepare.outputs.candidate_id }}
+      producer_run_id: ${{ steps.complete.outputs.producer_run_id }}
+      producer_run_attempt: ${{ steps.complete.outputs.producer_run_attempt }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+      - name: Assert exact source checkout
+        env:
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+        run: bash scripts/ci/assert-source-checkout.sh --source-sha "$SOURCE_SHA"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: image-manifest-${{ needs.prepare.outputs.candidate_id }}
+          path: artifacts/release
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: image-build-${{ needs.prepare.outputs.candidate_id }}-*
+          path: artifacts/image-build
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: image-scan-${{ needs.prepare.outputs.candidate_id }}-*
+          path: artifacts/image-scan
+          merge-multiple: true
+      - name: Aggregate exact scan results and validate the 8/6/12/1/13 set
+        run: |
+          set -euo pipefail
+          bash scripts/ci/generate-security-summary.sh \
+            --candidate artifacts/release/release-candidate.json \
+            --manifest artifacts/release/image-digests.json \
+            --scan-results-dir artifacts/image-scan/results \
+            --output artifacts/security/scanned-images.json
+          bash scripts/ci/verify-image-set.sh \
+            --topology artifacts/release/release-topology.json \
+            --services artifacts/release/release-services.json \
+            --scans artifacts/security/scanned-images.json
+      - name: Write image stage handoff result
+        env:
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          CALLER_REF_RAW: ${{ inputs.caller_workflow_ref_raw }}
+          CALLER_WORKFLOW_SHA: ${{ inputs.caller_workflow_sha }}
+          ORCHESTRATOR_RUN_ID: ${{ inputs.orchestrator_run_id || github.run_id }}
+        run: |
+          set -euo pipefail
+          invocation_mode=orchestrated-reusable
+          if [[ -z "$CALLER_REF_RAW" ]]; then
+            # A standalone dispatch is development evidence only. Give it a
+            # self-describing caller record so its Stage JSON remains valid;
+            # the release gate still accepts only orchestrated reusable runs.
+            CALLER_REF_RAW="$GITHUB_REPOSITORY/.github/workflows/image-security.yml@${GITHUB_WORKFLOW_REF##*@}"
+            CALLER_WORKFLOW_SHA="$SOURCE_SHA"
+            invocation_mode=protected-fallback-dispatch
+          fi
+          caller_path="$(sed -E 's#^[^/]*/[^/]*/(.+)@.*$#\1#' <<< "$CALLER_REF_RAW")"
+          caller_args=(
+            --caller-repository "$GITHUB_REPOSITORY"
+            --caller-workflow-ref-raw "$CALLER_REF_RAW"
+            --caller-workflow-sha "$CALLER_WORKFLOW_SHA"
+            --caller-workflow-path "$caller_path"
+            --caller-workflow-identity "$GITHUB_REPOSITORY/$caller_path@$CALLER_WORKFLOW_SHA"
+          )
+          candidate_id="$(node -e "console.log(require('./artifacts/release/release-candidate.json').releaseCandidateId)")"
+          bash scripts/ci/write-stage-result.sh \
+            --candidate artifacts/release/release-candidate.json \
+            --manifest artifacts/release/image-digests.json \
+            --stage image \
+            --checked-out-source-sha "$SOURCE_SHA" \
+            --producer-repository "$GITHUB_REPOSITORY" \
+            --producer-event "$GITHUB_EVENT_NAME" \
+            --invocation-mode "$invocation_mode" \
+            --producer-run-id "$GITHUB_RUN_ID" \
+            --producer-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --producer-workflow-ref-raw "${{ job.workflow_ref || github.workflow_ref }}" \
+            --producer-workflow-sha "${{ job.workflow_sha || github.workflow_sha }}" \
+            --producer-job image-security-aggregate \
+            --artifact-name "release-evidence-$candidate_id" \
+            --orchestrator-run-id "$ORCHESTRATOR_RUN_ID" \
+            --runner-class github-hosted \
+            "${caller_args[@]}" \
+            --output artifacts/release/stage-image.json
+      - name: Record final manifest checksum
+        id: complete
+        run: |
+          set -euo pipefail
+          echo "producer_run_id=$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "producer_run_attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+      - name: Upload image and security evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-evidence-${{ needs.prepare.outputs.candidate_id }}
+          path: |
+            artifacts/release/
+            artifacts/image-build/
+            artifacts/image-scan/
+            artifacts/security/
+          if-no-files-found: warn
+          retention-days: 90

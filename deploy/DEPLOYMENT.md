@@ -158,18 +158,27 @@ them.
    专用 bucket 前缀。未提供该配置时 WAL-G 进程会失败而不是静默退回本地文件系统。
    `filesystem` 仅允许 `docker-compose.integration.yml` 的隔离验收环境。
 
-4. 启动身份平面，收敛 Realm 并创建第一个 OWNER。生产调用只使用基础 Compose 文件：
+4. 启动身份平面，收敛 Realm 并创建第一个 OWNER。生产 Release 必须先从已批准的
+   image-digests.json 渲染 image-digests.env，逐个拉取精确 digest，并加载 immutable
+   overlay；禁止在生产 Release 路径重新构建或解析可变 tag。以下命令假定当前目录已
+   有 artifacts/release/image-digests.json：
 
    ```bash
    export IOT_COMPOSE_PROJECT=iot-manager
    export IOT_ENVIRONMENT_FILE="$PWD/deploy/.env"
    export IOT_RUNTIME_STATE_FILE=/etc/iot-manager/runtime.env
-   export IOT_COMPOSE_FILES="$PWD/deploy/docker-compose.yml"
+   bash scripts/ci/render-digest-env.sh \
+     --manifest artifacts/release/image-digests.json \
+     --output /etc/iot-manager/image-digests.env
+   while IFS=$'\\t' read -r artifact_id image_ref; do
+     docker pull "$image_ref"
+   done < <(bash scripts/ci/list-digest-artifacts.sh --manifest artifacts/release/image-digests.json)
 
    docker compose --project-name "$IOT_COMPOSE_PROJECT" \
      --env-file "$IOT_ENVIRONMENT_FILE" \
-     -f deploy/docker-compose.yml \
-     up -d --build volume-init postgres keycloak caddy
+     --env-file /etc/iot-manager/image-digests.env \
+     -f deploy/docker-compose.yml -f deploy/docker-compose.immutable.yml \
+     up -d --no-build volume-init postgres keycloak caddy
 
    bash scripts/runtime/reconcile-keycloak-realm.sh
    bash scripts/runtime/bootstrap-keycloak-owner.sh
@@ -186,8 +195,9 @@ them.
    ```bash
    docker compose --project-name "$IOT_COMPOSE_PROJECT" --profile application --profile observability \
      --env-file "$IOT_ENVIRONMENT_FILE" --env-file "$IOT_RUNTIME_STATE_FILE" \
-     -f deploy/docker-compose.yml \
-     up -d --build backend backup wal-g-archive wal-g-backup alertmanager prometheus
+     --env-file /etc/iot-manager/image-digests.env \
+     -f deploy/docker-compose.yml -f deploy/docker-compose.immutable.yml \
+     up -d --no-build backend backup wal-g-archive wal-g-backup alertmanager prometheus
    ```
 
 Backend 使用 `iot_manager_app` 执行业务 DML，Flyway 使用独立的

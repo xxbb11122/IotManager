@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iot-manager.example/schemas/image-scan-result.schema.json",
+  "title": "IoT Manager Immutable Image Scan Result",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "releaseCandidateId",
+    "sourceSha",
+    "topologySha256",
+    "manifestSha256",
+    "artifactId",
+    "origin",
+    "targetDigest",
+    "reportSha256",
+    "high",
+    "critical",
+    "status"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "releaseCandidateId": { "type": "string", "pattern": "^r1-rc[._-].+-[0-9a-f]{12}$" },
+    "sourceSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "topologySha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "manifestSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "artifactId": { "enum": ["IMG-R01", "IMG-R02", "IMG-R03", "IMG-R04", "IMG-R05", "IMG-R06", "IMG-R07", "IMG-R08"] },
+    "origin": { "enum": ["built", "external"] },
+    "targetDigest": { "type": "string", "pattern": "@sha256:[0-9a-f]{64}$" },
+    "reportSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "high": { "type": "integer", "minimum": 0 },
+    "critical": { "type": "integer", "minimum": 0 },
+    "status": { "enum": ["PASS", "APPROVED_VEX", "FAIL"] }
+  }
+}

@@ -26,7 +26,8 @@ done
 docker "${compose[@]}" logs --no-color --tail 250 > "$artifact_dir/compose-logs.txt" 2>&1 || true
 
 if command -v perl >/dev/null 2>&1; then
-  for secret_file in "$repository_root"/deploy/.runtime/iot-manager-p0/secrets/*; do
+  secret_directory="$(dirname "$state_file")/secrets"
+  for secret_file in "$secret_directory"/*; do
     [[ -f "$secret_file" ]] || continue
     secret_value="$(cat "$secret_file")"
     [[ -n "$secret_value" ]] || continue

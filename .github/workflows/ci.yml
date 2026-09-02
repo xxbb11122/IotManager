@@ -1,6 +1,15 @@
-name: Verify release baseline
+name: Quick CI
 
 on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+      release_mode:
+        required: false
+        default: false
+        type: boolean
   push:
     branches:
       - main
@@ -10,8 +19,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: release-verify-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: quick-ci-${{ github.workflow }}-${{ inputs.source_sha || github.ref }}
+  cancel-in-progress: ${{ inputs.release_mode != true }}
 
 permissions:
   contents: read
@@ -24,9 +33,9 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ inputs.source_sha || github.sha }}
           persist-credentials: false
-      - name: Set up JDK 17
-        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: "17"
@@ -51,9 +60,9 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ inputs.source_sha || github.sha }}
           persist-credentials: false
-      - name: Set up Node 22
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -89,21 +98,19 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ inputs.source_sha || github.sha }}
           persist-credentials: false
-      - name: Set up Node 22
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: client/package-lock.json
-      - name: Set up JDK 21
-        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: "21"
           cache: gradle
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
       - name: Install Android API 36
         run: |
           yes | sdkmanager --licenses > /dev/null
@@ -119,21 +126,66 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  deploy-config:
+  deploy-static:
     name: Docker Compose and Caddy configuration
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ inputs.source_sha || github.sha }}
           persist-credentials: false
       - name: Generate ephemeral non-production Compose secrets
-        shell: bash
         run: bash scripts/runtime/new-secrets.sh "$RUNNER_TEMP/iot-manager-compose-secrets"
-      - name: Validate Docker Compose interpolation and schema
+      - name: Validate normal and recovery Compose topology
         env:
           IOT_SECRET_DIR: ${{ runner.temp }}/iot-manager-compose-secrets
-        run: docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml config --quiet
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          docker compose --profile application --profile observability \
+            --env-file deploy/.env.example \
+            -f deploy/docker-compose.yml \
+            config --quiet
+          docker compose --env-file deploy/.env.integration.example \
+            -f deploy/docker-compose.yml \
+            -f deploy/docker-compose.integration.yml \
+            config --quiet
+          docker compose --env-file deploy/.env.integration.example \
+            -f deploy/docker-compose.yml \
+            -f deploy/docker-compose.integration.yml \
+            -f deploy/docker-compose.recovery.yml \
+            --env-file deploy/.env.recovery-topology.example \
+            config --quiet
+          export IOT_BACKEND_IMAGE=ghcr.io/example/backend@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          export IOT_CADDY_IMAGE=ghcr.io/example/caddy@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          export IOT_KEYCLOAK_IMAGE=ghcr.io/example/keycloak@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          export IOT_POSTGRES_IMAGE=ghcr.io/example/postgres@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          export IOT_PROMETHEUS_IMAGE=ghcr.io/example/prometheus@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          export IOT_ALERTMANAGER_IMAGE=ghcr.io/example/alertmanager@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          export IOT_LOGICAL_BACKUP_IMAGE=postgres:16-bookworm@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          export IOT_VOLUME_INIT_IMAGE=alpine:3.20@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          docker compose --env-file deploy/.env.integration.example \
+            -f deploy/docker-compose.yml \
+            -f deploy/docker-compose.integration.yml \
+            -f deploy/docker-compose.immutable.yml \
+            config --quiet
+          docker compose --env-file deploy/.env.integration.example \
+            --env-file deploy/.env.recovery-topology.example \
+            -f deploy/docker-compose.yml \
+            -f deploy/docker-compose.recovery.yml \
+            -f deploy/docker-compose.immutable.yml \
+            -f deploy/docker-compose.immutable.recovery.yml \
+            config --quiet
+          bash scripts/ci/discover-release-images.sh \
+            --source-sha "$SOURCE_SHA" \
+            --base-compose deploy/docker-compose.yml \
+            --runtime-compose deploy/docker-compose.integration.yml \
+            --recovery-compose deploy/docker-compose.recovery.yml \
+            --env deploy/.env.integration.example \
+            --profiles application,observability \
+            --recovery-config-stub deploy/.env.recovery-topology.example \
+            --output "$RUNNER_TEMP/release-topology.json"
       - name: Validate Caddy configuration
         run: |
           docker run --rm \
@@ -142,47 +194,29 @@ jobs:
             -v "$GITHUB_WORKSPACE/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
             caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648 \
             caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-      - name: Build deployable Backend, Caddy, Keycloak, PostgreSQL, and observability images
-        env:
-          IOT_SECRET_DIR: ${{ runner.temp }}/iot-manager-compose-secrets
-        run: docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml build backend caddy keycloak postgres prometheus alertmanager
+      - name: Validate Buildx release catalog
+        run: docker buildx bake -f deploy/docker-bake.hcl --print release
 
-  security-baseline:
-    name: Secrets, dependencies, containers, and SBOM
+  source-security:
+    name: Source security and repository SBOM
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ inputs.source_sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Generate ephemeral non-production Compose secrets
-        shell: bash
-        run: bash scripts/runtime/new-secrets.sh "$RUNNER_TEMP/iot-manager-compose-secrets"
       - name: Scan committed history for secrets
-        id: gitleaks
-        # Keep collecting the rest of the evidence after a finding. The final
-        # aggregate step below remains the blocking release gate.
-        continue-on-error: true
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # trivy-action installs Trivy when invoked unless told otherwise.  In a
-      # cold runner that previously made nine separate downloads of the now
-      # retired v0.65.0 asset, so every security check was skipped before it
-      # could examine the repository.  Prepare one pinned, currently
-      # published scanner instead; all scan steps below deliberately remain
-      # blocking through the aggregate release gate.
-      - name: Install pinned Trivy scanner once
-        id: setup-trivy
-        continue-on-error: true
+      - name: Install pinned Trivy
         uses: aquasecurity/setup-trivy@e6c2c5e321ed9123bda567646e2f96565e34abe1
         with:
           version: v0.70.0
           cache: true
-      - name: Scan Maven and npm dependency manifests
-        id: dependency-scan
-        continue-on-error: true
+      - name: Scan source, dependencies, secrets, configuration, and licenses
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
         with:
           scan-type: fs
@@ -191,13 +225,7 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: "1"
           skip-setup-trivy: true
-      - name: Prepare SBOM evidence directory
-        if: ${{ always() }}
-        run: mkdir -p artifacts/security
-      - name: Generate CycloneDX SBOM with license metadata
-        id: generate-sbom
-        if: ${{ always() }}
-        continue-on-error: true
+      - name: Generate repository CycloneDX SBOM
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
         with:
           scan-type: fs
@@ -206,151 +234,34 @@ jobs:
           output: artifacts/security/iot-manager.cdx.json
           exit-code: "0"
           skip-setup-trivy: true
-      - name: Build images for vulnerability scanning
-        id: build-scan-images
+      - name: Upload repository security evidence
         if: ${{ always() }}
-        continue-on-error: true
-        env:
-          IOT_SECRET_DIR: ${{ runner.temp }}/iot-manager-compose-secrets
-        run: docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml build backend caddy keycloak postgres prometheus alertmanager
-      - name: Scan Backend image
-        id: scan-backend-image
-        if: ${{ always() }}
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
-        with:
-          image-ref: iot-manager-backend:local
-          severity: HIGH,CRITICAL
-          exit-code: "1"
-          skip-setup-trivy: true
-      - name: Scan Caddy image
-        id: scan-caddy-image
-        if: ${{ always() }}
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
-        with:
-          image-ref: iot-manager-caddy:local
-          severity: HIGH,CRITICAL
-          exit-code: "1"
-          skip-setup-trivy: true
-      - name: Scan Keycloak image
-        id: scan-keycloak-image
-        if: ${{ always() }}
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
-        with:
-          image-ref: iot-manager-keycloak:26.7.2
-          severity: HIGH,CRITICAL
-          exit-code: "1"
-          skip-setup-trivy: true
-      - name: Scan PostgreSQL/WAL-G image
-        id: scan-postgres-image
-        if: ${{ always() }}
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
-        with:
-          image-ref: iot-manager-postgres:16-walg
-          severity: HIGH,CRITICAL
-          exit-code: "1"
-          skip-setup-trivy: true
-      # Every image referenced by the production-shaped Compose file belongs
-      # to the release attack surface, including images that are pulled rather
-      # than built by this job. Every scan is collected even if another one
-      # finds a vulnerability; the aggregate step remains blocking. An
-      # upstream no-fix finding requires a documented, separately approved
-      # exception, never a quiet `ignore-unfixed` downgrade.
-      - name: Scan logical backup image
-        id: scan-logical-backup-image
-        if: ${{ always() }}
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
-        with:
-          image-ref: postgres:16-bookworm@sha256:bb3e1a57e5407e0a5280b4211980a5e537f4abd234a87014ac979849a78dd825
-          severity: HIGH,CRITICAL
-          exit-code: "1"
-          skip-setup-trivy: true
-      - name: Scan volume initializer image
-        id: scan-volume-init-image
-        if: ${{ always() }}
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
-        with:
-          image-ref: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-          severity: HIGH,CRITICAL
-          exit-code: "1"
-          skip-setup-trivy: true
-      - name: Scan Prometheus image
-        id: scan-prometheus-image
-        if: ${{ always() }}
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
-        with:
-          image-ref: iot-manager-prometheus:3.14.0
-          severity: HIGH,CRITICAL
-          exit-code: "1"
-          skip-setup-trivy: true
-      - name: Scan Alertmanager image
-        id: scan-alertmanager-image
-        if: ${{ always() }}
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
-        with:
-          image-ref: iot-manager-alertmanager:0.33.1
-          severity: HIGH,CRITICAL
-          exit-code: "1"
-          skip-setup-trivy: true
-      - name: Upload SBOM
-        id: upload-sbom
-        if: ${{ always() }}
-        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: iot-manager-sbom-${{ github.sha }}
-          path: artifacts/security/iot-manager.cdx.json
-          if-no-files-found: error
+          name: source-security-${{ github.sha }}
+          path: artifacts/security/
+          if-no-files-found: warn
           retention-days: 30
-      - name: Enforce complete security baseline
-        if: ${{ always() }}
-        shell: bash
+
+  quick-gate:
+    name: quick-gate
+    needs: [java, web, android-debug, deploy-static, source-security]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every Quick CI verification domain to pass
         env:
-          GITLEAKS_OUTCOME: ${{ steps.gitleaks.outcome }}
-          TRIVY_SETUP_OUTCOME: ${{ steps.setup-trivy.outcome }}
-          DEPENDENCY_SCAN_OUTCOME: ${{ steps.dependency-scan.outcome }}
-          SBOM_GENERATION_OUTCOME: ${{ steps.generate-sbom.outcome }}
-          IMAGE_BUILD_OUTCOME: ${{ steps.build-scan-images.outcome }}
-          BACKEND_IMAGE_OUTCOME: ${{ steps.scan-backend-image.outcome }}
-          CADDY_IMAGE_OUTCOME: ${{ steps.scan-caddy-image.outcome }}
-          KEYCLOAK_IMAGE_OUTCOME: ${{ steps.scan-keycloak-image.outcome }}
-          POSTGRES_IMAGE_OUTCOME: ${{ steps.scan-postgres-image.outcome }}
-          LOGICAL_BACKUP_IMAGE_OUTCOME: ${{ steps.scan-logical-backup-image.outcome }}
-          VOLUME_INIT_IMAGE_OUTCOME: ${{ steps.scan-volume-init-image.outcome }}
-          PROMETHEUS_IMAGE_OUTCOME: ${{ steps.scan-prometheus-image.outcome }}
-          ALERTMANAGER_IMAGE_OUTCOME: ${{ steps.scan-alertmanager-image.outcome }}
-          SBOM_UPLOAD_OUTCOME: ${{ steps.upload-sbom.outcome }}
+          JAVA_RESULT: ${{ needs.java.result }}
+          WEB_RESULT: ${{ needs.web.result }}
+          ANDROID_RESULT: ${{ needs['android-debug'].result }}
+          DEPLOY_RESULT: ${{ needs['deploy-static'].result }}
+          SECURITY_RESULT: ${{ needs['source-security'].result }}
         run: |
           set -euo pipefail
-          failed=()
-          for outcome_name in \
-            GITLEAKS_OUTCOME \
-            TRIVY_SETUP_OUTCOME \
-            DEPENDENCY_SCAN_OUTCOME \
-            SBOM_GENERATION_OUTCOME \
-            IMAGE_BUILD_OUTCOME \
-            BACKEND_IMAGE_OUTCOME \
-            CADDY_IMAGE_OUTCOME \
-            KEYCLOAK_IMAGE_OUTCOME \
-            POSTGRES_IMAGE_OUTCOME \
-            LOGICAL_BACKUP_IMAGE_OUTCOME \
-            VOLUME_INIT_IMAGE_OUTCOME \
-            PROMETHEUS_IMAGE_OUTCOME \
-            ALERTMANAGER_IMAGE_OUTCOME \
-            SBOM_UPLOAD_OUTCOME; do
-            outcome="${!outcome_name}"
-            if [[ "$outcome" != 'success' ]]; then
-              failed+=("$outcome_name=$outcome")
-            fi
+          for result in "$JAVA_RESULT" "$WEB_RESULT" "$ANDROID_RESULT" "$DEPLOY_RESULT" "$SECURITY_RESULT"; do
+            test "$result" = success || {
+              echo "::error::Quick CI prerequisite did not pass: $result" >&2
+              exit 1
+            }
           done
-          if (( ${#failed[@]} > 0 )); then
-            printf '::error::Security baseline failed: %s\n' "${failed[*]}" >&2
-            exit 1
-          fi

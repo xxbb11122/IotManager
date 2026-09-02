@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iot-manager.example/schemas/release-candidate.schema.json",
+  "title": "IoT Manager Release Candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "releaseCandidateId",
+    "sourceSha",
+    "topologySha256",
+    "servicesSha256",
+    "expected"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "releaseCandidateId": {
+      "type": "string",
+      "pattern": "^r1-rc[._-].+-[0-9a-f]{12}$"
+    },
+    "sourceSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "topologySha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "servicesSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "expected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifacts",
+        "buildableArtifacts",
+        "normalRuntimeServices",
+        "recoveryAddedServices",
+        "releaseCandidateServices"
+      ],
+      "properties": {
+        "artifacts": { "const": 8 },
+        "buildableArtifacts": { "const": 6 },
+        "normalRuntimeServices": { "const": 12 },
+        "recoveryAddedServices": { "const": 1 },
+        "releaseCandidateServices": { "const": 13 }
+      }
+    }
+  }
+}

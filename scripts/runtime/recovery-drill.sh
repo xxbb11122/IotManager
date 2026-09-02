@@ -1,13 +1,65 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 1 ]]; then
-  printf 'Usage: %s /absolute/path/to/backup.dump\n' "$0" >&2
-  exit 64
-fi
-
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-backup_file="$(realpath "$1")"
+mode="$(printenv IOT_RUNTIME_MODE 2>/dev/null || true)"
+digest_manifest="$(printenv IOT_DIGEST_MANIFEST 2>/dev/null || true)"
+image_environment_file="$(printenv IOT_DIGEST_ENV_FILE 2>/dev/null || true)"
+release_services_file="$(printenv IOT_RELEASE_SERVICES_FILE 2>/dev/null || true)"
+release_candidate_file="$(printenv IOT_RELEASE_CANDIDATE_FILE 2>/dev/null || true)"
+release_topology_file="$(printenv IOT_RELEASE_TOPOLOGY_FILE 2>/dev/null || true)"
+backup_input=''
+[[ -n "$mode" ]] || mode=local
+
+while (( $# > 0 )); do
+  case "$1" in
+    --mode)
+      shift
+      mode="$1"
+      ;;
+    --digest-manifest)
+      shift
+      digest_manifest="$1"
+      ;;
+    --digest-env-file)
+      shift
+      image_environment_file="$1"
+      ;;
+    --release-services)
+      shift
+      release_services_file="$1"
+      ;;
+    --release-candidate)
+      shift
+      release_candidate_file="$1"
+      ;;
+    --release-topology)
+      shift
+      release_topology_file="$1"
+      ;;
+    --help|-h)
+      printf 'Usage: %s /absolute/path/to/backup.dump [--mode local|immutable] [--digest-manifest path] [--digest-env-file path] [--release-services path] [--release-candidate path] [--release-topology path]\n' "$0"
+      exit 0
+      ;;
+    --*)
+      printf 'Unknown argument: %s\n' "$1" >&2
+      exit 64
+      ;;
+    *)
+      [[ -z "$backup_input" ]] || { printf 'Only one backup file may be supplied.\n' >&2; exit 64; }
+      backup_input="$1"
+      ;;
+  esac
+  shift
+done
+
+[[ -n "$backup_input" ]] || { printf 'A backup file is required.\n' >&2; exit 64; }
+case "$mode" in
+  local|immutable) ;;
+  *) printf 'Recovery mode must be local or immutable.\n' >&2; exit 64 ;;
+esac
+
+backup_file="$(realpath "$backup_input")"
 [[ "$backup_file" == *.dump ]] || { printf 'Backup file must use the .dump extension.\n' >&2; exit 64; }
 checksum_file="${backup_file}.sha256"
 [[ -f "$checksum_file" ]] || { printf 'Backup checksum sidecar was not found: %s\n' "$checksum_file" >&2; exit 66; }
@@ -21,6 +73,34 @@ environment_file="${IOT_ENVIRONMENT_FILE:-$repository_root/deploy/.env.integrati
 [[ "$source_project" != "$recovery_project" ]] || { printf 'Recovery project must differ from the source project.\n' >&2; exit 64; }
 [[ -f "$environment_file" ]] || { printf 'Environment file was not found: %s\n' "$environment_file" >&2; exit 66; }
 docker info >/dev/null
+
+if [[ "$mode" == immutable ]]; then
+  [[ -n "$digest_manifest" && -f "$digest_manifest" ]] || {
+    printf 'Immutable mode requires --digest-manifest <image-digests.json>.\n' >&2
+    exit 66
+  }
+  [[ -n "$image_environment_file" ]] || image_environment_file="$(dirname "$digest_manifest")/image-digests.env"
+  [[ -n "$release_services_file" ]] || release_services_file="$(dirname "$digest_manifest")/release-services.json"
+  [[ -n "$release_candidate_file" ]] || release_candidate_file="$(dirname "$digest_manifest")/release-candidate.json"
+  [[ -n "$release_topology_file" ]] || release_topology_file="$(dirname "$digest_manifest")/release-topology.json"
+  for required_file in "$release_services_file" "$release_candidate_file" "$release_topology_file"; do
+    [[ -f "$required_file" ]] || { printf 'Immutable mode requires release evidence input: %s\n' "$required_file" >&2; exit 66; }
+  done
+  manifest_validation_args=(
+    validate-digest-manifest
+    --candidate "$release_candidate_file"
+    --topology "$release_topology_file"
+    --services "$release_services_file"
+    --manifest "$digest_manifest"
+  )
+  [[ -n "${IOT_IMAGE_MANIFEST_SHA256:-}" ]] && manifest_validation_args+=(--expected-manifest-sha256 "$IOT_IMAGE_MANIFEST_SHA256")
+  [[ -n "${IOT_RELEASE_CANDIDATE_ID:-}" ]] && manifest_validation_args+=(--expected-release-candidate-id "$IOT_RELEASE_CANDIDATE_ID")
+  [[ -n "${IOT_SOURCE_SHA:-}" ]] && manifest_validation_args+=(--expected-source-sha "$IOT_SOURCE_SHA")
+  node "$repository_root/scripts/ci/release-tools.mjs" "${manifest_validation_args[@]}"
+  node "$repository_root/scripts/ci/release-tools.mjs" render-digest-env \
+    --manifest "$digest_manifest" \
+    --output "$image_environment_file"
+fi
 
 # Git Bash rewrites Unix-looking container paths before Docker receives them.
 # Convert host-side files to native paths first, then disable that rewrite only
@@ -69,8 +149,19 @@ fi
 
 backup_mount_source="$(docker_host_path "$backup_file")"
 checksum_mount_source="$(docker_host_path "$checksum_file")"
-compose=(compose --project-name "$recovery_project" --env-file "$(docker_host_path "$environment_file")" -f "$(docker_host_path "$repository_root/deploy/docker-compose.yml")" -f "$(docker_host_path "$repository_root/deploy/docker-compose.integration.yml")")
-docker "${compose[@]}" up -d --build volume-init postgres
+compose=(compose --project-name "$recovery_project" --env-file "$(docker_host_path "$environment_file")")
+[[ -n "$image_environment_file" ]] && compose+=(--env-file "$(docker_host_path "$image_environment_file")")
+compose+=(-f "$(docker_host_path "$repository_root/deploy/docker-compose.yml")" -f "$(docker_host_path "$repository_root/deploy/docker-compose.integration.yml")")
+[[ "$mode" == immutable ]] && compose+=(-f "$(docker_host_path "$repository_root/deploy/docker-compose.immutable.yml")")
+start_flags=(-d)
+run_flags=(--rm --no-deps)
+if [[ "$mode" == local ]]; then
+  start_flags+=(--build)
+else
+  start_flags+=(--no-build)
+  run_flags=(--pull never "${run_flags[@]}")
+fi
+docker "${compose[@]}" up "${start_flags[@]}" volume-init postgres
 
 deadline=$((SECONDS + 120))
 while true; do
@@ -82,7 +173,7 @@ while true; do
   sleep 3
 done
 
-docker_container_paths "${compose[@]}" --profile application run --rm --no-deps \
+docker_container_paths "${compose[@]}" --profile application run "${run_flags[@]}" \
   -e PGHOST=postgres \
   -e PGPORT=5432 \
   -e "PGUSER=$owner_user" \
@@ -124,5 +215,5 @@ grep -qx '1' <<<"$application_probe" || { printf 'Recovered database did not com
   exit 1
 }
 
-printf 'Logical recovery drill passed in isolated project: %s\n' "$recovery_project"
+printf 'Logical recovery drill passed in isolated project: %s (mode: %s)\n' "$recovery_project" "$mode"
 printf 'The recovery project and volume were retained. Stop it with docker compose --project-name %s down (without -v).\n' "$recovery_project"

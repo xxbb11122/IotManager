@@ -11,6 +11,12 @@
 > 已修复缺陷、遗留风险与验收边界，见双语
 > [项目现状报告](docs/CURRENT-PROJECT-REPORT-2026-09-01.md)。
 
+> **Latest update / 最新更新（2026-09-02）** — The release-integrity foundation is now in source control: immutable image definitions, SBOM/provenance generation, image-security checks, recovery-drill evidence, and a release-gate workflow are included. Local backend, web/client, Android, Docker runtime, authentication, and isolated recovery checks have passed. This remains an **R1 controlled-pilot candidate**, not a production-approved release: clean GitHub Runner evidence, protected remote S3 WAL/PITR recovery evidence, supplier review, and physical-device Gate evidence are still required.
+>
+> **最新更新（2026-09-02）** — 已纳入可审计的发布完整性基础：不可变镜像定义、SBOM/溯源信息、镜像安全检查、恢复演练证据与发布门禁工作流。本地后端、Web/客户端、Android、Docker 运行态、认证与隔离恢复验证均已通过。项目当前仍是 **R1 受控试点候选**，并非获批的生产版本；正式发布前仍需完成干净 GitHub Runner 证据、受保护的远程 S3 WAL/PITR 恢复证据、供应商审查及真实设备 Gate 证据。
+>
+> See the bilingual [project progress evaluation](docs/PROJECT-PROGRESS-EVALUATION-2026-09-02.md) and [CI/release runbook](docs/CI-RELEASE-RUNBOOK.md) for verified scope, evidence, and release blockers.
+
 <p align="center">
   <img src="docs/images/iot-manager-overview.svg" alt="IoT Manager project overview / 项目概览" width="100%" />
 </p>
@@ -23,12 +29,12 @@
 
 **English:** IoT Manager is an operations platform for on-site LAN and cloud-connected devices. It unifies device onboarding, capability profiles, command acknowledgement, telemetry, alerts, real-time activity, and live weather context across Android/PDA, monitoring, and operations-console experiences.
 
-| 核心能力 | Key capability |
-| --- | --- |
-| 设备发现、认领、分组、归档与活动追踪 | Device discovery, claim, grouping, archive, and activity tracking |
-| BLE、本地边缘代理与云端 API 的可替换接入层 | Replaceable BLE, Edge Agent, and cloud API integration boundaries |
-| 具备确认回执、幂等性与审计记录的设备命令 | Device commands with acknowledgement, idempotency, and audit history |
-| 实时天气、预报、海拔与环境风险状态 | Live weather, forecast, elevation, and environmental risk status |
+| 核心能力                                   | Key capability                                                                |
+| ------------------------------------------ | ----------------------------------------------------------------------------- |
+| 设备发现、认领、分组、归档与活动追踪       | Device discovery, claim, grouping, archive, and activity tracking             |
+| BLE、本地边缘代理与云端 API 的可替换接入层 | Replaceable BLE, Edge Agent, and cloud API integration boundaries             |
+| 具备确认回执、幂等性与审计记录的设备命令   | Device commands with acknowledgement, idempotency, and audit history          |
+| 实时天气、预报、海拔与环境风险状态         | Live weather, forecast, elevation, and environmental risk status              |
 | 可离线查看缓存、手动下拉刷新、真机位置授权 | Cached offline viewing, pull-to-refresh, and device location permission flows |
 
 ## 核心能力 / Core capabilities

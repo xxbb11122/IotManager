@@ -1,0 +1,225 @@
+name: Release Integrity Gate
+
+on:
+  push:
+    tags:
+      - "r1-rc.*"
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Immutable candidate SHA; blank means this dispatch SHA
+        required: false
+        type: string
+      source_project:
+        description: Approved running source Compose project for the protected PITR drill
+        required: true
+        default: iot-manager
+        type: string
+
+concurrency:
+  group: release-gate-${{ inputs.source_sha || github.sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  actions: read
+
+jobs:
+  candidate:
+    name: Freeze single release candidate identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      source_sha: ${{ steps.identity.outputs.source_sha }}
+      release_candidate_id: ${{ steps.identity.outputs.release_candidate_id }}
+      source_project: ${{ steps.identity.outputs.source_project }}
+      orchestrator_run_id: ${{ steps.identity.outputs.orchestrator_run_id }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          persist-credentials: false
+      - name: Assert exact source checkout and freeze identity
+        id: identity
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+          SOURCE_PROJECT: ${{ inputs.source_project || vars.IOT_RECOVERY_SOURCE_PROJECT }}
+        run: |
+          set -euo pipefail
+          bash scripts/ci/assert-source-checkout.sh --source-sha "$SOURCE_SHA"
+          test -n "$SOURCE_PROJECT" || {
+            echo '::error::Set source_project (dispatch) or IOT_RECOVERY_SOURCE_PROJECT (tag) for the protected recovery stage.' >&2
+            exit 64
+          }
+          candidate_id="r1-rc-run-$GITHUB_RUN_ID-$(cut -c1-12 <<< "$SOURCE_SHA")"
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "release_candidate_id=$candidate_id" >> "$GITHUB_OUTPUT"
+          echo "source_project=$SOURCE_PROJECT" >> "$GITHUB_OUTPUT"
+          echo "orchestrator_run_id=$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+
+  image-security:
+    needs: [candidate, quick]
+    name: Build, resolve, and scan exact immutable images
+    uses: ./.github/workflows/image-security.yml
+    with:
+      source_sha: ${{ needs.candidate.outputs.source_sha }}
+      release_candidate_id: ${{ needs.candidate.outputs.release_candidate_id }}
+      caller_workflow_ref_raw: ${{ github.workflow_ref }}
+      caller_workflow_sha: ${{ github.workflow_sha }}
+      orchestrator_run_id: ${{ needs.candidate.outputs.orchestrator_run_id }}
+    secrets: inherit
+
+  quick:
+    name: Run full Quick CI for the frozen candidate
+    needs: candidate
+    uses: ./.github/workflows/ci.yml
+    with:
+      source_sha: ${{ needs.candidate.outputs.source_sha }}
+      release_mode: true
+    secrets: inherit
+
+  runtime:
+    name: Execute immutable 12-service runtime
+    needs: [candidate, image-security]
+    uses: ./.github/workflows/runtime-e2e.yml
+    with:
+      source_sha: ${{ needs.candidate.outputs.source_sha }}
+      release_candidate_id: ${{ needs.candidate.outputs.release_candidate_id }}
+      manifest_sha256: ${{ needs['image-security'].outputs.manifest_sha256 }}
+      image_evidence_artifact: ${{ needs['image-security'].outputs.candidate_artifact }}
+      image_producer_run_id: ${{ needs['image-security'].outputs.producer_run_id }}
+      image_producer_run_attempt: ${{ needs['image-security'].outputs.producer_run_attempt }}
+      caller_workflow_ref_raw: ${{ github.workflow_ref }}
+      caller_workflow_sha: ${{ github.workflow_sha }}
+      orchestrator_run_id: ${{ needs.candidate.outputs.orchestrator_run_id }}
+
+  recovery:
+    name: Execute protected immutable recovery
+    needs: [candidate, image-security]
+    uses: ./.github/workflows/recovery-drill.yml
+    with:
+      source_sha: ${{ needs.candidate.outputs.source_sha }}
+      release_candidate_id: ${{ needs.candidate.outputs.release_candidate_id }}
+      manifest_sha256: ${{ needs['image-security'].outputs.manifest_sha256 }}
+      image_evidence_artifact: ${{ needs['image-security'].outputs.candidate_artifact }}
+      image_producer_run_id: ${{ needs['image-security'].outputs.producer_run_id }}
+      image_producer_run_attempt: ${{ needs['image-security'].outputs.producer_run_attempt }}
+      source_project: ${{ needs.candidate.outputs.source_project }}
+      caller_workflow_ref_raw: ${{ github.workflow_ref }}
+      caller_workflow_sha: ${{ github.workflow_sha }}
+      orchestrator_run_id: ${{ needs.candidate.outputs.orchestrator_run_id }}
+    secrets: inherit
+
+  final-evidence:
+    name: Verify trusted handoffs and final 13-service evidence
+    needs: [candidate, image-security, runtime, recovery]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.candidate.outputs.source_sha }}
+          persist-credentials: false
+      - name: Assert exact source checkout
+        env:
+          SOURCE_SHA: ${{ needs.candidate.outputs.source_sha }}
+        run: bash scripts/ci/assert-source-checkout.sh --source-sha "$SOURCE_SHA"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ needs['image-security'].outputs.candidate_artifact }}
+          path: artifacts/image
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: immutable-runtime-${{ needs.candidate.outputs.release_candidate_id }}
+          path: artifacts/runtime
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: immutable-recovery-${{ needs.candidate.outputs.release_candidate_id }}
+          path: artifacts/recovery
+      - name: Validate exact stage artifacts and canonical workflow identities
+        env:
+          SOURCE_SHA: ${{ needs.candidate.outputs.source_sha }}
+          IMAGE_RUN_ID: ${{ needs['image-security'].outputs.producer_run_id }}
+          IMAGE_RUN_ATTEMPT: ${{ needs['image-security'].outputs.producer_run_attempt }}
+          RUNTIME_RUN_ID: ${{ needs.runtime.outputs.producer_run_id }}
+          RUNTIME_RUN_ATTEMPT: ${{ needs.runtime.outputs.producer_run_attempt }}
+          RECOVERY_RUN_ID: ${{ needs.recovery.outputs.producer_run_id }}
+          RECOVERY_RUN_ATTEMPT: ${{ needs.recovery.outputs.producer_run_attempt }}
+        run: |
+          set -euo pipefail
+          candidate="$(find artifacts -name release-candidate.json -print -quit)"
+          test -n "$candidate"
+          image_stage="$(find artifacts -name stage-image.json -print -quit)"
+          runtime_stage="$(find artifacts -name stage-runtime.json -print -quit)"
+          recovery_stage="$(find artifacts -name stage-recovery.json -print -quit)"
+          validate_stage() {
+            local stage="$1" run_id="$2" run_attempt="$3" job_name="$4" artifact_name="$5"
+            test -n "$stage"
+            test -f "$stage.sha256"
+            bash scripts/ci/validate-stage-handoff.sh \
+              --candidate "$candidate" \
+              --stage "$stage" \
+              --artifact "$stage" \
+              --artifact-sha256 "$stage.sha256" \
+              --producer-run-id "$run_id" \
+              --producer-run-attempt "$run_attempt" \
+              --producer-job "$job_name" \
+              --artifact-name "$artifact_name" \
+              --source-sha "$SOURCE_SHA" \
+              --approved-repository "$GITHUB_REPOSITORY" \
+              --approved-producer-path .github/workflows/image-security.yml \
+              --approved-producer-path .github/workflows/runtime-e2e.yml \
+              --approved-producer-path .github/workflows/recovery-drill.yml \
+              --approved-caller-path .github/workflows/release-gate.yml \
+              --allowed-event workflow_call \
+              --allowed-invocation-mode orchestrated-reusable
+          }
+          validate_stage "$image_stage" "$IMAGE_RUN_ID" "$IMAGE_RUN_ATTEMPT" image-security-aggregate "release-evidence-${{ needs.candidate.outputs.release_candidate_id }}"
+          validate_stage "$runtime_stage" "$RUNTIME_RUN_ID" "$RUNTIME_RUN_ATTEMPT" immutable-release-runtime "immutable-runtime-${{ needs.candidate.outputs.release_candidate_id }}"
+          validate_stage "$recovery_stage" "$RECOVERY_RUN_ID" "$RECOVERY_RUN_ATTEMPT" immutable-physical-recovery "immutable-recovery-${{ needs.candidate.outputs.release_candidate_id }}"
+      - name: Aggregate final immutable release evidence
+        run: |
+          set -euo pipefail
+          candidate="$(find artifacts -name release-candidate.json -print -quit)"
+          manifest="$(find artifacts -name image-digests.json -print -quit)"
+          services="$(find artifacts -name release-services.json -print -quit)"
+          scans="$(find artifacts -name scanned-images.json -print -quit)"
+          runtime_evidence="$(find artifacts -name runtime-service-digests.json -print -quit)"
+          recovery_evidence="$(find artifacts -name service-digests.json -print -quit)"
+          logical_recovery="$(find artifacts -name logical-recovery.json -print -quit)"
+          image_stage="$(find artifacts -name stage-image.json -print -quit)"
+          runtime_stage="$(find artifacts -name stage-runtime.json -print -quit)"
+          recovery_stage="$(find artifacts -name stage-recovery.json -print -quit)"
+          for value in "$candidate" "$manifest" "$services" "$scans" "$runtime_evidence" "$recovery_evidence" "$logical_recovery" "$image_stage" "$runtime_stage" "$recovery_stage"; do
+            test -n "$value"
+          done
+          node -e "const e=require('./' + process.argv[1]); if(e.status !== 'PASS') process.exit(1)" "$logical_recovery"
+          bash scripts/runtime/verify-image-digests.sh \
+            --candidate "$candidate" \
+            --services "$services" \
+            --manifest "$manifest" \
+            --runtime-evidence "$runtime_evidence" \
+            --recovery-evidence "$recovery_evidence" \
+            --output artifacts/final/runtime-image-verification.json
+          bash scripts/ci/aggregate-release-evidence.sh \
+            --candidate "$candidate" \
+            --manifest "$manifest" \
+            --services "$services" \
+            --scans "$scans" \
+            --runtime-evidence "$runtime_evidence" \
+            --recovery-evidence "$recovery_evidence" \
+            --service-verification artifacts/final/runtime-image-verification.json \
+            --stage "$image_stage" \
+            --stage "$runtime_stage" \
+            --stage "$recovery_stage" \
+            --output artifacts/final/evidence-manifest.json
+      - name: Upload final release decision evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: final-release-evidence-${{ needs.candidate.outputs.release_candidate_id }}
+          path: artifacts/final/
+          if-no-files-found: warn
+          retention-days: 180

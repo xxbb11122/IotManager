@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iot-manager.example/schemas/image-build-result.schema.json",
+  "title": "IoT Manager Immutable Build Result",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "releaseCandidateId",
+    "sourceSha",
+    "topologySha256",
+    "artifactId",
+    "origin",
+    "registryRef",
+    "digest",
+    "immutableRef",
+    "requestedSourceSha",
+    "checkedOutSourceSha",
+    "checkoutVerified",
+    "producerRunId",
+    "producerRunAttempt",
+    "producerWorkflowRefRaw",
+    "producerWorkflowSha",
+    "producerWorkflowPath",
+    "producerWorkflowIdentity",
+    "producerJob",
+    "runnerClass",
+    "status"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "releaseCandidateId": { "type": "string", "pattern": "^r1-rc[._-].+-[0-9a-f]{12}$" },
+    "sourceSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "topologySha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "artifactId": { "enum": ["IMG-R01", "IMG-R02", "IMG-R03", "IMG-R04", "IMG-R05", "IMG-R06"] },
+    "origin": { "const": "built" },
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "immutableRef": { "type": "string", "pattern": "@sha256:[0-9a-f]{64}$" },
+    "checkoutVerified": { "const": true },
+    "producerWorkflowSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "runnerClass": { "enum": ["github-hosted", "larger-runner", "self-hosted-ephemeral"] },
+    "status": { "const": "PASS" }
+  }
+}

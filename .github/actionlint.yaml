@@ -1,0 +1,13 @@
+self-hosted-runner:
+  labels:
+    - iot-manager-recovery
+
+# actionlint v1.7.12 has not yet added GitHub's documented reusable-workflow
+# job.workflow_ref/job.workflow_sha properties to its expression schema. The
+# expressions remain intentionally present because they are the authoritative
+# producer identity inside a called workflow; github.workflow_* is the caller.
+paths:
+  ".github/workflows/**/*.{yml,yaml}":
+    ignore:
+      - 'property "workflow_ref" is not defined in object type.+'
+      - 'property "workflow_sha" is not defined in object type.+'

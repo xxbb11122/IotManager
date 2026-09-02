@@ -19,5 +19,6 @@ deploy/.runtime/
 deploy/secrets/
 artifacts/p0-runtime/
 artifacts/recovery-drill/
+artifacts/release/
 client/.env.local
 client/.env.*.local

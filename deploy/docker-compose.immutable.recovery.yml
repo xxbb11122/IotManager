@@ -1,0 +1,7 @@
+# Recovery-only immutable overlay. Keep this separate so the normal runtime
+# Compose graph never gains wal-g-recovery merely by enabling immutable mode.
+services:
+  wal-g-recovery:
+    image: ${IOT_POSTGRES_IMAGE:?set IOT_POSTGRES_IMAGE from image-digests.env}
+    build: !reset null
+    pull_policy: never

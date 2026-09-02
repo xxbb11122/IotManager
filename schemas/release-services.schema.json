@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iot-manager.example/schemas/release-services.schema.json",
+  "title": "IoT Manager Release Service Topology",
+  "type": "object",
+  "required": ["schemaVersion", "expected", "normalRuntimeServices", "recoveryAddedServices", "releaseCandidateUnion"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "expected": {
+      "type": "object",
+      "properties": {
+        "normalRuntimeServices": { "const": 12 },
+        "recoveryAddedServices": { "const": 1 },
+        "releaseCandidateServices": { "const": 13 }
+      }
+    },
+    "normalRuntimeServices": { "type": "array", "minItems": 12, "maxItems": 12 },
+    "recoveryAddedServices": { "type": "array", "minItems": 1, "maxItems": 1 },
+    "releaseCandidateUnion": { "type": "array", "minItems": 13, "maxItems": 13 }
+  }
+}

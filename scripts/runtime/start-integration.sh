@@ -7,12 +7,64 @@ environment_file="${IOT_ENVIRONMENT_FILE:-$repository_root/deploy/.env.integrati
 state_file="${IOT_RUNTIME_STATE_FILE:-$repository_root/deploy/.runtime/iot-manager-p0/runtime.env}"
 base_url="${IOT_BASE_URL:-https://iot-manager.localhost}"
 observability_enabled="${IOT_ENABLE_OBSERVABILITY:-false}"
+mode="$(printenv IOT_RUNTIME_MODE 2>/dev/null || true)"
+digest_manifest="$(printenv IOT_DIGEST_MANIFEST 2>/dev/null || true)"
+image_environment_file="$(printenv IOT_DIGEST_ENV_FILE 2>/dev/null || true)"
+release_services_file="$(printenv IOT_RELEASE_SERVICES_FILE 2>/dev/null || true)"
+release_candidate_file="$(printenv IOT_RELEASE_CANDIDATE_FILE 2>/dev/null || true)"
+release_topology_file="$(printenv IOT_RELEASE_TOPOLOGY_FILE 2>/dev/null || true)"
 verify=false
-[[ "${1:-}" == "--verify" ]] && verify=true
+
+[[ -n "$mode" ]] || mode=local
+while (( $# > 0 )); do
+  case "$1" in
+    --verify)
+      verify=true
+      ;;
+    --mode)
+      shift
+      mode="$1"
+      ;;
+    --digest-manifest)
+      shift
+      digest_manifest="$1"
+      ;;
+    --digest-env-file)
+      shift
+      image_environment_file="$1"
+      ;;
+    --release-services)
+      shift
+      release_services_file="$1"
+      ;;
+    --release-candidate)
+      shift
+      release_candidate_file="$1"
+      ;;
+    --release-topology)
+      shift
+      release_topology_file="$1"
+      ;;
+    --help|-h)
+      printf 'Usage: %s [--verify] [--mode local|immutable] [--digest-manifest path] [--digest-env-file path] [--release-services path] [--release-candidate path] [--release-topology path]\n' "$0"
+      exit 0
+      ;;
+    *)
+      printf 'Unknown argument: %s\n' "$1" >&2
+      exit 64
+      ;;
+  esac
+  shift
+done
 
 case "$observability_enabled" in
   true|false) ;;
   *) printf 'IOT_ENABLE_OBSERVABILITY must be true or false.\n' >&2; exit 64 ;;
+esac
+
+case "$mode" in
+  local|immutable) ;;
+  *) printf 'Runtime mode must be local or immutable.\n' >&2; exit 64 ;;
 esac
 
 environment_value() {
@@ -69,10 +121,56 @@ if [[ ! -f "$environment_file" ]]; then
 fi
 assert_integration_role_matrix_configuration
 
+if [[ "$mode" == immutable ]]; then
+  [[ -n "$digest_manifest" && -f "$digest_manifest" ]] || {
+    printf 'Immutable mode requires --digest-manifest <image-digests.json>.\n' >&2
+    exit 66
+  }
+  [[ -n "$image_environment_file" ]] || image_environment_file="$(dirname "$digest_manifest")/image-digests.env"
+  [[ -n "$release_services_file" ]] || release_services_file="$(dirname "$digest_manifest")/release-services.json"
+  [[ -n "$release_candidate_file" ]] || release_candidate_file="$(dirname "$digest_manifest")/release-candidate.json"
+  [[ -n "$release_topology_file" ]] || release_topology_file="$(dirname "$digest_manifest")/release-topology.json"
+  [[ -f "$release_services_file" ]] || {
+    printf 'Immutable mode requires release services metadata: %s\n' "$release_services_file" >&2
+    exit 66
+  }
+  [[ -f "$release_candidate_file" ]] || {
+    printf 'Immutable mode requires the frozen release candidate: %s\n' "$release_candidate_file" >&2
+    exit 66
+  }
+  [[ -f "$release_topology_file" ]] || {
+    printf 'Immutable mode requires the frozen release topology: %s\n' "$release_topology_file" >&2
+    exit 66
+  }
+  manifest_validation_args=(
+    validate-digest-manifest
+    --candidate "$release_candidate_file"
+    --topology "$release_topology_file"
+    --services "$release_services_file"
+    --manifest "$digest_manifest"
+  )
+  [[ -n "${IOT_IMAGE_MANIFEST_SHA256:-}" ]] && manifest_validation_args+=(--expected-manifest-sha256 "$IOT_IMAGE_MANIFEST_SHA256")
+  [[ -n "${IOT_RELEASE_CANDIDATE_ID:-}" ]] && manifest_validation_args+=(--expected-release-candidate-id "$IOT_RELEASE_CANDIDATE_ID")
+  [[ -n "${IOT_SOURCE_SHA:-}" ]] && manifest_validation_args+=(--expected-source-sha "$IOT_SOURCE_SHA")
+  node "$repository_root/scripts/ci/release-tools.mjs" "${manifest_validation_args[@]}"
+  node "$repository_root/scripts/ci/release-tools.mjs" render-digest-env \
+    --manifest "$digest_manifest" \
+    --output "$image_environment_file"
+fi
+
 bash "$repository_root/scripts/runtime/new-secrets.sh"
 
-compose=(compose --project-name "$project_name" --env-file "$environment_file" -f "$repository_root/deploy/docker-compose.yml" -f "$repository_root/deploy/docker-compose.integration.yml")
-docker "${compose[@]}" up -d --build volume-init postgres keycloak caddy
+compose=(compose --project-name "$project_name" --env-file "$environment_file")
+[[ -n "$image_environment_file" ]] && compose+=(--env-file "$image_environment_file")
+compose+=(-f "$repository_root/deploy/docker-compose.yml" -f "$repository_root/deploy/docker-compose.integration.yml")
+[[ "$mode" == immutable ]] && compose+=(-f "$repository_root/deploy/docker-compose.immutable.yml")
+start_flags=(-d)
+if [[ "$mode" == local ]]; then
+  start_flags+=(--build)
+else
+  start_flags+=(--no-build)
+fi
+docker "${compose[@]}" up "${start_flags[@]}" volume-init postgres keycloak caddy
 
 wait_service_healthy keycloak
 wait_service_healthy caddy
@@ -106,20 +204,40 @@ IOT_COMPOSE_PROJECT="$project_name" IOT_ENVIRONMENT_FILE="$environment_file" IOT
   bash "$repository_root/scripts/runtime/bootstrap-keycloak-owner.sh" --verify-idempotent
 
 application_compose=(compose --project-name "$project_name" --profile application --env-file "$environment_file")
+[[ -n "$image_environment_file" ]] && application_compose+=(--env-file "$image_environment_file")
 [[ -f "$state_file" ]] && application_compose+=(--env-file "$state_file")
 application_compose+=(-f "$repository_root/deploy/docker-compose.yml" -f "$repository_root/deploy/docker-compose.integration.yml")
+[[ "$mode" == immutable ]] && application_compose+=(-f "$repository_root/deploy/docker-compose.immutable.yml")
 application_services=(backend backup wal-g-archive wal-g-backup)
 if [[ "$observability_enabled" == true ]]; then
   application_compose=(compose --project-name "$project_name" --profile application --profile observability --env-file "$environment_file")
+  [[ -n "$image_environment_file" ]] && application_compose+=(--env-file "$image_environment_file")
   [[ -f "$state_file" ]] && application_compose+=(--env-file "$state_file")
   application_compose+=(-f "$repository_root/deploy/docker-compose.yml" -f "$repository_root/deploy/docker-compose.integration.yml")
+  [[ "$mode" == immutable ]] && application_compose+=(-f "$repository_root/deploy/docker-compose.immutable.yml")
   application_services+=(alertmanager prometheus)
 fi
-docker "${application_compose[@]}" up -d --build "${application_services[@]}"
+docker "${application_compose[@]}" up "${start_flags[@]}" "${application_services[@]}"
 
 if [[ "$verify" == true ]]; then
   IOT_COMPOSE_PROJECT="$project_name" IOT_ENVIRONMENT_FILE="$environment_file" IOT_RUNTIME_STATE_FILE="$state_file" \
     "$repository_root/scripts/runtime/verify-stack.sh"
 fi
 
-printf 'Integration stack started. Project: %s\n' "$project_name"
+if [[ "$mode" == immutable ]]; then
+  runtime_evidence_file="${IOT_RUNTIME_DIGEST_EVIDENCE_FILE:-$repository_root/artifacts/release/runtime-service-digests.json}"
+  node "$repository_root/scripts/ci/release-tools.mjs" verify-service-digests \
+    --phase runtime \
+    --project "$project_name" \
+    --env "$environment_file" \
+    --state-env "$state_file" \
+    --image-env "$image_environment_file" \
+    --base-compose "$repository_root/deploy/docker-compose.yml" \
+    --runtime-compose "$repository_root/deploy/docker-compose.integration.yml" \
+    --immutable-compose "$repository_root/deploy/docker-compose.immutable.yml" \
+    --services "$release_services_file" \
+    --manifest "$digest_manifest" \
+    --output "$runtime_evidence_file"
+fi
+
+printf 'Integration stack started. Project: %s (mode: %s)\n' "$project_name" "$mode"

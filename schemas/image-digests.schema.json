@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iot-manager.example/schemas/image-digests.schema.json",
+  "title": "IoT Manager Immutable Image Digest Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "releaseCandidateId", "sourceSha", "topologySha256", "artifacts"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "releaseCandidateId": { "type": "string", "pattern": "^r1-rc[._-].+-[0-9a-f]{12}$" },
+    "sourceSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "topologySha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "artifacts": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "required": ["artifactId", "origin", "immutableRef"],
+        "properties": {
+          "artifactId": { "enum": ["IMG-R01", "IMG-R02", "IMG-R03", "IMG-R04", "IMG-R05", "IMG-R06", "IMG-R07", "IMG-R08"] },
+          "origin": { "enum": ["built", "external"] },
+          "immutableRef": { "type": "string", "pattern": "@sha256:[0-9a-f]{64}$" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,51 @@
+# Immutable release overlay. Runtime and recovery scripts add this file only
+# in --mode immutable after rendering image-digests.json into an env file.
+# Docker Compose no-build and pull-never flags make a missing exact digest fail
+# closed instead of silently rebuilding or resolving a mutable tag.
+services:
+  volume-init:
+    image: ${IOT_VOLUME_INIT_IMAGE:?set IOT_VOLUME_INIT_IMAGE from image-digests.env}
+    build: !reset null
+    pull_policy: never
+  secret-volume-init:
+    image: ${IOT_VOLUME_INIT_IMAGE:?set IOT_VOLUME_INIT_IMAGE from image-digests.env}
+    build: !reset null
+    pull_policy: never
+  postgres:
+    image: ${IOT_POSTGRES_IMAGE:?set IOT_POSTGRES_IMAGE from image-digests.env}
+    build: !reset null
+    pull_policy: never
+  keycloak:
+    image: ${IOT_KEYCLOAK_IMAGE:?set IOT_KEYCLOAK_IMAGE from image-digests.env}
+    build: !reset null
+    pull_policy: never
+  backend:
+    image: ${IOT_BACKEND_IMAGE:?set IOT_BACKEND_IMAGE from image-digests.env}
+    build: !reset null
+    pull_policy: never
+  backup:
+    image: ${IOT_LOGICAL_BACKUP_IMAGE:?set IOT_LOGICAL_BACKUP_IMAGE from image-digests.env}
+    pull_policy: never
+  wal-g-archive:
+    image: ${IOT_POSTGRES_IMAGE:?set IOT_POSTGRES_IMAGE from image-digests.env}
+    build: !reset null
+    pull_policy: never
+  wal-g-backup:
+    image: ${IOT_POSTGRES_IMAGE:?set IOT_POSTGRES_IMAGE from image-digests.env}
+    build: !reset null
+    pull_policy: never
+  observability-volume-init:
+    image: ${IOT_VOLUME_INIT_IMAGE:?set IOT_VOLUME_INIT_IMAGE from image-digests.env}
+    pull_policy: never
+  prometheus:
+    image: ${IOT_PROMETHEUS_IMAGE:?set IOT_PROMETHEUS_IMAGE from image-digests.env}
+    build: !reset null
+    pull_policy: never
+  alertmanager:
+    image: ${IOT_ALERTMANAGER_IMAGE:?set IOT_ALERTMANAGER_IMAGE from image-digests.env}
+    build: !reset null
+    pull_policy: never
+  caddy:
+    image: ${IOT_CADDY_IMAGE:?set IOT_CADDY_IMAGE from image-digests.env}
+    build: !reset null
+    pull_policy: never

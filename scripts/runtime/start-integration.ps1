@@ -5,7 +5,15 @@ param(
     [string]$StateFile = 'deploy/.runtime/iot-manager-p0/runtime.env',
     [string]$BaseUrl = 'https://iot-manager.localhost',
     [switch]$Observability,
-    [switch]$Verify
+    [switch]$Verify,
+    [ValidateSet('local', 'immutable')]
+    [string]$Mode = 'local',
+    [string]$DigestManifest,
+    [string]$DigestEnvironmentFile,
+    [string]$ReleaseServicesFile,
+    [string]$ReleaseCandidateFile,
+    [string]$ReleaseTopologyFile,
+    [string]$RuntimeDigestEvidenceFile
 )
 
 $ErrorActionPreference = 'Stop'
@@ -50,6 +58,24 @@ function Assert-IntegrationRoleMatrixConfiguration {
 $environmentPath = Resolve-RepositoryPath $EnvironmentFile
 $environmentTemplate = Join-Path $repositoryRoot 'deploy/.env.integration.example'
 $statePath = Resolve-RepositoryPath $StateFile
+if ($env:IOT_RUNTIME_MODE -and -not $PSBoundParameters.ContainsKey('Mode')) {
+    $Mode = $env:IOT_RUNTIME_MODE
+}
+if (-not $DigestManifest -and $env:IOT_DIGEST_MANIFEST) {
+    $DigestManifest = $env:IOT_DIGEST_MANIFEST
+}
+if (-not $DigestEnvironmentFile -and $env:IOT_DIGEST_ENV_FILE) {
+    $DigestEnvironmentFile = $env:IOT_DIGEST_ENV_FILE
+}
+if (-not $ReleaseServicesFile -and $env:IOT_RELEASE_SERVICES_FILE) {
+    $ReleaseServicesFile = $env:IOT_RELEASE_SERVICES_FILE
+}
+if (-not $ReleaseCandidateFile -and $env:IOT_RELEASE_CANDIDATE_FILE) {
+    $ReleaseCandidateFile = $env:IOT_RELEASE_CANDIDATE_FILE
+}
+if (-not $ReleaseTopologyFile -and $env:IOT_RELEASE_TOPOLOGY_FILE) {
+    $ReleaseTopologyFile = $env:IOT_RELEASE_TOPOLOGY_FILE
+}
 $observabilityEnabled = $Observability.IsPresent
 if ($env:IOT_ENABLE_OBSERVABILITY) {
     if ($env:IOT_ENABLE_OBSERVABILITY -notin @('true', 'false')) {
@@ -70,8 +96,10 @@ function Compose-Arguments {
     if ($Application) { $args += @('--profile', 'application') }
     if ($Observability) { $args += @('--profile', 'observability') }
     $args += @('--env-file', $environmentPath)
+    if ($script:digestEnvironmentPath) { $args += @('--env-file', $script:digestEnvironmentPath) }
     if (Test-Path -LiteralPath $statePath) { $args += @('--env-file', $statePath) }
     $args += @('-f', (Join-Path $repositoryRoot 'deploy/docker-compose.yml'), '-f', (Join-Path $repositoryRoot 'deploy/docker-compose.integration.yml'))
+    if ($Mode -eq 'immutable') { $args += @('-f', (Join-Path $repositoryRoot 'deploy/docker-compose.immutable.yml')) }
     return $args
 }
 
@@ -118,10 +146,63 @@ if (-not (Test-Path -LiteralPath $environmentPath)) {
 }
 Assert-IntegrationRoleMatrixConfiguration -Path $environmentPath
 
+$digestEnvironmentPath = $null
+$releaseServicesPath = $null
+$releaseCandidatePath = $null
+$releaseTopologyPath = $null
+if ($Mode -eq 'immutable') {
+    if (-not $DigestManifest) { throw 'Immutable mode requires -DigestManifest <image-digests.json>.' }
+    $digestManifestPath = Resolve-RepositoryPath $DigestManifest
+    if (-not (Test-Path -LiteralPath $digestManifestPath)) { throw "Digest manifest was not found: $digestManifestPath" }
+    if ($DigestEnvironmentFile) {
+        $digestEnvironmentPath = Resolve-RepositoryPath $DigestEnvironmentFile
+    }
+    else {
+        $digestEnvironmentPath = Join-Path (Split-Path -Parent $digestManifestPath) 'image-digests.env'
+    }
+    if ($ReleaseServicesFile) {
+        $releaseServicesPath = Resolve-RepositoryPath $ReleaseServicesFile
+    }
+    else {
+        $releaseServicesPath = Join-Path (Split-Path -Parent $digestManifestPath) 'release-services.json'
+    }
+    if ($ReleaseCandidateFile) {
+        $releaseCandidatePath = Resolve-RepositoryPath $ReleaseCandidateFile
+    }
+    else {
+        $releaseCandidatePath = Join-Path (Split-Path -Parent $digestManifestPath) 'release-candidate.json'
+    }
+    if ($ReleaseTopologyFile) {
+        $releaseTopologyPath = Resolve-RepositoryPath $ReleaseTopologyFile
+    }
+    else {
+        $releaseTopologyPath = Join-Path (Split-Path -Parent $digestManifestPath) 'release-topology.json'
+    }
+    if (-not (Test-Path -LiteralPath $releaseServicesPath)) { throw "Immutable mode requires release services metadata: $releaseServicesPath" }
+    if (-not (Test-Path -LiteralPath $releaseCandidatePath)) { throw "Immutable mode requires the frozen release candidate: $releaseCandidatePath" }
+    if (-not (Test-Path -LiteralPath $releaseTopologyPath)) { throw "Immutable mode requires the frozen release topology: $releaseTopologyPath" }
+    $manifestValidationArgs = @(
+        (Join-Path $repositoryRoot 'scripts/ci/release-tools.mjs'),
+        'validate-digest-manifest',
+        '--candidate', $releaseCandidatePath,
+        '--topology', $releaseTopologyPath,
+        '--services', $releaseServicesPath,
+        '--manifest', $digestManifestPath
+    )
+    if ($env:IOT_IMAGE_MANIFEST_SHA256) { $manifestValidationArgs += @('--expected-manifest-sha256', $env:IOT_IMAGE_MANIFEST_SHA256) }
+    if ($env:IOT_RELEASE_CANDIDATE_ID) { $manifestValidationArgs += @('--expected-release-candidate-id', $env:IOT_RELEASE_CANDIDATE_ID) }
+    if ($env:IOT_SOURCE_SHA) { $manifestValidationArgs += @('--expected-source-sha', $env:IOT_SOURCE_SHA) }
+    & node @manifestValidationArgs
+    if ($LASTEXITCODE -ne 0) { throw 'Immutable digest manifest validation failed.' }
+    & node (Join-Path $repositoryRoot 'scripts/ci/release-tools.mjs') render-digest-env --manifest $digestManifestPath --output $digestEnvironmentPath
+    if ($LASTEXITCODE -ne 0) { throw 'Digest environment rendering failed.' }
+}
+
 & (Join-Path $PSScriptRoot 'new-secrets.ps1')
 if ($LASTEXITCODE -ne 0) { throw 'Secret generation failed.' }
 
-$identity = (Compose-Arguments) + @('up', '-d', '--build', 'volume-init', 'postgres', 'keycloak', 'caddy')
+$startFlags = if ($Mode -eq 'local') { @('-d', '--build') } else { @('-d', '--no-build') }
+$identity = (Compose-Arguments) + @('up') + $startFlags + @('volume-init', 'postgres', 'keycloak', 'caddy')
 Invoke-Native -Description 'Start identity plane' -Arguments $identity
 Wait-ServiceHealthy -Service 'keycloak'
 Wait-ServiceHealthy -Service 'caddy'
@@ -132,11 +213,37 @@ Assert-IdentityPlane
 
 $applicationServices = @('backend', 'backup', 'wal-g-archive', 'wal-g-backup')
 if ($observabilityEnabled) { $applicationServices += @('alertmanager', 'prometheus') }
-$application = (Compose-Arguments -Application -Observability:$observabilityEnabled) + @('up', '-d', '--build') + $applicationServices
+$application = (Compose-Arguments -Application -Observability:$observabilityEnabled) + @('up') + $startFlags + $applicationServices
 Invoke-Native -Description 'Start application plane' -Arguments $application
 
 if ($Verify) {
     & (Join-Path $PSScriptRoot 'verify-stack.ps1') -ProjectName $ProjectName -EnvironmentFile $EnvironmentFile -StateFile $StateFile -Observability:$observabilityEnabled
 }
 
-Write-Host "Integration stack started. Project: $ProjectName"
+if ($Mode -eq 'immutable') {
+    $runtimeEvidencePath = if ($RuntimeDigestEvidenceFile) {
+        Resolve-RepositoryPath $RuntimeDigestEvidenceFile
+    }
+    else {
+        Join-Path $repositoryRoot 'artifacts/release/runtime-service-digests.json'
+    }
+    $verifyArgs = @(
+        (Join-Path $repositoryRoot 'scripts/ci/release-tools.mjs'),
+        'verify-service-digests',
+        '--phase', 'runtime',
+        '--project', $ProjectName,
+        '--env', $environmentPath,
+        '--state-env', $statePath,
+        '--image-env', $digestEnvironmentPath,
+        '--base-compose', (Join-Path $repositoryRoot 'deploy/docker-compose.yml'),
+        '--runtime-compose', (Join-Path $repositoryRoot 'deploy/docker-compose.integration.yml'),
+        '--immutable-compose', (Join-Path $repositoryRoot 'deploy/docker-compose.immutable.yml'),
+        '--services', $releaseServicesPath,
+        '--manifest', $digestManifestPath,
+        '--output', $runtimeEvidencePath
+    )
+    & node @verifyArgs
+    if ($LASTEXITCODE -ne 0) { throw 'Immutable runtime digest verification failed.' }
+}
+
+Write-Host "Integration stack started. Project: $ProjectName (mode: $Mode)"
