@@ -16,8 +16,11 @@ import { deviceLocationErrorMessage, getCurrentDeviceLocation } from './js/platf
 import { friendlyEndpointError, probeEndpoint } from './js/platform/endpoint-probe.js';
 import { createPlatformAdapter } from './js/platform/platform-adapter-factory.js';
 import { ACCESS_ROUTES, repairLegacyNativeEndpoint, RuntimeConfigRepository } from './js/platform/runtime-config.js';
-import { store } from './js/store.js';
+import { CHANGE_DOMAIN, store } from './js/store.js';
+import { createRenderCoordinator } from './js/render-coordinator.js';
+import { createRenderMetrics } from './js/render-metrics.js';
 import { createClientUi } from './js/ui.js';
+import { createWeatherRefreshCooldown } from './js/weather-refresh-cooldown.js';
 
 const DEMO_CONTEXT = Object.freeze({
   organizationName: '演示组织',
@@ -65,9 +68,9 @@ const WEATHER_FORECAST_CACHE_MS = 30 * 60 * 1000;
 const FOREGROUND_RESYNC_AFTER_MS = 5 * 60 * 1000;
 const REALTIME_RESYNC_COOLDOWN_MS = 2 * 60 * 1000;
 const PULL_REFRESH_COOLDOWN_MS = 60 * 1000;
-const LIVE_RENDER_MIN_INTERVAL_MS = 2 * 1000;
 const PENDING_WEATHER_LOCATION_KEY = 'iot-manager.pending-weather-location.v1';
 const SELECTED_SITE_KEY = 'iot-manager.selected-site.v1';
+const PARTIAL_RENDER_ENABLED = import.meta.env.VITE_PARTIAL_RENDER_ENABLED !== 'false';
 
 const nativeRuntime = Capacitor.isNativePlatform();
 const runtimeConfigRepository = new RuntimeConfigRepository();
@@ -88,9 +91,8 @@ let lastDeviceResyncAt = 0;
 let lastPullRefreshAt = 0;
 let appBackgroundedAt = null;
 let realtimeState = 'idle';
-let liveRenderTimer = null;
-let lastLiveRenderAt = 0;
-let weatherRefreshCooldownTimer = null;
+let weatherCooldownDirty = false;
+let weatherCooldownFallbackUsed = false;
 
 let clientState = {
   context: DEMO_CONTEXT,
@@ -157,12 +159,52 @@ const ui = createClientUi(document.getElementById('app'), {
   dismissError: () => setClientState({ error: null })
 });
 
+const renderMetrics = createRenderMetrics();
+const renderCoordinator = createRenderCoordinator({
+  fullRender: (snapshot) => ui.renderFull(snapshot),
+  patchDevices: (references, snapshot) => ui.patchDevices(references, snapshot),
+  patchWeather: (snapshot) => ui.patchWeather(snapshot),
+  patchForecast: (snapshot) => ui.patchWeatherForecast(snapshot),
+  patchWeatherSettings: (snapshot) => ui.patchWeatherSettings(snapshot),
+  patchRuntime: (snapshot) => ui.patchRuntime(snapshot),
+  patchScreen: (snapshot) => ui.patchScreen(snapshot),
+  patchCommands: (references, snapshot) => ui.patchCommands(references, snapshot),
+  patchActivity: (references, snapshot) => ui.patchActivity(references, snapshot),
+  patchAlerts: (references, snapshot) => ui.patchAlerts(references, snapshot),
+  scheduler: window,
+  metrics: renderMetrics,
+  batchWindowMs: 150
+});
+
+const weatherRefreshCooldown = createWeatherRefreshCooldown({
+  scheduler: window,
+  onDeadlineChange: (retryAt) => {
+    clientState = { ...clientState, weatherRefreshRetryAt: retryAt };
+  },
+  onTick: ({ retryAt, now }) => {
+    if (document.visibilityState === 'hidden') {
+      weatherCooldownDirty = true;
+      return;
+    }
+    const patched = ui.patchWeatherCooldown({ retryAt, now });
+    if (patched) {
+      renderMetrics.increment('countdownPatchCount');
+      weatherCooldownFallbackUsed = false;
+      return;
+    }
+    if (!weatherCooldownFallbackUsed) {
+      weatherCooldownFallbackUsed = true;
+      renderCoordinator.forceFull('weather_cooldown_patch_missing', viewModel());
+    }
+  }
+});
+
 store.subscribe((_state, metadata) => {
-  if (metadata?.origin === 'realtime') {
-    scheduleLiveRender();
+  if (!PARTIAL_RENDER_ENABLED) {
+    renderCoordinator.forceFull('partial_render_disabled', viewModel());
     return;
   }
-  render();
+  renderCoordinator.enqueue(viewModel(), metadata);
 }, { emitCurrent: true });
 
 const unsubscribeBle = ble.subscribe((event) => {
@@ -214,26 +256,49 @@ function viewModel() {
   return { ...store.getState(), ...clientState, endpointProfile };
 }
 
-function render() {
-  if (liveRenderTimer) {
-    clearTimeout(liveRenderTimer);
-    liveRenderTimer = null;
+function render(reason = 'explicit_render') {
+  renderCoordinator.forceFull(reason, viewModel());
+}
+
+function normalizeClientStateMetadata(patch = {}, metadata = {}) {
+  const explicitDomains = Array.isArray(metadata.domains) ? metadata.domains : null;
+  if (metadata.structural || explicitDomains) {
+    return {
+      origin: metadata.origin ?? 'local',
+      domains: explicitDomains ?? [CHANGE_DOMAIN.STRUCTURE],
+      entityRefs: metadata.entityRefs,
+      structural: metadata.structural === true,
+      reason: metadata.reason ?? 'client_state_explicit'
+    };
   }
-  ui.render(viewModel());
-  lastLiveRenderAt = Date.now();
+
+  const has = (key) => Object.prototype.hasOwnProperty.call(patch, key);
+  if (has('context') || has('endpointProfile') || has('sites')) {
+    return { origin: 'local', domains: [CHANGE_DOMAIN.STRUCTURE], structural: true, reason: 'client_state_structural' };
+  }
+  if (has('weatherSettings') || has('pendingWeatherLocation')) {
+    return { origin: 'local', domains: [CHANGE_DOMAIN.WEATHER_SETTINGS], structural: false, reason: 'client_state_weather_settings' };
+  }
+  if (has('weatherRefreshRetryAt')) {
+    return { origin: 'local', domains: [CHANGE_DOMAIN.WEATHER], structural: false, reason: 'client_state_weather' };
+  }
+  if (has('auth')) {
+    return { origin: 'local', domains: [CHANGE_DOMAIN.RUNTIME], structural: false, reason: 'client_state_auth' };
+  }
+  if (has('loading')) {
+    const loadingKeys = Object.keys(patch.loading ?? {});
+    if (loadingKeys.length === 1 && loadingKeys[0] === 'weatherForecast') {
+      return { origin: 'local', domains: [CHANGE_DOMAIN.WEATHER_FORECAST], structural: false, reason: 'client_state_forecast_loading' };
+    }
+    return { origin: 'local', domains: [CHANGE_DOMAIN.SCREEN], structural: false, reason: 'client_state_loading' };
+  }
+  if (has('lanCandidates') || has('ble') || has('error')) {
+    return { origin: 'local', domains: [CHANGE_DOMAIN.SCREEN], structural: false, reason: 'client_state_screen' };
+  }
+  return { origin: 'local', domains: [CHANGE_DOMAIN.STRUCTURE], structural: true, reason: 'client_state_unknown' };
 }
 
-function scheduleLiveRender() {
-  if (liveRenderTimer) return;
-  const delay = Math.max(0, lastLiveRenderAt + LIVE_RENDER_MIN_INTERVAL_MS - Date.now());
-  liveRenderTimer = setTimeout(() => {
-    liveRenderTimer = null;
-    ui.render(viewModel());
-    lastLiveRenderAt = Date.now();
-  }, delay);
-}
-
-function setClientState(patch = {}) {
+function setClientState(patch = {}, metadata = {}) {
   clientState = {
     ...clientState,
     ...patch,
@@ -241,7 +306,12 @@ function setClientState(patch = {}) {
     loading: { ...clientState.loading, ...(patch.loading ?? {}) },
     ble: { ...clientState.ble, ...(patch.ble ?? {}) }
   };
-  render();
+  const change = normalizeClientStateMetadata(patch, metadata);
+  if (!PARTIAL_RENDER_ENABLED) {
+    render('partial_render_disabled');
+    return;
+  }
+  renderCoordinator.enqueue(viewModel(), change);
 }
 
 function setLoading(key, value) {
@@ -255,28 +325,8 @@ function weatherRefreshCooldownSeconds() {
 }
 
 function setWeatherRefreshCooldown(seconds) {
-  if (weatherRefreshCooldownTimer) {
-    clearInterval(weatherRefreshCooldownTimer);
-    weatherRefreshCooldownTimer = null;
-  }
-  const normalized = Math.max(0, Math.ceil(Number(seconds) || 0));
-  if (normalized === 0) {
-    if (clientState.weatherRefreshRetryAt !== null) setClientState({ weatherRefreshRetryAt: null });
-    return;
-  }
-  const retryAt = Date.now() + normalized * 1000;
-  const tick = () => {
-    if (Date.now() >= retryAt) {
-      if (weatherRefreshCooldownTimer) clearInterval(weatherRefreshCooldownTimer);
-      weatherRefreshCooldownTimer = null;
-      setClientState({ weatherRefreshRetryAt: null });
-      return;
-    }
-    // Keep the same deadline in state so the UI redraws the visible countdown.
-    setClientState({ weatherRefreshRetryAt: retryAt });
-  };
-  setClientState({ weatherRefreshRetryAt: retryAt });
-  weatherRefreshCooldownTimer = setInterval(tick, 1000);
+  weatherCooldownFallbackUsed = false;
+  weatherRefreshCooldown.set(seconds);
 }
 
 function describeError(error) {
@@ -1276,7 +1326,25 @@ function reconnectRealtime() {
   return resyncAfterRealtimeConnect();
 }
 
+function handleDocumentVisibility() {
+  const visible = document.visibilityState !== 'hidden';
+  renderCoordinator.setVisibility(visible);
+  if (visible && weatherCooldownDirty) {
+    weatherCooldownDirty = false;
+    weatherRefreshCooldown.tick();
+  }
+}
+
+renderCoordinator.setVisibility(document.visibilityState !== 'hidden');
+document.addEventListener('visibilitychange', handleDocumentVisibility);
+if (import.meta.env.DEV) {
+  globalThis.__iotUiMetrics = () => renderMetrics.snapshot();
+}
+
 window.addEventListener('beforeunload', () => {
+  document.removeEventListener('visibilitychange', handleDocumentVisibility);
+  renderCoordinator.destroy();
+  weatherRefreshCooldown.clear();
   for (const unsubscribe of platformUnsubscribers) unsubscribe();
   unsubscribeBle();
   void lifecycleHandle?.remove?.();

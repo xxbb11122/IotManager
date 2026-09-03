@@ -2,9 +2,36 @@ import Chart from 'chart.js/auto';
 
 let chartCpu = null, chartTrend = null;
 const trendData = Array(12).fill(0);
+const MIN_CHART_PATCH_INTERVAL_MS = 250;
+let lastChartPatchAt = 0;
+let chartPatchTimer = null;
+let pendingChartPatch = null;
 
-export function loadCharts(devices, { recordTrend = false } = {}) {
+export function loadCharts(devices, { recordTrend = false, force = false } = {}) {
   devices = Array.isArray(devices) ? devices : [];
+  if (force) {
+    pendingChartPatch = null;
+    if (chartPatchTimer) {
+      globalThis.clearTimeout(chartPatchTimer);
+      chartPatchTimer = null;
+    }
+  }
+  const now = Date.now();
+  if (!force && chartCpu && chartTrend && now - lastChartPatchAt < MIN_CHART_PATCH_INTERVAL_MS) {
+    pendingChartPatch = { devices, recordTrend };
+    if (!chartPatchTimer) {
+      const delay = Math.max(0, MIN_CHART_PATCH_INTERVAL_MS - (now - lastChartPatchAt));
+      chartPatchTimer = globalThis.setTimeout(() => {
+        chartPatchTimer = null;
+        if (globalThis.document?.visibilityState === 'hidden') return;
+        const pending = pendingChartPatch;
+        pendingChartPatch = null;
+        if (pending) loadCharts(pending.devices, { recordTrend: pending.recordTrend, force: true });
+      }, delay);
+    }
+    return false;
+  }
+  lastChartPatchAt = now;
 
   // CPU distribution
   const buckets = { '0-20%': 0, '20-40%': 0, '40-60%': 0, '60-80%': 0, '80-100%': 0 };
@@ -84,6 +111,7 @@ export function loadCharts(devices, { recordTrend = false } = {}) {
       });
     }
   }
+  return true;
 }
 
 export function updateTrendData(onlineCount) {

@@ -33,6 +33,19 @@ test('mobile client exposes devices, activity, add, and connection settings with
       }
     })
   }));
+  await page.route('**/api/v1/sites/demo-site/weather/refresh', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      siteCode: 'demo-site', status: 'FRESH', fetchedAt: '2026-08-13T05:01:00Z',
+      current: { conditionText: '晴间多云', iconKey: 'partly-cloudy', temperatureC: 24, relativeHumidityPct: 64, surfacePressureHpa: 1013 },
+      indicators: {
+        temperature: { level: 'SUITABLE', label: '适宜' },
+        humidity: { level: 'SUITABLE', label: '适宜' },
+        pressure: { level: 'SUITABLE', label: '适宜' }
+      }
+    })
+  }));
   await page.route('**/api/v1/sites/demo-site/weather/forecast?**', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -93,6 +106,12 @@ test('mobile client exposes devices, activity, add, and connection settings with
   await expect(page.locator('.weather-location')).toBeVisible();
   await expect(page.locator('[data-action="update-weather-location"]')).toBeVisible();
   await expect(page.locator('#weather-latitude')).toBeVisible();
+  await page.getByRole('button', { name: '刷新天气' }).click();
+  await expect(page.locator('[data-region="weather-cooldown"]')).toContainText('天气刷新冷却中');
+  await page.evaluate(() => { window.__iotShellBeforeCooldownTick = document.querySelector('.app-shell'); });
+  await page.waitForTimeout(1_100);
+  expect(await page.evaluate(() => window.__iotShellBeforeCooldownTick === document.querySelector('.app-shell'))).toBe(true);
+  await expect(page.getByRole('button', { name: /秒后可刷新/ })).toBeVisible();
   await page.getByRole('button', { name: '返回' }).click();
   await expect(page.getByRole('navigation', { name: '主导航' }).first()).toBeVisible();
   await expect(page.getByText('我的设备')).toBeVisible();

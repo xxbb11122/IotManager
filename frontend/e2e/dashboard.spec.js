@@ -121,6 +121,7 @@ test('dashboard isolates data by selected site and accepts current-site realtime
   await expect(page.locator('tr[data-device-id="site-b-sensor"]')).toBeVisible();
   await expect(page.locator('#weather-temperature')).toContainText('29.2');
 
+  const requestsBeforeRealtimePatch = requests.length;
   await page.evaluate(() => {
     window.__iotTestSockets.at(-1).emitMessage({
       type: 'device_update',
@@ -131,6 +132,8 @@ test('dashboard isolates data by selected site and accepts current-site realtime
     });
   });
   await expect(page.locator('tr[data-device-id="site-b-sensor"]')).toContainText('Site B Sensor Updated');
+  await page.waitForTimeout(250);
+  expect(requests.slice(requestsBeforeRealtimePatch).some((request) => request.path === '/api/v1/devices')).toBe(false);
   expect(requests.some((request) => request.path === '/api/v1/devices' && request.siteCode === 'site-b')).toBe(true);
   expect(pageErrors).toEqual([]);
 });

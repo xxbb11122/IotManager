@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createClientStore } from '../src/js/store.js';
+import { CHANGE_DOMAIN, createClientStore } from '../src/js/store.js';
 
 function seededStore() {
   return createClientStore({
@@ -193,4 +193,24 @@ test('weather realtime updates are site-scoped and retain the server-computed st
   assert.equal(rejected, false);
   assert.equal(accepted, true);
   assert.equal(store.getState().weather.indicators.temperature.level, 'SUITABLE');
+});
+
+test('store emits stable change metadata for device, weather, command, runtime, and connection updates', () => {
+  const store = seededStore();
+  const metadata = [];
+  store.subscribe((_snapshot, change) => metadata.push(change));
+
+  store.patchDevice('lan-field-01', { temperature: 25.1 });
+  store.setWeather({ siteCode: 'demo-site', status: 'FRESH' });
+  store.upsertCommand({ commandId: 'command-metadata', deviceId: 7, status: 'SENT' });
+  store.setConnectionHealth({ state: 'connected', stale: false });
+  store.setRuntimeContext({ stale: false, lastSyncedAt: 1 });
+
+  assert.deepEqual(metadata[0].domains, [CHANGE_DOMAIN.DEVICES]);
+  assert.ok(metadata[0].entityRefs.includes('lan-field-01'));
+  assert.equal(metadata[0].structural, false);
+  assert.deepEqual(metadata[1].domains, [CHANGE_DOMAIN.WEATHER]);
+  assert.deepEqual(metadata[2].domains, [CHANGE_DOMAIN.COMMANDS, CHANGE_DOMAIN.DEVICES]);
+  assert.deepEqual(metadata[3].domains, [CHANGE_DOMAIN.CONNECTION, CHANGE_DOMAIN.RUNTIME]);
+  assert.deepEqual(metadata[4].domains, [CHANGE_DOMAIN.RUNTIME]);
 });

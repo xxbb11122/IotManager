@@ -35,13 +35,18 @@ function weatherFor(siteCode) {
 
 async function installBrowserFakes(page) {
   await page.addInitScript(() => {
+    window.__iotTestSockets = [];
     class TestWebSocket {
       static CONNECTING = 0;
       static OPEN = 1;
       static CLOSED = 3;
-      constructor() { this.readyState = TestWebSocket.OPEN; }
+      constructor() {
+        this.readyState = TestWebSocket.OPEN;
+        window.__iotTestSockets.push(this);
+      }
       close() { this.readyState = TestWebSocket.CLOSED; this.onclose?.(); }
       send() {}
+      emitMessage(message) { this.onmessage?.({ data: JSON.stringify(message) }); }
     }
     window.WebSocket = TestWebSocket;
   });
@@ -93,6 +98,21 @@ test('operator console reloads site-scoped operations and submits site-bound mut
 
   await page.locator('[data-page="devices"]').click();
   await expect(page.locator('#dev-table-body')).toContainText('Site B Sensor');
+  await page.locator('#dev-search').focus();
+  const requestCountBeforeRealtimePatch = requestLog.length;
+  await page.evaluate(() => {
+    window.__iotTestSockets.at(-1).emitMessage({
+      type: 'device_update',
+      payload: {
+        siteCode: 'site-b', id: 22, deviceId: 'site-b-sensor', name: 'Site B Sensor Realtime',
+        type: 'SENSOR', profileId: 'sensor-v1', profileVersion: 1, protocol: 'LAN_AGENT', status: 'WARNING', location: 'Zone B'
+      }
+    });
+  });
+  await expect(page.locator('tr[data-device-id="site-b-sensor"]')).toContainText('Site B Sensor Realtime');
+  expect(await page.evaluate(() => document.activeElement?.id)).toBe('dev-search');
+  await page.waitForTimeout(350);
+  expect(requestLog.slice(requestCountBeforeRealtimePatch).some((entry) => entry.path === '/api/v1/devices')).toBe(false);
 
   await page.locator('[data-page="weather"]').click();
   await expect(page.locator('#weather-current')).toContainText('Cloudy');

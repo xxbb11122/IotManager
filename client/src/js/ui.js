@@ -257,11 +257,221 @@ class ClientUi {
   }
 
   render(viewModel = {}) {
+    return this.renderFull(viewModel);
+  }
+
+  renderFull(viewModel = {}) {
     this.model = normalizeViewModel(viewModel);
     this.reconcileLocalState();
-    const previousScroll = window.scrollY;
+    const restoreState = this.captureRenderState();
     this.root.replaceChildren(this.buildShell());
-    if (previousScroll > 0) window.scrollTo(0, previousScroll);
+    this.restoreRenderState(restoreState);
+  }
+
+  captureRenderState() {
+    const active = document.activeElement;
+    const focusable = active instanceof HTMLElement && this.root.contains(active) ? active : null;
+    const supportsSelection = focusable
+      && typeof focusable.selectionStart === 'number'
+      && typeof focusable.selectionEnd === 'number';
+    return {
+      scrollY: window.scrollY,
+      focusId: focusable?.id ?? null,
+      selectionStart: supportsSelection ? focusable.selectionStart : null,
+      selectionEnd: supportsSelection ? focusable.selectionEnd : null
+    };
+  }
+
+  restoreRenderState(state = {}) {
+    if (Number(state.scrollY) > 0) window.scrollTo(0, Number(state.scrollY));
+    if (!state.focusId) return;
+    const target = document.getElementById(state.focusId);
+    if (!(target instanceof HTMLElement) || !this.root.contains(target)) return;
+    target.focus({ preventScroll: true });
+    if (typeof target.setSelectionRange === 'function'
+      && Number.isInteger(state.selectionStart)
+      && Number.isInteger(state.selectionEnd)) {
+      target.setSelectionRange(state.selectionStart, state.selectionEnd);
+    }
+  }
+
+  updateModel(viewModel = {}) {
+    this.model = normalizeViewModel(viewModel);
+    this.reconcileLocalState();
+    return this.model;
+  }
+
+  patchRuntime(viewModel = {}) {
+    this.updateModel(viewModel);
+    const header = this.root.querySelector('[data-region="header"]');
+    if (!header) return false;
+    header.replaceWith(this.buildHeader());
+    if (this.local.screen === 'devices') {
+      const context = this.root.querySelector('[data-region="device-context"]');
+      if (!context) return false;
+      context.replaceWith(this.buildContextRow());
+      return true;
+    }
+    if (this.local.screen === 'detail') {
+      const device = this.getActiveDevice();
+      const connection = this.root.querySelector('[data-region="device-connection"]');
+      if (!device || !connection) return false;
+      connection.replaceWith(this.buildConnectionSurface(device, getPrimaryConnection(device, this.model.activeConnection)));
+    }
+    return true;
+  }
+
+  patchWeather(viewModel = {}) {
+    this.updateModel(viewModel);
+    const headerWeather = this.root.querySelector('[data-region="weather-header"]');
+    if (headerWeather) headerWeather.replaceWith(this.buildWeatherHeaderSummary());
+    if (this.local.screen === 'devices') {
+      const context = this.root.querySelector('[data-region="device-context"]');
+      if (!context) return false;
+      context.replaceWith(this.buildContextRow());
+      return true;
+    }
+    if (this.local.screen !== 'weather') return true;
+    const weatherData = this.root.querySelector('[data-region="weather-data"]');
+    if (!weatherData) return false;
+    weatherData.replaceWith(this.buildWeatherData());
+    return true;
+  }
+
+  patchWeatherForecast(viewModel = {}) {
+    this.updateModel(viewModel);
+    if (this.local.screen !== 'weather') return true;
+    const weatherData = this.root.querySelector('[data-region="weather-data"]');
+    if (!weatherData) return false;
+    weatherData.replaceWith(this.buildWeatherData());
+    return true;
+  }
+
+  patchWeatherSettings(viewModel = {}) {
+    this.updateModel(viewModel);
+    if (this.local.screen !== 'weather') return true;
+    const location = this.root.querySelector('[data-region="weather-location"]');
+    if (!location) return false;
+    if (document.activeElement instanceof HTMLElement && location.contains(document.activeElement)) return true;
+    location.replaceWith(this.buildWeatherLocationSurface());
+    return true;
+  }
+
+  patchScreen(viewModel = {}) {
+    this.updateModel(viewModel);
+    return this.patchScreenContent();
+  }
+
+  patchWeatherCooldown({ retryAt = null, now = Date.now() } = {}) {
+    this.model = { ...this.model, weatherRefreshRetryAt: retryAt };
+    if (this.local.screen !== 'weather') return true;
+    const cooldown = this.root.querySelector('[data-region="weather-cooldown"]');
+    const refreshAction = this.root.querySelector('[data-region="weather-refresh-action"]');
+    if (!cooldown || !refreshAction) return false;
+    const seconds = weatherCooldownSeconds(retryAt, now);
+    cooldown.replaceWith(this.buildWeatherCooldownRegion(seconds));
+    refreshAction.replaceWith(this.buildWeatherRefreshButton(seconds));
+    return true;
+  }
+
+  patchDevices(deviceRefs = [], viewModel = {}) {
+    this.updateModel(viewModel);
+    if (this.local.screen === 'devices') return this.patchDeviceList(deviceRefs);
+    if (this.local.screen === 'detail') return this.patchActiveDeviceDetail(deviceRefs);
+    return true;
+  }
+
+  patchCommands(deviceRefs = [], viewModel = {}) {
+    this.updateModel(viewModel);
+    if (this.local.screen !== 'detail') return true;
+    const device = this.getActiveDevice();
+    if (!device || !referencesContainDevice(deviceRefs, device)) return true;
+    const command = this.root.querySelector('[data-region="device-command"]');
+    if (!command) return false;
+    command.replaceWith(this.buildCommandSurface(device));
+    return true;
+  }
+
+  patchActivity(deviceRefs = [], viewModel = {}) {
+    this.updateModel(viewModel);
+    if (this.local.screen === 'detail') {
+      const device = this.getActiveDevice();
+      if (!device || !referencesContainDevice(deviceRefs, device)) return true;
+      const activity = this.root.querySelector('[data-region="device-activity"]');
+      if (!activity) return false;
+      activity.replaceWith(this.buildActivitySurface(device, 6));
+      return true;
+    }
+    if (this.local.screen !== 'activity') return true;
+    return this.patchScreenContent();
+  }
+
+  patchAlerts(_deviceRefs = [], viewModel = {}) {
+    this.updateModel(viewModel);
+    // Alerts are rendered through device detail/activity views only when a
+    // future screen chooses to expose them. Keeping this a successful no-op
+    // avoids an unnecessary shell redraw for currently invisible data.
+    return true;
+  }
+
+  patchScreenContent() {
+    const screen = this.root.querySelector('[data-region="screen-content"]');
+    if (!screen) return false;
+    if (document.activeElement instanceof HTMLElement && screen.contains(document.activeElement)) return true;
+    screen.replaceWith(this.buildCurrentScreen());
+    return true;
+  }
+
+  patchDeviceList(deviceRefs = []) {
+    const list = this.root.querySelector('[data-region="device-list"]');
+    const count = this.root.querySelector('[data-region="device-list-count"]');
+    const online = this.root.querySelector('[data-region="device-online-count"]');
+    if (!list || !count || !online) return this.patchScreenContent();
+    const refs = new Set(deviceRefs.map(String));
+    const devices = refs.size
+      ? this.model.devices.filter((device) => referencesContainDevice([...refs], device))
+      : this.model.devices;
+
+    if (refs.size > 0 && devices.length > 0) {
+      for (const device of devices) {
+        const existing = findDeviceElement(list, device);
+        if (existing) existing.replaceWith(this.buildDeviceRow(device));
+      }
+    }
+
+    // A REST reconciliation may add or remove entities. Rebuilding only the
+    // list region is safe and keeps header, navigation, focus and scroll intact.
+    const renderedRefs = [...list.querySelectorAll('[data-device-ref]')].map((node) => node.dataset.deviceRef);
+    const desiredRefs = this.model.devices.map((device) => deviceKey(device));
+    const hasSameEntities = renderedRefs.length === desiredRefs.length
+      && renderedRefs.every((reference) => desiredRefs.includes(reference));
+    if (!hasSameEntities) {
+      list.replaceChildren(...(this.model.devices.length
+        ? this.model.devices.map((device) => this.buildDeviceRow(device))
+        : [element('div', 'empty-inline', { text: '还没有设备。' })]));
+    }
+    count.textContent = `已认领设备 (${this.model.devices.length})`;
+    online.replaceWith(this.buildDeviceOnlineCount(this.model.devices));
+    return true;
+  }
+
+  patchActiveDeviceDetail(deviceRefs = []) {
+    const device = this.getActiveDevice();
+    if (!device || !referencesContainDevice(deviceRefs, device)) return true;
+    const connection = getPrimaryConnection(device, this.model.activeConnection);
+    const detailHeading = this.root.querySelector('[data-region="device-detail-heading"]');
+    const connectionRegion = this.root.querySelector('[data-region="device-connection"]');
+    const stateRegion = this.root.querySelector('[data-region="device-state"]');
+    if (!detailHeading || !connectionRegion || !stateRegion) return false;
+    detailHeading.replaceWith(this.buildDetailHeading(device, connection));
+    connectionRegion.replaceWith(this.buildConnectionSurface(device, connection));
+    stateRegion.replaceWith(this.buildStateSurface(device));
+
+    const controls = this.root.querySelector('[data-region="device-controls"]');
+    if (controls && !(document.activeElement instanceof HTMLElement && controls.contains(document.activeElement))) {
+      controls.replaceWith(this.buildControlsSurface(device, deviceScreenState(device, this.model.runtime)));
+    }
+    return true;
   }
 
   destroy() {
@@ -301,12 +511,12 @@ class ClientUi {
   }
 
   buildShell() {
-    const shell = element('div', 'app-shell');
+    const shell = element('div', 'app-shell', { data: { region: 'shell' } });
     shell.append(this.buildHeader());
 
     const workspace = element('div', 'workspace');
     workspace.append(this.buildDesktopNav());
-    const main = element('main', 'screen-region', { id: 'client-screen', ariaLive: 'polite' });
+    const main = element('main', 'screen-region', { id: 'client-screen', ariaLive: 'polite', data: { region: 'screen' } });
     main.append(this.buildPullRefreshIndicator());
     main.append(this.buildCurrentScreen());
     workspace.append(main);
@@ -330,7 +540,7 @@ class ClientUi {
   }
 
   buildHeader() {
-    const header = element('header', 'app-header');
+    const header = element('header', 'app-header', { data: { region: 'header' } });
     const brand = element('div', 'app-brand');
     const mark = element('div', 'brand-mark', { ariaHidden: 'true' });
     mark.append(icon('Workflow', 19));
@@ -363,6 +573,7 @@ class ClientUi {
     const health = connectionHealth(this.model.connectionHealth);
     const status = statusChip(accessRouteLabel(this.model.runtime.accessRoute), health.tone, health.icon === 'RefreshCw');
     status.classList.add('header-status');
+    status.dataset.region = 'runtime-status';
     actions.append(status);
     header.append(actions);
     return header;
@@ -375,6 +586,7 @@ class ClientUi {
     const available = Object.keys(current).length > 0;
     const summary = actionButton('', 'open-weather', {
       className: 'weather-header-summary',
+      data: { region: 'weather-header' },
       ariaLabel: available
         ? `站点天气：温度 ${weatherValue(current.temperatureC, '°C')}，湿度 ${weatherValue(current.relativeHumidityPct, '%')}，气压 ${weatherValue(current.surfacePressureHpa, ' hPa')}`
         : '打开站点天气'
@@ -420,7 +632,7 @@ class ClientUi {
   }
 
   buildCurrentScreen() {
-    const screen = element('section', 'screen');
+    const screen = element('section', 'screen', { data: { region: 'screen-content' } });
     const issue = this.model.error ?? this.local.transientError;
     if (issue) screen.append(this.buildNotice(issue, 'danger', 'dismiss-error'));
 
@@ -476,8 +688,9 @@ class ClientUi {
     }
 
     const devices = this.model.devices;
-    const surface = element('section', 'surface', { ariaLabel: '设备列表' });
+    const surface = element('section', 'surface', { ariaLabel: '设备列表', data: { region: 'device-list-surface' } });
     if (devices.length === 0) {
+      const list = element('div', 'device-list', { data: { region: 'device-list' } });
       const empty = element('div', 'empty-state');
       const iconWrap = element('div', 'empty-state__icon', { ariaHidden: 'true' });
       iconWrap.append(icon('Boxes', 27));
@@ -488,17 +701,18 @@ class ClientUi {
         className: 'button button--primary',
         iconName: 'Plus'
       }));
-      surface.append(empty);
+      list.append(empty);
+      surface.append(list);
     } else {
       const titleRow = element('div', 'surface-title-row');
       const titleGroup = element('div');
-      titleGroup.append(element('h3', 'surface-title', { text: `已认领设备 (${devices.length})` }));
+      titleGroup.append(element('h3', 'surface-title', { text: `已认领设备 (${devices.length})`, data: { region: 'device-list-count' } }));
       titleGroup.append(element('p', 'surface-subtitle', { text: '状态以设备最近一次上报为准。' }));
       titleRow.append(titleGroup);
-      titleRow.append(statusChip(`${onlineDeviceCount(devices)} 在线`, onlineDeviceCount(devices) ? 'success' : 'warning'));
+      titleRow.append(this.buildDeviceOnlineCount(devices));
       surface.append(titleRow);
 
-      const list = element('div', 'device-list');
+      const list = element('div', 'device-list', { data: { region: 'device-list' } });
       devices.forEach((device) => list.append(this.buildDeviceRow(device)));
       surface.append(list);
     }
@@ -507,7 +721,7 @@ class ClientUi {
   }
 
   buildContextRow() {
-    const row = element('section', 'context-row', { ariaLabel: '组织与站点上下文' });
+    const row = element('section', 'context-row', { ariaLabel: '组织与站点上下文', data: { region: 'device-context' } });
     const location = element('div', 'context-row__location');
     location.append(icon('MapPin', 17));
     location.append(element('span', '', {
@@ -572,21 +786,35 @@ class ClientUi {
     return fragment;
   }
 
+  buildDeviceOnlineCount(devices = this.model.devices) {
+    const count = onlineDeviceCount(devices);
+    const chip = statusChip(`${count} 在线`, count ? 'success' : 'warning');
+    chip.dataset.region = 'device-online-count';
+    return chip;
+  }
+
   buildWeatherScreen() {
     const fragment = document.createDocumentFragment();
     const weather = this.model.weather;
-    const current = plainObject(weather?.current);
-    const forecast = plainObject(this.model.weatherForecast);
     fragment.append(screenHeading('园区天气', weatherDescription(weather), backButton('devices')));
     fragment.append(this.buildWeatherLocationSurface());
+    fragment.append(this.buildWeatherData());
+    return fragment;
+  }
+
+  buildWeatherData() {
+    const content = element('div', 'weather-data', { data: { region: 'weather-data' } });
+    const weather = this.model.weather;
+    const current = plainObject(weather?.current);
+    const forecast = plainObject(this.model.weatherForecast);
 
     if (weather?.refreshError) {
-      fragment.append(this.buildNotice(weather.refreshError, 'warning', null, '天气同步状态'));
+      content.append(this.buildNotice(weather.refreshError, 'warning', null, '天气同步状态'));
     }
 
     if (Object.keys(current).length === 0) {
-      fragment.append(this.buildNotice(weatherUnavailableMessage(weather), ['UNAVAILABLE', 'PENDING'].includes(weather?.status) ? 'info' : 'warning', null, '站点天气'));
-      return fragment;
+      content.append(this.buildNotice(weatherUnavailableMessage(weather), ['UNAVAILABLE', 'PENDING'].includes(weather?.status) ? 'info' : 'warning', null, '站点天气'));
+      return content;
     }
 
     const hero = element('section', 'weather-hero');
@@ -603,14 +831,14 @@ class ClientUi {
     hero.append(heroMain);
     const refresh = element('p', 'weather-hero__updated', { text: weather?.fetchedAt ? `更新于 ${formatDate(weather.fetchedAt)}` : '等待天气数据' });
     hero.append(refresh);
-    fragment.append(hero);
+    content.append(hero);
 
     const metrics = element('section', 'weather-metrics', { ariaLabel: '当前天气指标' });
     metrics.append(weatherDetailMetric('Droplets', '湿度', weatherValue(current.relativeHumidityPct, '%'), weather?.indicators?.humidity));
     metrics.append(weatherDetailMetric('Gauge', '气压', weatherValue(current.surfacePressureHpa, ' hPa'), weather?.indicators?.pressure));
     metrics.append(weatherDetailMetric('Wind', '风速', weatherValue(current.windSpeedKmh, ' km/h'), null));
     metrics.append(weatherDetailMetric('MapPin', '海拔', weatherValue(current.elevationM, ' m'), null));
-    fragment.append(metrics);
+    content.append(metrics);
 
     const risks = element('section', 'surface surface--padded weather-risks');
     risks.append(surfaceHeading('环境状态', '颜色反映环境风险，不影响设备连接与控制权限。'));
@@ -621,11 +849,11 @@ class ClientUi {
     list.append(weatherRiskRow('ESD 风险', weather?.indicators?.esdRisk));
     list.append(weatherRiskRow('结露风险', weather?.indicators?.condensationRisk));
     risks.append(list);
-    fragment.append(risks);
+    content.append(risks);
 
-    fragment.append(this.buildWeatherForecastSurface('未来 24 小时', arrayOf(forecast.hourly), false));
-    fragment.append(this.buildWeatherForecastSurface('7 天预报', arrayOf(forecast.daily), true));
-    return fragment;
+    content.append(this.buildWeatherForecastSurface('未来 24 小时', arrayOf(forecast.hourly), false));
+    content.append(this.buildWeatherForecastSurface('7 天预报', arrayOf(forecast.daily), true));
+    return content;
   }
 
   buildWeatherLocationSurface() {
@@ -634,7 +862,7 @@ class ClientUi {
     const hasCoordinates = validCoordinate(settings.latitude, -90, 90) && validCoordinate(settings.longitude, -180, 180);
     const hasPendingLocation = validCoordinate(pendingLocation.latitude, -90, 90)
       && validCoordinate(pendingLocation.longitude, -180, 180);
-    const surface = element('section', 'surface surface--padded weather-location');
+    const surface = element('section', 'surface surface--padded weather-location', { data: { region: 'weather-location' } });
     surface.append(surfaceHeading('天气位置', '仅在点击“使用我的位置”时读取一次定位；不会后台追踪。'));
 
     const summary = element('div', 'weather-location__summary');
@@ -671,31 +899,15 @@ class ClientUi {
       ));
     }
 
-    const refreshRetryAt = Number(this.model.weatherRefreshRetryAt);
-    const refreshCooldownSeconds = Number.isFinite(refreshRetryAt) && refreshRetryAt > Date.now()
-      ? Math.max(1, Math.ceil((refreshRetryAt - Date.now()) / 1000))
-      : 0;
-    if (refreshCooldownSeconds > 0) {
-      surface.append(this.buildNotice(
-        `天气刷新冷却中，${refreshCooldownSeconds} 秒后可再次刷新。`,
-        'info',
-        null,
-        '刷新冷却'
-      ));
-    }
+    const refreshCooldownSeconds = weatherCooldownSeconds(this.model.weatherRefreshRetryAt);
+    surface.append(this.buildWeatherCooldownRegion(refreshCooldownSeconds));
 
     const actions = element('div', 'weather-location__actions');
     actions.append(actionButton(this.isBusy('weather-device-location') ? '正在定位…' : '使用我的位置', 'update-weather-location', {
       className: 'button button--primary', iconName: 'MapPin',
       disabled: this.isBusy('weather-device-location') || this.isBusy('weather-manual-location')
     }));
-    actions.append(actionButton(
-      this.isBusy('refresh-weather') ? '刷新中…' : refreshCooldownSeconds > 0 ? `${refreshCooldownSeconds} 秒后可刷新` : '刷新天气',
-      'refresh-weather', {
-      className: 'button button--secondary', iconName: 'RefreshCw',
-      disabled: refreshCooldownSeconds > 0 || this.isBusy('refresh-weather')
-        || this.isBusy('weather-device-location') || this.isBusy('weather-manual-location')
-    }));
+    actions.append(this.buildWeatherRefreshButton(refreshCooldownSeconds));
     if (hasPendingLocation) {
       actions.append(actionButton(this.isBusy('weather-pending-location') ? '保存中…' : '保存已获取的位置', 'retry-pending-weather-location', {
         className: 'button button--secondary', iconName: 'MapPin',
@@ -715,6 +927,32 @@ class ClientUi {
     }));
     surface.append(manual);
     return surface;
+  }
+
+  buildWeatherCooldownRegion(seconds = weatherCooldownSeconds(this.model.weatherRefreshRetryAt)) {
+    const region = element('div', 'weather-cooldown', { data: { region: 'weather-cooldown' } });
+    if (seconds > 0) {
+      region.append(this.buildNotice(
+        `天气刷新冷却中，${seconds} 秒后可再次刷新。`,
+        'info',
+        null,
+        '刷新冷却'
+      ));
+    }
+    return region;
+  }
+
+  buildWeatherRefreshButton(seconds = weatherCooldownSeconds(this.model.weatherRefreshRetryAt)) {
+    return actionButton(
+      this.isBusy('refresh-weather') ? '刷新中…' : seconds > 0 ? `${seconds} 秒后可刷新` : '刷新天气',
+      'refresh-weather', {
+        className: 'button button--secondary',
+        iconName: 'RefreshCw',
+        data: { region: 'weather-refresh-action' },
+        disabled: seconds > 0 || this.isBusy('refresh-weather')
+          || this.isBusy('weather-device-location') || this.isBusy('weather-manual-location')
+      }
+    );
   }
 
   buildWeatherForecastSurface(title, points, daily) {
@@ -753,7 +991,7 @@ class ClientUi {
     const online = deviceOnline(device, this.model.connectionHealth);
     const row = actionButton('', 'open-device', {
       className: 'device-row',
-      data: { deviceId: id },
+      data: { deviceId: id, deviceRef: id },
       ariaLabel: `打开设备 ${deviceName(device)}`
     });
     const deviceIcon = element('div', `device-icon${online ? '' : ' device-icon--offline'}`, { ariaHidden: 'true' });
@@ -1103,17 +1341,7 @@ class ClientUi {
 
     const fragment = document.createDocumentFragment();
     const connection = getPrimaryConnection(device, this.model.activeConnection);
-    const online = deviceOnline(device, this.model.connectionHealth);
-    const header = element('div', 'detail-heading');
-    const title = element('div', 'detail-heading__title');
-    title.append(backButton('devices'));
-    const copy = element('div');
-    copy.append(element('h2', '', { text: deviceName(device) }));
-    copy.append(element('p', '', { text: deviceMeta(device) }));
-    title.append(copy);
-    header.append(title);
-    header.append(statusChip(online ? '在线' : connectionStateLabel(connection.status), online ? 'success' : 'warning'));
-    fragment.append(header);
+    fragment.append(this.buildDetailHeading(device, connection));
 
     const screenState = deviceScreenState(device, this.model.runtime);
     if (screenState.unknownBleProfile) {
@@ -1142,6 +1370,20 @@ class ClientUi {
     return fragment;
   }
 
+  buildDetailHeading(device, connection) {
+    const online = deviceOnline(device, this.model.connectionHealth);
+    const header = element('div', 'detail-heading', { data: { region: 'device-detail-heading' } });
+    const title = element('div', 'detail-heading__title');
+    title.append(backButton('devices'));
+    const copy = element('div');
+    copy.append(element('h2', '', { text: deviceName(device) }));
+    copy.append(element('p', '', { text: deviceMeta(device) }));
+    title.append(copy);
+    header.append(title);
+    header.append(statusChip(online ? '在线' : connectionStateLabel(connection.status), online ? 'success' : 'warning'));
+    return header;
+  }
+
   buildMissingDetail() {
     const wrapper = element('div', 'empty-state surface');
     const iconWrap = element('div', 'empty-state__icon', { ariaHidden: 'true' });
@@ -1158,7 +1400,7 @@ class ClientUi {
   }
 
   buildConnectionSurface(device, connection) {
-    const surface = element('section', 'surface surface--padded');
+    const surface = element('section', 'surface surface--padded', { data: { region: 'device-connection' } });
     surface.append(surfaceHeading('连接状态', '设备控制结果需要由连接回执确认。'));
     const summary = element('div', 'connection-summary');
     const top = element('div', 'connection-summary__top');
@@ -1204,7 +1446,7 @@ class ClientUi {
   }
 
   buildStateSurface(device) {
-    const surface = element('section', 'surface surface--padded');
+    const surface = element('section', 'surface surface--padded', { data: { region: 'device-state' } });
     surface.append(surfaceHeading('设备状态', '期望状态不会覆盖设备已上报的真实状态。'));
     const comparison = element('div', 'state-comparison');
     comparison.append(this.buildStatePanel('期望状态', device.desiredState ?? {}, 'desired'));
@@ -1236,7 +1478,7 @@ class ClientUi {
   }
 
   buildControlsSurface(device, screenState) {
-    const surface = element('section', 'surface surface--padded');
+    const surface = element('section', 'surface surface--padded', { data: { region: 'device-controls' } });
     surface.append(surfaceHeading('设备控制', '控制命令会先进入待发送状态，确认后才更新上报状态。'));
 
     if (!screenState.showControls) {
@@ -1438,7 +1680,7 @@ class ClientUi {
   }
 
   buildCommandSurface(device) {
-    const surface = element('section', 'surface surface--padded');
+    const surface = element('section', 'surface surface--padded', { data: { region: 'device-command' } });
     surface.append(surfaceHeading('最近命令', '每次操作均可追踪到回执结果。'));
     const command = this.latestCommand(device);
     if (!command) {
@@ -1469,7 +1711,7 @@ class ClientUi {
   }
 
   buildActivitySurface(device, limit) {
-    const surface = element('section', 'surface surface--padded');
+    const surface = element('section', 'surface surface--padded', { data: { region: 'device-activity' } });
     const heading = surfaceHeading('近期动态', '连接、命令与回执会保留在本地时间线。');
     const openAll = actionButton('查看全部', 'navigate', {
       className: 'button button--quiet button--small',
@@ -2309,6 +2551,26 @@ function textNode(value) {
 
 function deviceKey(device = {}) {
   return String(device.id ?? device.deviceId ?? device.publicId ?? '');
+}
+
+function weatherCooldownSeconds(retryAt, now = Date.now()) {
+  const deadline = Number(retryAt);
+  const timestamp = Number(now);
+  if (!Number.isFinite(deadline) || !Number.isFinite(timestamp) || deadline <= timestamp) return 0;
+  return Math.max(1, Math.ceil((deadline - timestamp) / 1000));
+}
+
+function referencesContainDevice(references, device) {
+  const expected = new Set(arrayOf(references).map((reference) => String(reference)));
+  if (expected.size === 0) return true;
+  return [device?.id, device?.deviceId, device?.publicId]
+    .filter((reference) => reference !== null && reference !== undefined)
+    .some((reference) => expected.has(String(reference)));
+}
+
+function findDeviceElement(container, device) {
+  return [...container.querySelectorAll('[data-device-ref]')]
+    .find((node) => referencesContainDevice([node.dataset.deviceRef], device)) ?? null;
 }
 
 function candidateKey(candidate = {}) {

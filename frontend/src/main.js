@@ -3,6 +3,7 @@ import { api, configureApiAuthentication } from './js/api.js';
 import { wsService } from './js/websocket.js';
 import { renderDevices, renderAlerts, renderStats, applyFilter, patchDevice } from './js/device-list.js';
 import { loadCharts } from './js/charts.js';
+import { createRenderMetrics } from './js/render-metrics.js';
 import { BrowserOidcSession, resolveBrowserOidcConfig } from '../../shared/browser-oidc.js';
 
 /* ── State ── */
@@ -14,7 +15,16 @@ let alertRefreshTimer = null;
 let weather = null;
 let weatherForecast = null;
 let weatherLoadError = false;
-let skipNextConnectedSync = false;
+let initialLoadComplete = false;
+let reconcilePromise = null;
+let lastReconcileAt = 0;
+let lastFallbackAt = 0;
+let hiddenRealtimeDirty = false;
+let hiddenReconcilePending = false;
+const LONG_DISCONNECT_MS = 10_000;
+const RECONCILE_MIN_INTERVAL_MS = 30_000;
+const FALLBACK_MIN_INTERVAL_MS = 30_000;
+const metrics = createRenderMetrics();
 let currentSite = {
   siteCode: 'demo-site',
   siteName: '演示站点',
@@ -59,6 +69,7 @@ async function initializeAuthentication() {
 
 /* ── Clock ── */
 function updateClock() {
+  if (document.visibilityState === 'hidden') return;
   const el = document.getElementById('clock');
   if (el) el.textContent = new Date().toLocaleString('zh-CN', { hour12: false });
 }
@@ -73,7 +84,7 @@ async function loadAll({ includeWeather = true } = {}) {
     devices = deviceList;
     renderStats(statsData);
     renderFiltered();
-    loadCharts(deviceList, { recordTrend: true });
+    loadCharts(deviceList, { recordTrend: true, force: true });
   } catch (e) {
     console.error('加载设备失败:', e);
     const tbody = document.getElementById('device-tbody');
@@ -171,10 +182,15 @@ function renderWeather() {
 }
 
 async function loadAlerts() {
+  if (loadAlerts.inFlight) return loadAlerts.inFlight;
+  loadAlerts.inFlight = (async () => {
   try {
     const alerts = await api(`/api/alerts/active?siteCode=${encodeURIComponent(currentSite.siteCode)}`);
     renderAlerts(alerts);
   } catch (e) { /* An alert refresh must not replace a healthy device view. */ }
+  finally { loadAlerts.inFlight = null; }
+  })();
+  return loadAlerts.inFlight;
 }
 
 function renderFiltered() {
@@ -207,12 +223,18 @@ function mergeRealtimeDevices(updates) {
     changed.push(merged);
   }
   if (!changed.length) return;
+  if (document.visibilityState === 'hidden') {
+    hiddenRealtimeDirty = true;
+    return;
+  }
   const visible = applyFilter(devices, currentFilter, currentTypeFilter, searchQuery);
   for (const device of changed) {
     patchDevice(device, visible.some((item) => item.deviceId === device.deviceId));
+    metrics.increment('devicePatchCount');
   }
   renderStats(localStats());
   loadCharts(devices);
+  metrics.increment('chartPatchCount');
 }
 
 function removeRealtimeDevice(payload) {
@@ -221,17 +243,48 @@ function removeRealtimeDevice(payload) {
   const index = devices.findIndex((device) => device.deviceId === payload.deviceId);
   if (index < 0) return;
   const [removed] = devices.splice(index, 1);
+  if (document.visibilityState === 'hidden') {
+    hiddenRealtimeDirty = true;
+    return;
+  }
   patchDevice(removed, false);
+  metrics.increment('devicePatchCount');
   renderStats(localStats());
   loadCharts(devices);
+  metrics.increment('chartPatchCount');
 }
 
 function scheduleAlertRefresh() {
+  if (document.visibilityState === 'hidden') {
+    hiddenRealtimeDirty = true;
+    return;
+  }
   if (alertRefreshTimer) window.clearTimeout(alertRefreshTimer);
   alertRefreshTimer = window.setTimeout(() => {
     alertRefreshTimer = null;
-    void loadAlerts();
+    void loadAlerts().then(() => metrics.increment('alertPatchCount'));
   }, 250);
+}
+
+async function reconcileFromRest({ includeWeather = false, reason = 'fallback' } = {}) {
+  const now = Date.now();
+  if (reconcilePromise || now - lastReconcileAt < RECONCILE_MIN_INTERVAL_MS) return reconcilePromise;
+  lastReconcileAt = now;
+  metrics.increment('restReconcileCount');
+  reconcilePromise = loadAll({ includeWeather })
+    .catch((error) => console.warn(`实时${reason}对账失败:`, error))
+    .finally(() => { reconcilePromise = null; });
+  return reconcilePromise;
+}
+
+function flushVisibleRealtime() {
+  if (!hiddenRealtimeDirty) return;
+  hiddenRealtimeDirty = false;
+  renderStats(localStats());
+  renderFiltered();
+  loadCharts(devices, { force: true });
+  renderWeather();
+  scheduleAlertRefresh();
 }
 
 /* ── WebSocket ── */
@@ -251,15 +304,28 @@ wsService.on('weather_update', (payload) => {
   if (payload?.siteCode !== currentSite.siteCode) return;
   weather = payload;
   weatherLoadError = false;
-  renderWeather();
-});
-
-wsService.on('connected', () => {
-  if (skipNextConnectedSync) {
-    skipNextConnectedSync = false;
+  if (document.visibilityState === 'hidden') {
+    hiddenRealtimeDirty = true;
     return;
   }
-  void loadAll({ includeWeather: true });
+  renderWeather();
+  metrics.increment('weatherPatchCount');
+});
+
+wsService.on('connected', (connection = {}) => {
+  metrics.increment('wsConnectCount');
+  if (connection.reconnected) metrics.increment('wsReconnectCount');
+  if (!initialLoadComplete || !connection.reconnected || connection.disconnectedForMs < LONG_DISCONNECT_MS) return;
+  if (document.visibilityState === 'hidden') {
+    hiddenReconcilePending = true;
+    return;
+  }
+  void reconcileFromRest({ includeWeather: false, reason: 'long_disconnect' });
+});
+
+wsService.on('disconnected', () => {
+  metrics.increment('wsDisconnectCount');
+  if (document.visibilityState === 'hidden') hiddenReconcilePending = true;
 });
 
 /* ── Sidebar ── */
@@ -337,7 +403,6 @@ async function selectSite(site, { reload = true } = {}) {
   renderAlerts([]);
   wsService.disconnect();
   await loadAll({ includeWeather: true });
-  skipNextConnectedSync = true;
   wsService.connect();
 }
 
@@ -397,15 +462,34 @@ document.getElementById('auth-action')?.addEventListener('click', async () => {
 /* ── Init ── */
 updateClock();
 setInterval(updateClock, 1000);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') return;
+  flushVisibleRealtime();
+  if (hiddenReconcilePending) {
+    hiddenReconcilePending = false;
+    void reconcileFromRest({ includeWeather: false, reason: 'visibility_resume' });
+  }
+});
+if (import.meta.env.DEV) {
+  globalThis.__iotMonitoringUiMetrics = () => metrics.snapshot();
+}
 void (async () => {
   if (!await initializeAuthentication()) return;
   await loadSites();
   await loadAll({ includeWeather: true });
-  skipNextConnectedSync = true;
+  initialLoadComplete = true;
   wsService.connect();
 })();
 setInterval(() => {
   // Reconcile from REST only while realtime is unavailable; connected clients
   // already receive committed device, command, and alert events.
-  if (!wsService.isConnected()) void loadAll({ includeWeather: false });
+  if (wsService.isConnected()) return;
+  if (document.visibilityState === 'hidden') {
+    hiddenReconcilePending = true;
+    return;
+  }
+  const now = Date.now();
+  if (now - lastFallbackAt < FALLBACK_MIN_INTERVAL_MS) return;
+  lastFallbackAt = now;
+  void reconcileFromRest({ includeWeather: false, reason: 'fallback' });
 }, 30000);

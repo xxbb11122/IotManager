@@ -2,6 +2,21 @@ import { transitionCommand } from './command-state.js';
 
 export const REALTIME_EVENT_VERSION = 1;
 
+export const CHANGE_DOMAIN = Object.freeze({
+  DEVICES: 'devices',
+  DEVICE_DETAIL: 'device-detail',
+  COMMANDS: 'commands',
+  ACTIVITY: 'activity',
+  ALERTS: 'alerts',
+  WEATHER: 'weather',
+  WEATHER_FORECAST: 'weather-forecast',
+  WEATHER_SETTINGS: 'weather-settings',
+  RUNTIME: 'runtime',
+  CONNECTION: 'connection',
+  SCREEN: 'screen',
+  STRUCTURE: 'structure'
+});
+
 const DEFAULT_CONNECTION_HEALTH = Object.freeze({
   state: 'idle',
   stale: true,
@@ -198,6 +213,33 @@ function connectionFromPayload(payload) {
   return connection;
 }
 
+function normalizeMetadata(metadata, origin) {
+  const source = isRecord(metadata) ? metadata : {};
+  const domains = Array.isArray(source.domains)
+    ? [...new Set(source.domains.filter((domain) => typeof domain === 'string' && domain))]
+    : undefined;
+  const entityRefs = Array.isArray(source.entityRefs)
+    ? [...new Set(source.entityRefs
+      .filter((reference) => reference !== null && reference !== undefined)
+      .map((reference) => String(reference)))]
+    : undefined;
+  return {
+    origin: typeof source.origin === 'string' && source.origin ? source.origin : origin,
+    ...(domains ? { domains } : {}),
+    ...(entityRefs ? { entityRefs } : {}),
+    structural: source.structural === true,
+    ...(typeof source.reason === 'string' && source.reason ? { reason: source.reason } : {})
+  };
+}
+
+function referencesForMetadata(device, fallback = null) {
+  const references = [...deviceReferences(device)];
+  if (references.length === 0 && fallback !== null && fallback !== undefined) {
+    references.push(String(fallback));
+  }
+  return references;
+}
+
 /**
  * Transport-neutral client state. Mutators publish frozen snapshot objects, so
  * page code cannot accidentally change a previous or current store value.
@@ -209,7 +251,7 @@ export function createClientStore(initialState = {}) {
 
   function publish(next, metadata = {}) {
     currentState = freezeDeep(normalizeState(next));
-    const eventMetadata = { origin: publicationOrigin, ...metadata };
+    const eventMetadata = normalizeMetadata(metadata, publicationOrigin);
     for (const listener of listeners) {
       listener(currentState, eventMetadata);
     }
@@ -236,7 +278,12 @@ export function createClientStore(initialState = {}) {
     }
     listeners.add(listener);
     if (emitCurrent) {
-      listener(currentState);
+      listener(currentState, {
+        origin: 'hydrate',
+        domains: [CHANGE_DOMAIN.STRUCTURE],
+        structural: true,
+        reason: 'initial_snapshot'
+      });
     }
     return () => listeners.delete(listener);
   }
@@ -258,7 +305,12 @@ export function createClientStore(initialState = {}) {
       currentState.activitiesByDeviceId,
       currentState.alertsByDeviceId
     );
-    return publish({ ...currentState, devices: normalizedDevices, ...collections });
+    return publish({ ...currentState, devices: normalizedDevices, ...collections }, {
+      domains: [CHANGE_DOMAIN.DEVICES],
+      entityRefs: normalizedDevices.flatMap((device) => referencesForMetadata(device)),
+      structural: false,
+      reason: 'set_devices'
+    });
   }
 
   function upsertDevice(device) {
@@ -275,17 +327,29 @@ export function createClientStore(initialState = {}) {
       currentState.activitiesByDeviceId,
       currentState.alertsByDeviceId
     );
-    return publish({ ...currentState, devices, ...collections });
+    const updated = devices[index >= 0 ? index : devices.length - 1];
+    return publish({ ...currentState, devices, ...collections }, {
+      domains: [CHANGE_DOMAIN.DEVICES],
+      entityRefs: referencesForMetadata(updated, reference),
+      structural: false,
+      reason: index >= 0 ? 'upsert_device' : 'add_device'
+    });
   }
 
-  function patchDevice(reference, patch) {
+  function patchDevice(reference, patch, metadata = {}) {
     const index = findDeviceIndex(currentState.devices, reference);
     if (index < 0) {
       return null;
     }
     const devices = [...currentState.devices];
     devices[index] = mergeDevice(devices[index], patch);
-    publish({ ...currentState, devices });
+    publish({ ...currentState, devices }, {
+      domains: [CHANGE_DOMAIN.DEVICES],
+      entityRefs: referencesForMetadata(devices[index], reference),
+      structural: false,
+      reason: 'patch_device',
+      ...metadata
+    });
     return devices[index];
   }
 
@@ -294,41 +358,74 @@ export function createClientStore(initialState = {}) {
     const nextActiveDeviceId = referencesMatch(selectActiveDevice(), reference)
       ? null
       : currentState.activeDeviceId;
-    return publish({ ...currentState, devices, activeDeviceId: nextActiveDeviceId });
+    return publish({ ...currentState, devices, activeDeviceId: nextActiveDeviceId }, {
+      domains: [CHANGE_DOMAIN.DEVICES],
+      entityRefs: [String(reference)],
+      structural: nextActiveDeviceId !== currentState.activeDeviceId,
+      reason: 'remove_device'
+    });
   }
 
   function setActiveDevice(reference) {
     const device = selectDevice(reference);
-    return publish({ ...currentState, activeDeviceId: device?.id ?? reference ?? null });
+    return publish({ ...currentState, activeDeviceId: device?.id ?? reference ?? null }, {
+      domains: [CHANGE_DOMAIN.STRUCTURE],
+      entityRefs: referencesForMetadata(device, reference),
+      structural: true,
+      reason: 'set_active_device'
+    });
   }
 
   function setActiveConnection(connection) {
-    return publish({ ...currentState, activeConnection: connection ?? null });
+    return publish({ ...currentState, activeConnection: connection ?? null }, {
+      domains: [CHANGE_DOMAIN.DEVICE_DETAIL, CHANGE_DOMAIN.CONNECTION],
+      entityRefs: [connection?.deviceId ?? connection?.id].filter((reference) => reference != null).map(String),
+      structural: false,
+      reason: 'set_active_connection'
+    });
   }
 
   function setConnectionHealth(health) {
     return publish({
       ...currentState,
       connectionHealth: { ...currentState.connectionHealth, ...(isRecord(health) ? health : {}) }
+    }, {
+      domains: [CHANGE_DOMAIN.CONNECTION, CHANGE_DOMAIN.RUNTIME],
+      structural: false,
+      reason: 'set_connection_health'
     });
   }
 
   function setRuntimeContext(patch = {}) {
+    const structural = ['siteCode', 'endpointId', 'accessRoute']
+      .some((key) => Object.prototype.hasOwnProperty.call(patch, key));
     const next = publish({
       ...currentState,
       runtime: { ...currentState.runtime, ...copyValue(patch) }
+    }, {
+      domains: [structural ? CHANGE_DOMAIN.STRUCTURE : CHANGE_DOMAIN.RUNTIME],
+      structural,
+      reason: 'set_runtime_context'
     });
     return next.runtime;
   }
 
   function setWeather(weather) {
-    return publish({ ...currentState, weather: isRecord(weather) ? copyValue(weather) : null });
+    return publish({ ...currentState, weather: isRecord(weather) ? copyValue(weather) : null }, {
+      domains: [CHANGE_DOMAIN.WEATHER],
+      structural: false,
+      reason: 'set_weather'
+    });
   }
 
   function setWeatherForecast(weatherForecast) {
     return publish({
       ...currentState,
       weatherForecast: isRecord(weatherForecast) ? copyValue(weatherForecast) : null
+    }, {
+      domains: [CHANGE_DOMAIN.WEATHER_FORECAST],
+      structural: false,
+      reason: 'set_weather_forecast'
     });
   }
 
@@ -343,7 +440,13 @@ export function createClientStore(initialState = {}) {
     if (index >= 0) {
       devices[index] = transitionCommand(devices[index], command);
     }
-    publish({ ...currentState, devices, commandsById });
+    const updatedDevice = index >= 0 ? devices[index] : null;
+    publish({ ...currentState, devices, commandsById }, {
+      domains: [CHANGE_DOMAIN.COMMANDS, CHANGE_DOMAIN.DEVICES],
+      entityRefs: referencesForMetadata(updatedDevice, reference),
+      structural: false,
+      reason: 'upsert_command'
+    });
     return commandsById[command.commandId];
   }
 
@@ -362,6 +465,11 @@ export function createClientStore(initialState = {}) {
         ...currentState.activitiesByDeviceId,
         [key]: [normalizedActivity, ...withoutDuplicate]
       }
+    }, {
+      domains: [CHANGE_DOMAIN.ACTIVITY],
+      entityRefs: referencesForMetadata(device, reference),
+      structural: false,
+      reason: 'add_activity'
     });
   }
 
@@ -377,6 +485,11 @@ export function createClientStore(initialState = {}) {
         ...currentState.alertsByDeviceId,
         [key]: [copyValue(alert), ...withoutDuplicate]
       }
+    }, {
+      domains: [CHANGE_DOMAIN.ALERTS],
+      entityRefs: referencesForMetadata(device, reference),
+      structural: false,
+      reason: 'upsert_alert'
     });
   }
 
@@ -399,7 +512,10 @@ export function createClientStore(initialState = {}) {
     } else {
       connections.push(connection);
     }
-    patchDevice(reference, { connections });
+    patchDevice(reference, { connections }, {
+      domains: [CHANGE_DOMAIN.DEVICES, CHANGE_DOMAIN.CONNECTION],
+      reason: 'connection_update'
+    });
     return true;
   }
 

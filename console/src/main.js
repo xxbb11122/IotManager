@@ -2,6 +2,7 @@ import './css/style.css';
 import Chart from 'chart.js/auto';
 import { api, esc, configureApiAuthentication } from './js/api.js';
 import { realtime } from './js/realtime.js';
+import { createRenderMetrics } from './js/render-metrics.js';
 import { BrowserOidcSession, resolveBrowserOidcConfig } from '../../shared/browser-oidc.js';
 
 const state = {
@@ -14,12 +15,21 @@ const state = {
   chart: null,
   weather: null,
   weatherSettings: null,
+  alerts: [],
   sites: [],
   siteCode: 'demo-site',
   siteName: '演示站点'
 };
 
 const SITE_STORAGE_KEY = 'iot-manager.console.site.v1';
+const REALTIME_DEBOUNCE_MS = 300;
+const REALTIME_REFRESH_MIN_INTERVAL_MS = 1_000;
+const metrics = createRenderMetrics();
+let realtimeRefreshTimer = null;
+let realtimeRefreshInFlight = false;
+let realtimeRefreshQueued = false;
+let lastRealtimeRefreshAt = 0;
+let hiddenRealtimeRefreshDirty = false;
 
 const browserAuth = new BrowserOidcSession({
   config: resolveBrowserOidcConfig(),
@@ -312,29 +322,100 @@ async function selectBatch(batchId) {
   }
 }
 
+function deviceRow(device) {
+  const connection = device.connections?.[0];
+  const profile = `${device.profileId || 'legacy-generic-v1'} v${device.profileVersion || 1}`;
+  return `<tr data-device-id="${esc(device.deviceId ?? device.publicId ?? device.id)}">
+    <td><input class="device-select" type="checkbox" value="${device.id}" aria-label="选择 ${esc(device.name)}"></td>
+    <td><strong>${esc(device.name)}</strong><div class="mono">${esc(device.deviceId)}</div></td>
+    <td>${esc(profile)}</td>
+    <td>${esc(connection?.transport || device.protocol || '-')}</td>
+    <td>${badge(device.status)}</td>
+    <td>${esc(device.location || '-')}</td>
+    <td class="row-actions"><button class="btn btn-ghost btn-sm edit-device" data-id="${device.id}">编辑</button><button class="btn btn-danger btn-sm archive-device" data-id="${device.id}">归档</button></td>
+  </tr>`;
+}
+
+function renderDeviceRows() {
+  const body = document.getElementById('dev-table-body');
+  if (!body) return;
+  body.innerHTML = state.devices.length
+    ? state.devices.map(deviceRow).join('')
+    : '<tr><td colspan="7" class="empty">没有匹配的设备</td></tr>';
+}
+
+function deviceReference(device = {}) {
+  const reference = device.deviceId ?? device.devicePublicId ?? device.publicId ?? device.id ?? device.deviceDbId;
+  return reference === null || reference === undefined ? '' : String(reference);
+}
+
+function matchesDeviceSearch(device) {
+  const query = document.getElementById('dev-search')?.value.trim().toLowerCase() ?? '';
+  if (!query) return true;
+  return [device.name, device.deviceId, device.publicId]
+    .filter((value) => value != null)
+    .some((value) => String(value).toLowerCase().includes(query));
+}
+
+function patchRealtimeDevice(payload, { render = true } = {}) {
+  const reference = deviceReference(payload);
+  if (!reference) return false;
+  const index = state.devices.findIndex((device) => deviceReference(device) === reference
+    || String(device.id) === String(payload.deviceDbId ?? payload.id ?? ''));
+  const existing = index >= 0 ? state.devices[index] : null;
+  const device = {
+    ...(existing ?? {}),
+    ...payload,
+    id: payload.id ?? payload.deviceDbId ?? existing?.id,
+    deviceId: payload.deviceId ?? existing?.deviceId,
+    connections: payload.connections ?? existing?.connections ?? []
+  };
+  if (index >= 0) state.devices[index] = device;
+  else state.devices.unshift(device);
+  if (!render) return true;
+
+  const body = document.getElementById('dev-table-body');
+  if (!body) return false;
+  const row = [...body.querySelectorAll('tr[data-device-id]')]
+    .find((candidate) => candidate.dataset.deviceId === deviceReference(device));
+  if (!matchesDeviceSearch(device)) {
+    row?.remove();
+  } else if (row) {
+    row.outerHTML = deviceRow(device);
+  } else {
+    const empty = body.querySelector('.empty');
+    if (empty) body.replaceChildren();
+    body.insertAdjacentHTML('afterbegin', deviceRow(device));
+  }
+  metrics.increment('devicePatchCount');
+  return true;
+}
+
+function removeRealtimeDevice(payload, { render = true } = {}) {
+  const reference = deviceReference(payload);
+  if (!reference) return false;
+  const index = state.devices.findIndex((device) => deviceReference(device) === reference
+    || String(device.id) === String(payload.deviceDbId ?? payload.id ?? ''));
+  if (index < 0) return true;
+  const [device] = state.devices.splice(index, 1);
+  if (!render) return true;
+  const body = document.getElementById('dev-table-body');
+  const row = body && [...body.querySelectorAll('tr[data-device-id]')]
+    .find((candidate) => candidate.dataset.deviceId === deviceReference(device));
+  row?.remove();
+  if (body && body.querySelectorAll('tr[data-device-id]').length === 0) {
+    body.innerHTML = '<tr><td colspan="7" class="empty">没有匹配的设备</td></tr>';
+  }
+  metrics.increment('devicePatchCount');
+  return true;
+}
+
 async function loadDevices() {
   const query = document.getElementById('dev-search').value.trim();
   const params = new URLSearchParams({ siteCode: state.siteCode });
   if (query) params.set('search', query);
   state.devices = await api(`/api/devices?${params}`);
-  const body = document.getElementById('dev-table-body');
-  if (!state.devices.length) {
-    body.innerHTML = '<tr><td colspan="7" class="empty">没有匹配的设备</td></tr>';
-    return;
-  }
-  body.innerHTML = state.devices.map((device) => {
-    const connection = device.connections?.[0];
-    const profile = `${device.profileId || 'legacy-generic-v1'} v${device.profileVersion || 1}`;
-    return `<tr>
-      <td><input class="device-select" type="checkbox" value="${device.id}" aria-label="选择 ${esc(device.name)}"></td>
-      <td><strong>${esc(device.name)}</strong><div class="mono">${esc(device.deviceId)}</div></td>
-      <td>${esc(profile)}</td>
-      <td>${esc(connection?.transport || device.protocol || '-')}</td>
-      <td>${badge(device.status)}</td>
-      <td>${esc(device.location || '-')}</td>
-      <td class="row-actions"><button class="btn btn-ghost btn-sm edit-device" data-id="${device.id}">编辑</button><button class="btn btn-danger btn-sm archive-device" data-id="${device.id}">归档</button></td>
-    </tr>`;
-  }).join('');
+  renderDeviceRows();
 }
 
 function resetDeviceForm() {
@@ -414,6 +495,44 @@ async function loadBatches() {
   }
 }
 
+function alertRow(alert) {
+  return `<tr data-alert-id="${esc(alert.id)}">
+    <td>${formatDate(alert.createdAt)}</td><td>${badge(alert.level)}</td><td>${esc(alert.deviceName || '-')}</td><td>${esc(alert.message)}</td><td>${badge(alert.status)}</td>
+    <td>${alert.status !== 'RESOLVED' ? `<button class="btn btn-ghost btn-sm resolve-alert" data-id="${alert.id}">解决</button>` : ''}</td>
+  </tr>`;
+}
+
+function alertMatchesCurrentFilter(alert) {
+  const resolved = document.getElementById('alert-resolved')?.value;
+  const query = document.getElementById('alert-query')?.value.trim().toLowerCase() ?? '';
+  if (resolved && String(alert.status === 'RESOLVED') !== resolved) return false;
+  if (!query) return true;
+  return [alert.message, alert.deviceName, alert.level, alert.status]
+    .filter((value) => value != null)
+    .some((value) => String(value).toLowerCase().includes(query));
+}
+
+function patchRealtimeAlert(payload) {
+  if (payload?.id === null || payload?.id === undefined) return false;
+  const index = state.alerts.findIndex((alert) => String(alert.id) === String(payload.id));
+  const alert = { ...(index >= 0 ? state.alerts[index] : {}), ...payload };
+  if (index >= 0) state.alerts[index] = alert;
+  else state.alerts.unshift(alert);
+  const body = document.getElementById('alerts-list');
+  if (!body) return false;
+  const row = [...body.querySelectorAll('tr[data-alert-id]')]
+    .find((candidate) => candidate.dataset.alertId === String(alert.id));
+  if (!alertMatchesCurrentFilter(alert)) row?.remove();
+  else if (row) row.outerHTML = alertRow(alert);
+  else {
+    const empty = body.querySelector('.empty');
+    if (empty) body.replaceChildren();
+    body.insertAdjacentHTML('afterbegin', alertRow(alert));
+  }
+  metrics.increment('alertPatchCount');
+  return true;
+}
+
 async function loadAlerts() {
   const resolved = document.getElementById('alert-resolved').value;
   const query = document.getElementById('alert-query').value.trim();
@@ -422,11 +541,9 @@ async function loadAlerts() {
   if (resolved) params.set('resolved', resolved);
   if (query) params.set('q', query);
   const result = await api(`/api/alerts/search?${params}`);
+  state.alerts = result.items;
   const body = document.getElementById('alerts-list');
-  body.innerHTML = result.items.length ? result.items.map((alert) => `<tr>
-    <td>${formatDate(alert.createdAt)}</td><td>${badge(alert.level)}</td><td>${esc(alert.deviceName || '-')}</td><td>${esc(alert.message)}</td><td>${badge(alert.status)}</td>
-    <td>${alert.status !== 'RESOLVED' ? `<button class="btn btn-ghost btn-sm resolve-alert" data-id="${alert.id}">解决</button>` : ''}</td>
-  </tr>`).join('') : '<tr><td colspan="6" class="empty">没有匹配的告警</td></tr>';
+  body.innerHTML = result.items.length ? result.items.map(alertRow).join('') : '<tr><td colspan="6" class="empty">没有匹配的告警</td></tr>';
 }
 
 async function loadAudit() {
@@ -465,28 +582,117 @@ function activePage() {
 }
 
 const pendingRealtimeTypes = new Set();
-const flushRealtimeRefresh = debounce(() => {
+const realtimeRelevantTypes = {
+  dashboard: ['device_update', 'device_updates', 'device_archived', 'command_batch_update', 'alert', 'alert_update'],
+  devices: ['device_update', 'device_updates', 'device_archived', 'connection_update'],
+  groups: ['device_group_update'],
+  batches: ['command_batch_update', 'command_update'],
+  alerts: ['alert', 'alert_update'],
+  audit: ['command_update'],
+  weather: ['weather_update']
+};
+
+function scheduleRealtimeRefresh(delay = REALTIME_DEBOUNCE_MS) {
+  if (realtimeRefreshTimer) window.clearTimeout(realtimeRefreshTimer);
+  realtimeRefreshTimer = window.setTimeout(() => {
+    realtimeRefreshTimer = null;
+    flushRealtimeRefresh();
+  }, Math.max(0, delay));
+}
+
+function flushRealtimeRefresh() {
+  if (document.visibilityState === 'hidden') {
+    if (pendingRealtimeTypes.size > 0) {
+      hiddenRealtimeRefreshDirty = true;
+      metrics.increment('deferredWhileHiddenCount');
+    }
+    return;
+  }
   const page = activePage();
-  const relevant = {
-    dashboard: ['device_update', 'device_updates', 'device_archived', 'command_batch_update', 'alert', 'alert_update'],
-    devices: ['device_update', 'device_updates', 'device_archived', 'connection_update'],
-    groups: ['device_group_update'],
-    batches: ['command_batch_update', 'command_update'],
-    alerts: ['alert', 'alert_update'],
-    audit: ['command_update'],
-    weather: ['weather_update']
-  };
-  const shouldRefresh = [...pendingRealtimeTypes].some((type) => relevant[page]?.includes(type));
+  const shouldRefresh = [...pendingRealtimeTypes].some((type) => realtimeRelevantTypes[page]?.includes(type));
+  if (!shouldRefresh) {
+    pendingRealtimeTypes.clear();
+    return;
+  }
+  const now = Date.now();
+  const remaining = REALTIME_REFRESH_MIN_INTERVAL_MS - (now - lastRealtimeRefreshAt);
+  if (realtimeRefreshInFlight) {
+    realtimeRefreshQueued = true;
+    metrics.increment('coalescedRealtimeEventCount');
+    return;
+  }
+  if (remaining > 0) {
+    realtimeRefreshQueued = true;
+    metrics.increment('coalescedRealtimeEventCount');
+    scheduleRealtimeRefresh(remaining);
+    return;
+  }
   pendingRealtimeTypes.clear();
-  if (!shouldRefresh) return;
-  refreshCurrentPage().catch((error) => toast(`实时刷新失败：${error.message}`, true));
-}, 300);
+  realtimeRefreshQueued = false;
+  realtimeRefreshInFlight = true;
+  lastRealtimeRefreshAt = now;
+  metrics.increment('restRefreshCount');
+  refreshCurrentPage()
+    .catch((error) => toast(`实时刷新失败：${error.message}`, true))
+    .finally(() => {
+      realtimeRefreshInFlight = false;
+      if (realtimeRefreshQueued || pendingRealtimeTypes.size > 0) {
+        realtimeRefreshQueued = false;
+        scheduleRealtimeRefresh();
+      }
+    });
+}
 
 function refreshForRealtimeEvent(event) {
   const eventSiteCode = event?.payload?.siteCode || event?.siteCode;
   if (eventSiteCode && String(eventSiteCode) !== state.siteCode) return;
+  const currentSitePayloads = Array.isArray(event?.payload)
+    ? event.payload.filter((payload) => !payload?.siteCode || String(payload.siteCode) === state.siteCode)
+    : [];
+  if (document.visibilityState === 'hidden') {
+    if (event?.type === 'device_update' && event?.payload) patchRealtimeDevice(event.payload, { render: false });
+    if (event?.type === 'device_updates') {
+      currentSitePayloads.forEach((payload) => patchRealtimeDevice(payload, { render: false }));
+    }
+    if (event?.type === 'connection_update' && event?.payload) patchRealtimeDevice(event.payload, { render: false });
+    if (event?.type === 'device_archived' && event?.payload) removeRealtimeDevice(event.payload, { render: false });
+    if (['alert', 'alert_update'].includes(event?.type) && event?.payload) {
+      const index = state.alerts.findIndex((alert) => String(alert.id) === String(event.payload.id));
+      if (index >= 0) state.alerts[index] = { ...state.alerts[index], ...event.payload };
+      else state.alerts.unshift(event.payload);
+    }
+    if (event?.type === 'weather_update' && event?.payload) state.weather = event.payload;
+    pendingRealtimeTypes.add(event.type);
+    hiddenRealtimeRefreshDirty = true;
+    metrics.increment('deferredWhileHiddenCount');
+    return;
+  }
+  if (activePage() === 'devices' && event?.type === 'device_update' && event?.payload) {
+    patchRealtimeDevice(event.payload);
+    return;
+  }
+  if (activePage() === 'devices' && event?.type === 'device_updates') {
+    currentSitePayloads.forEach((payload) => patchRealtimeDevice(payload));
+    return;
+  }
+  if (activePage() === 'devices' && event?.type === 'connection_update' && event?.payload) {
+    patchRealtimeDevice(event.payload);
+    return;
+  }
+  if (activePage() === 'devices' && event?.type === 'device_archived' && event?.payload) {
+    removeRealtimeDevice(event.payload);
+    return;
+  }
+  if (activePage() === 'alerts' && ['alert', 'alert_update'].includes(event?.type) && event?.payload
+    && patchRealtimeAlert(event.payload)) return;
+  if (activePage() === 'weather' && event?.type === 'weather_update' && event?.payload) {
+    state.weather = event.payload;
+    renderWeather();
+    metrics.increment('weatherPatchCount');
+    return;
+  }
   pendingRealtimeTypes.add(event.type);
-  flushRealtimeRefresh();
+  scheduleRealtimeRefresh();
 }
 
 async function navigate(page) {
@@ -671,10 +877,21 @@ document.getElementById('refresh-weather').addEventListener('click', async () =>
   } catch (error) { toast(`天气刷新失败：${error.message}`, true); }
 });
 
-function updateClock() { document.getElementById('clock').textContent = new Date().toLocaleString('zh-CN', { hour12: false }); }
+function updateClock() {
+  if (document.visibilityState === 'hidden') return;
+  document.getElementById('clock').textContent = new Date().toLocaleString('zh-CN', { hour12: false });
+}
 updateClock();
 window.setInterval(updateClock, 1000);
 realtime.on(refreshForRealtimeEvent);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' || !hiddenRealtimeRefreshDirty) return;
+  hiddenRealtimeRefreshDirty = false;
+  scheduleRealtimeRefresh(0);
+});
+if (import.meta.env.DEV) {
+  globalThis.__iotConsoleUiMetrics = () => metrics.snapshot();
+}
 window.addEventListener('beforeunload', () => realtime.disconnect());
 void (async () => {
   try {
