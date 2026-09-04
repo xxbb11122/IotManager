@@ -48,10 +48,12 @@ static void send_reply(struct bt_conn *conn, const uint8_t *command, uint8_t res
     }
 }
 
-static void nus_received(struct bt_conn *conn, const void *data, uint16_t length)
+static void nus_received(struct bt_conn *conn, const void *data, uint16_t length, void *ctx)
 {
     const uint8_t *frame = data;
     uint8_t result = 0;
+
+    ARG_UNUSED(ctx);
 
     if (length != FRAME_LENGTH || frame[0] != COMMAND_MAGIC || frame[1] != FRAME_VERSION ||
         crc8(frame, FRAME_LENGTH - 1) != frame[FRAME_LENGTH - 1]) {
@@ -98,13 +100,13 @@ int main(void)
         return 0;
     }
 
-    error = bt_nus_cb_register(&nus_callbacks);
+    error = bt_nus_cb_register(&nus_callbacks, NULL);
     if (error) {
         LOG_ERR("NUS callback registration failed: %d", error);
         return 0;
     }
 
-    error = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, advertising, ARRAY_SIZE(advertising), NULL, 0);
+    error = bt_le_adv_start(BT_LE_ADV_CONN, advertising, ARRAY_SIZE(advertising), NULL, 0);
     if (error) {
         LOG_ERR("Advertising start failed: %d", error);
         return 0;

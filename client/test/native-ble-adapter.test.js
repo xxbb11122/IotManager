@@ -116,3 +116,43 @@ test('native BLE scan keeps a stable de-duplicated candidate list', async () => 
   assert.equal(adapter.getCandidates()[0].firstSeenAt, firstSeenAt);
   assert.equal(snapshots.at(-1).length, 2);
 });
+
+test('native BLE turns an unexpected plugin disconnect into one disconnected connection update', async () => {
+  let onDisconnect = null;
+  const disconnectCalls = [];
+  const plugin = {
+    async connect(deviceId, callback) {
+      assert.equal(deviceId, 'ble-drop');
+      onDisconnect = callback;
+    },
+    async getServices() { return []; },
+    async disconnect(deviceId) { disconnectCalls.push(deviceId); }
+  };
+  const adapter = new NativeBleAdapter({ bleClient: plugin });
+  const statuses = [];
+  adapter.subscribe((event) => {
+    if (event.type === 'connection_update') statuses.push(event.payload.status);
+  });
+
+  await adapter.connect({ deviceId: 'ble-drop', name: 'Drop test' });
+  onDisconnect();
+  await adapter.disconnect();
+
+  assert.deepEqual(statuses, ['CONNECTED', 'DISCONNECTED']);
+  assert.deepEqual(disconnectCalls, ['ble-drop']);
+  assert.equal(adapter.connection.status, 'DISCONNECTED');
+});
+
+test('native BLE verifyConnection detects a GATT link that disappeared while the app was backgrounded', async () => {
+  const plugin = {
+    async connect() {},
+    async getServices() { return []; },
+    async getConnectedDevices() { return []; }
+  };
+  const adapter = new NativeBleAdapter({ bleClient: plugin });
+
+  await adapter.connect({ deviceId: 'ble-background-drop' });
+
+  assert.equal(await adapter.verifyConnection(), false);
+  assert.equal(adapter.connection.status, 'DISCONNECTED');
+});

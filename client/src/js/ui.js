@@ -44,6 +44,7 @@ import {
   isControllableCapability,
   resolveDeviceCapabilities
 } from './device-capabilities.js';
+import { browserWeatherTimezone } from './platform/weather-timezone.js';
 
 const icons = {
   Activity,
@@ -223,7 +224,7 @@ class ClientUi {
       weatherLocationDraft: {
         latitude: '',
         longitude: '',
-        timezone: browserTimezone()
+        timezone: browserWeatherTimezone()
       },
       busyActions: new Set(),
       transientError: null,
@@ -2386,14 +2387,6 @@ function weatherStatusLabel(status) {
 function weatherDescription(weather) {
   if (!weather?.current) return weatherUnavailableMessage(weather);
   return `${weather.current.conditionText ?? '当前天气'} · ${weatherStatusLabel(weather.status)}`;
-}
-
-function browserTimezone() {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai';
-  } catch {
-    return 'Asia/Shanghai';
-  }
 }
 
 function validCoordinate(value, minimum, maximum) {

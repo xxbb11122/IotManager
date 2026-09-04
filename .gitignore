@@ -5,6 +5,7 @@ backend/target/
 backend/*.log
 backend/*.err.log
 .idea/
+.vs/
 .superpowers/
 .worktrees/
 client/android/.gradle/
@@ -20,5 +21,6 @@ deploy/secrets/
 artifacts/p0-runtime/
 artifacts/recovery-drill/
 artifacts/release/
+artifacts/simulation/
 client/.env.local
 client/.env.*.local

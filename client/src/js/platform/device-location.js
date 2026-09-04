@@ -4,14 +4,16 @@ import { Geolocation } from '@capacitor/geolocation';
 const PRECISE_POSITION_OPTIONS = Object.freeze({
   enableHighAccuracy: true,
   timeout: 20000,
-  maximumAge: 300000,
+  // A foreground "use my location" action must not silently bind weather to
+  // a position from a previous site. A fresh fix is preferred over a stale one.
+  maximumAge: 0,
   enableLocationFallback: true
 });
 
 const APPROXIMATE_POSITION_OPTIONS = Object.freeze({
   enableHighAccuracy: false,
   timeout: 20000,
-  maximumAge: 300000
+  maximumAge: 0
 });
 
 export class DeviceLocationError extends Error {

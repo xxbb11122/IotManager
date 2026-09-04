@@ -17,6 +17,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
@@ -60,7 +61,7 @@ public class OpenMeteoWeatherProvider implements WeatherProvider {
                 + "&current=" + encode(CURRENT)
                 + "&hourly=" + encode(HOURLY)
                 + "&daily=" + encode(DAILY)
-                + "&timezone=" + encode(zone.getId())
+                + "&timezone=" + encode(openMeteoTimezone(zone))
                 + "&forecast_days=7&timeformat=unixtime";
         try {
             HttpRequest request = HttpRequest.newBuilder(URI.create(url))
@@ -157,6 +158,19 @@ public class OpenMeteoWeatherProvider implements WeatherProvider {
         } catch (Exception exception) {
             throw new IllegalArgumentException("Invalid timezone");
         }
+    }
+
+    /**
+     * Open-Meteo accepts IANA names plus UTC/GMT/auto, but rejects Java's
+     * fixed-offset aliases such as Z and +00:00. Epoch timestamps returned by
+     * this provider remain unambiguous, so non-zero fixed offsets can safely
+     * use the provider's location-derived timezone.
+     */
+    private static String openMeteoTimezone(ZoneId zone) {
+        if (zone instanceof ZoneOffset offset) {
+            return offset.getTotalSeconds() == 0 ? "UTC" : "auto";
+        }
+        return zone.getId();
     }
 
     private static Instant instant(JsonNode value, ZoneId zone, Instant fallback) {

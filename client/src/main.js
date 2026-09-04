@@ -16,6 +16,7 @@ import { deviceLocationErrorMessage, getCurrentDeviceLocation } from './js/platf
 import { friendlyEndpointError, probeEndpoint } from './js/platform/endpoint-probe.js';
 import { createPlatformAdapter } from './js/platform/platform-adapter-factory.js';
 import { ACCESS_ROUTES, repairLegacyNativeEndpoint, RuntimeConfigRepository } from './js/platform/runtime-config.js';
+import { browserWeatherTimezone } from './js/platform/weather-timezone.js';
 import { CHANGE_DOMAIN, store } from './js/store.js';
 import { createRenderCoordinator } from './js/render-coordinator.js';
 import { createRenderMetrics } from './js/render-metrics.js';
@@ -695,11 +696,7 @@ async function openWeather() {
 }
 
 function clientTimezone() {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai';
-  } catch {
-    return 'Asia/Shanghai';
-  }
+  return browserWeatherTimezone();
 }
 
 function validPendingWeatherLocation(value) {

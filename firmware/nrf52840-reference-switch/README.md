@@ -20,7 +20,8 @@ The firmware notifies NUS TX (`6e400003-b5a3-f393-e0a9-e50e24dcca9e`):
 
 ## Build
 
-Install Zephyr 3.x and run from its initialized environment:
+Install Zephyr 3.7.x and run from its initialized environment. The reference
+application is verified against Zephyr 3.7.2 and its matching SDK:
 
 ```powershell
 west build -b nrf52840dk/nrf52840 .

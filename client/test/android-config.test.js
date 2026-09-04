@@ -7,6 +7,9 @@ test('release manifest declares BLE/network access without global cleartext', as
   assert.match(xml, /android.permission.BLUETOOTH_SCAN/);
   assert.match(xml, /android.permission.BLUETOOTH_CONNECT/);
   assert.match(xml, /android.permission.INTERNET/);
+  assert.match(xml, /android.permission.ACCESS_COARSE_LOCATION/);
+  assert.match(xml, /android.permission.ACCESS_FINE_LOCATION/);
+  assert.match(xml, /android\.hardware\.location\.gps" android:required="false"/);
   assert.doesNotMatch(xml, /usesCleartextTraffic="true"/);
   assert.doesNotMatch(xml, /networkSecurityConfig/);
 });
