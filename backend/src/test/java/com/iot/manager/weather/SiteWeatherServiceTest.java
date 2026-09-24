@@ -16,6 +16,7 @@ import com.iot.manager.repository.SiteWeatherSnapshotRepository;
 import com.iot.manager.repository.WeatherProviderAccessEventRepository;
 import com.iot.manager.service.WebSocketService;
 import com.iot.manager.service.PlatformMetricsService;
+import com.iot.manager.service.TimeProvider;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -25,6 +26,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 import java.util.Optional;
 import java.time.Instant;
+import java.time.Clock;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -193,7 +195,7 @@ class SiteWeatherServiceTest {
                 siteRepository, deviceRepository, telemetrySampleRepository, settingsRepository, snapshotRepository,
                 forecastRepository, weatherProviderAccessEventRepository, providers, new WeatherCodeMapper(),
                 new EnvironmentStatusEvaluator(new DewPointCalculator(), new WeatherEnvironmentRules()),
-                webSocketService, platformMetricsService, new ObjectMapper(), weatherPrivacyProperties()
+                webSocketService, platformMetricsService, new TimeProvider(Clock.systemUTC(), new com.iot.manager.config.TimeProperties()), new ObjectMapper(), weatherPrivacyProperties()
         );
     }
 

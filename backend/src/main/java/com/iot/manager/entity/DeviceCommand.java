@@ -16,6 +16,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 @Entity
@@ -75,16 +76,28 @@ public class DeviceCommand {
 
     private LocalDateTime requestedAt;
 
+    @Column(name = "requested_at_utc")
+    private Instant requestedAtUtc;
+
     @Column(name = "sent_at")
     private LocalDateTime sentAt;
+
+    @Column(name = "sent_at_utc")
+    private Instant sentAtUtc;
 
     private LocalDateTime acknowledgedAt;
 
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
 
+    @Column(name = "completed_at_utc")
+    private Instant completedAtUtc;
+
     @Column(name = "expires_at")
     private LocalDateTime expiresAt;
+
+    @Column(name = "expires_at_utc")
+    private Instant expiresAtUtc;
 
     @Column(name = "failure_code", length = 100)
     private String failureCode;

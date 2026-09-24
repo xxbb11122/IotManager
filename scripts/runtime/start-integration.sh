@@ -7,6 +7,7 @@ environment_file="${IOT_ENVIRONMENT_FILE:-$repository_root/deploy/.env.integrati
 state_file="${IOT_RUNTIME_STATE_FILE:-$repository_root/deploy/.runtime/iot-manager-p0/runtime.env}"
 base_url="${IOT_BASE_URL:-https://iot-manager.localhost}"
 observability_enabled="${IOT_ENABLE_OBSERVABILITY:-false}"
+rollback_compatibility_enabled="${IOT_ROLLBACK_COMPATIBILITY_MODE:-false}"
 mode="$(printenv IOT_RUNTIME_MODE 2>/dev/null || true)"
 digest_manifest="$(printenv IOT_DIGEST_MANIFEST 2>/dev/null || true)"
 image_environment_file="$(printenv IOT_DIGEST_ENV_FILE 2>/dev/null || true)"
@@ -60,6 +61,11 @@ done
 case "$observability_enabled" in
   true|false) ;;
   *) printf 'IOT_ENABLE_OBSERVABILITY must be true or false.\n' >&2; exit 64 ;;
+esac
+
+case "$rollback_compatibility_enabled" in
+  true|false) ;;
+  *) printf 'IOT_ROLLBACK_COMPATIBILITY_MODE must be true or false.\n' >&2; exit 64 ;;
 esac
 
 case "$mode" in
@@ -158,17 +164,28 @@ if [[ "$mode" == immutable ]]; then
     --output "$image_environment_file"
 fi
 
-bash "$repository_root/scripts/runtime/new-secrets.sh"
+secret_directory="$(environment_value IOT_SECRET_DIR || true)"
+if [[ -n "$secret_directory" && "$secret_directory" != /* ]]; then
+  secret_directory="$repository_root/${secret_directory#./}"
+fi
+if [[ -n "$secret_directory" ]]; then
+  bash "$repository_root/scripts/runtime/new-secrets.sh" "$secret_directory"
+else
+  bash "$repository_root/scripts/runtime/new-secrets.sh"
+fi
 
 compose=(compose --project-name "$project_name" --env-file "$environment_file")
 [[ -n "$image_environment_file" ]] && compose+=(--env-file "$image_environment_file")
 compose+=(-f "$repository_root/deploy/docker-compose.yml" -f "$repository_root/deploy/docker-compose.integration.yml")
 [[ "$mode" == immutable ]] && compose+=(-f "$repository_root/deploy/docker-compose.immutable.yml")
+[[ "$rollback_compatibility_enabled" == true ]] && compose+=(-f "$repository_root/deploy/docker-compose.rollback.yml")
 start_flags=(-d)
 if [[ "$mode" == local ]]; then
   start_flags+=(--build)
 else
-  start_flags+=(--no-build)
+  # A rollback/drill must prove that every immutable digest was pre-pulled.
+  # Compose must never recover by fetching a tag or building local source.
+  start_flags+=(--no-build --pull never)
 fi
 docker "${compose[@]}" up "${start_flags[@]}" volume-init postgres keycloak caddy
 
@@ -208,6 +225,7 @@ application_compose=(compose --project-name "$project_name" --profile applicatio
 [[ -f "$state_file" ]] && application_compose+=(--env-file "$state_file")
 application_compose+=(-f "$repository_root/deploy/docker-compose.yml" -f "$repository_root/deploy/docker-compose.integration.yml")
 [[ "$mode" == immutable ]] && application_compose+=(-f "$repository_root/deploy/docker-compose.immutable.yml")
+[[ "$rollback_compatibility_enabled" == true ]] && application_compose+=(-f "$repository_root/deploy/docker-compose.rollback.yml")
 application_services=(backend backup wal-g-archive wal-g-backup)
 if [[ "$observability_enabled" == true ]]; then
   application_compose=(compose --project-name "$project_name" --profile application --profile observability --env-file "$environment_file")
@@ -215,6 +233,7 @@ if [[ "$observability_enabled" == true ]]; then
   [[ -f "$state_file" ]] && application_compose+=(--env-file "$state_file")
   application_compose+=(-f "$repository_root/deploy/docker-compose.yml" -f "$repository_root/deploy/docker-compose.integration.yml")
   [[ "$mode" == immutable ]] && application_compose+=(-f "$repository_root/deploy/docker-compose.immutable.yml")
+  [[ "$rollback_compatibility_enabled" == true ]] && application_compose+=(-f "$repository_root/deploy/docker-compose.rollback.yml")
   application_services+=(alertmanager prometheus)
 fi
 docker "${application_compose[@]}" up "${start_flags[@]}" "${application_services[@]}"

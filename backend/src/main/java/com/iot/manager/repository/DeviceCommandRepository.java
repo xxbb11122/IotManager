@@ -11,6 +11,8 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
+import java.time.Instant;
+import org.springframework.data.domain.Pageable;
 
 @Repository
 public interface DeviceCommandRepository extends JpaRepository<DeviceCommand, Long>, JpaSpecificationExecutor<DeviceCommand> {
@@ -45,4 +47,29 @@ public interface DeviceCommandRepository extends JpaRepository<DeviceCommand, Lo
             order by command.requestedAt asc, command.id asc
             """)
     List<String> findPendingCommandIdsOrderByRequestedAtAscIdAsc();
+
+    @Query("""
+            select command from DeviceCommand command
+            where command.completedAtUtc < :cutoff
+              and command.status in ('ACKNOWLEDGED', 'FAILED', 'UNCONFIRMED', 'REJECTED')
+              and not exists (select event.id from CommandEvent event where event.command = command)
+            order by command.completedAtUtc asc
+            """)
+    List<DeviceCommand> findRetainableBefore(@Param("cutoff") Instant cutoff, Pageable pageable);
+
+    @Query("""
+            select command from DeviceCommand command
+            where command.completedAtUtc < :cutoff
+              and command.status in ('ACKNOWLEDGED', 'FAILED', 'UNCONFIRMED', 'REJECTED')
+              and not exists (select event.id from CommandEvent event where event.command = command)
+              and (command.completedAtUtc > :cursorAt
+                   or (command.completedAtUtc = :cursorAt and command.id > :cursorId))
+            order by command.completedAtUtc asc, command.id asc
+            """)
+    List<DeviceCommand> findRetentionCandidatesAfter(
+            @Param("cutoff") Instant cutoff,
+            @Param("cursorAt") Instant cursorAt,
+            @Param("cursorId") Long cursorId,
+            Pageable pageable
+    );
 }

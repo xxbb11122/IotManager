@@ -14,6 +14,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 /** Immutable audit record for an agent credential issue, rotation or revocation. */
@@ -52,4 +53,7 @@ public class AgentCredentialRotation {
 
     @Column(name = "occurred_at", nullable = false)
     private LocalDateTime occurredAt;
+
+    @Column(name = "occurred_at_utc")
+    private Instant occurredAtUtc;
 }

@@ -36,6 +36,11 @@ public class ScheduledDatabaseTaskGuard {
     );
 
     private final ConcurrentMap<String, Long> lastWarningAtMillis = new ConcurrentHashMap<>();
+    private final TimeProvider timeProvider;
+
+    public ScheduledDatabaseTaskGuard(TimeProvider timeProvider) {
+        this.timeProvider = timeProvider;
+    }
 
     public void run(String taskName, Runnable task) {
         try {
@@ -69,7 +74,7 @@ public class ScheduledDatabaseTaskGuard {
     }
 
     private void warnAtMostOncePerInterval(String taskName, RuntimeException exception) {
-        long now = System.currentTimeMillis();
+        long now = timeProvider.currentTimeMillis();
         Long previous = lastWarningAtMillis.putIfAbsent(taskName, now);
         if (previous == null || now - previous >= WARNING_INTERVAL_MILLIS) {
             lastWarningAtMillis.put(taskName, now);

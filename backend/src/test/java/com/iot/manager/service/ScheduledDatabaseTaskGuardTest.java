@@ -1,8 +1,12 @@
 package com.iot.manager.service;
 
+import com.iot.manager.config.TimeProperties;
 import org.junit.jupiter.api.Test;
 
 import java.sql.SQLException;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -11,7 +15,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ScheduledDatabaseTaskGuardTest {
 
-    private final ScheduledDatabaseTaskGuard guard = new ScheduledDatabaseTaskGuard();
+    private final ScheduledDatabaseTaskGuard guard = new ScheduledDatabaseTaskGuard(
+            new TimeProvider(Clock.fixed(Instant.parse("2026-09-23T00:00:00Z"), ZoneOffset.UTC), new TimeProperties())
+    );
 
     @Test
     void absorbsPostgreSqlRestartAndConnectionFailureStates() {

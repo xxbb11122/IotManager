@@ -18,6 +18,10 @@ iot:
   command-simulator:
     enabled: false
 
+  retention:
+    enabled: false
+    dry-run: true
+
   simulator:
     enabled: false
 

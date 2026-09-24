@@ -268,7 +268,8 @@ public class SiteAccessService {
     public Alert requireAlertAccess(Long alertId) {
         Alert alert = alertRepository.findById(alertId)
                 .orElseThrow(() -> new NoSuchElementException("Alert not found"));
-        requireEntitySiteAccess(alert.getDevice() == null ? null : alert.getDevice().getSite());
+        // Platform/edge alerts can belong directly to a site without a device.
+        requireEntitySiteAccess(alert.getDevice() == null ? alert.getSite() : alert.getDevice().getSite());
         return alert;
     }
 

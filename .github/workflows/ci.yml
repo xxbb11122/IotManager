@@ -30,6 +30,16 @@ jobs:
     name: Backend and Edge Agent (JDK 17)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - timezone: UTC
+            artifact_suffix: utc
+          - timezone: Asia/Shanghai
+            artifact_suffix: asia-shanghai
+    env:
+      TZ: ${{ matrix.timezone }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -48,7 +58,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: java-test-summary-${{ github.sha }}
+          name: java-test-summary-${{ github.sha }}-${{ matrix.artifact_suffix }}
           path: ${{ runner.temp }}/iot-manager-java-summary.csv
           if-no-files-found: error
           retention-days: 14
@@ -135,6 +145,13 @@ jobs:
         with:
           ref: ${{ inputs.source_sha || github.sha }}
           persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+      - name: Verify immutable release and rollback workflow contracts
+        run: |
+          node scripts/ci/tests/release-tools.test.mjs
+          node scripts/ci/tests/release-workflows.test.mjs
       - name: Generate ephemeral non-production Compose secrets
         run: bash scripts/runtime/new-secrets.sh "$RUNNER_TEMP/iot-manager-compose-secrets"
       - name: Validate normal and recovery Compose topology
@@ -169,6 +186,12 @@ jobs:
             -f deploy/docker-compose.yml \
             -f deploy/docker-compose.integration.yml \
             -f deploy/docker-compose.immutable.yml \
+            config --quiet
+          docker compose --env-file deploy/.env.integration.example \
+            -f deploy/docker-compose.yml \
+            -f deploy/docker-compose.integration.yml \
+            -f deploy/docker-compose.immutable.yml \
+            -f deploy/docker-compose.rollback.yml \
             config --quiet
           docker compose --env-file deploy/.env.integration.example \
             --env-file deploy/.env.recovery-topology.example \

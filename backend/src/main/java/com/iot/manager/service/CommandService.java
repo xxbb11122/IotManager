@@ -5,7 +5,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.iot.manager.dto.DeviceCommandRequest;
 import com.iot.manager.dto.DeviceCommandView;
-import com.iot.manager.dto.RealtimeEvent;
 import com.iot.manager.entity.ActivityEvent;
 import com.iot.manager.entity.Device;
 import com.iot.manager.entity.DeviceCommand;
@@ -60,6 +59,7 @@ public class CommandService {
     private final DeviceProfileService profileService;
     private final CommandBatchSummaryService batchSummaryService;
     private final PlatformMetricsService platformMetricsService;
+    private final TimeProvider timeProvider;
 
     @Transactional
     public DeviceCommandView submit(Long deviceId, DeviceCommandRequest request) {
@@ -74,7 +74,7 @@ public class CommandService {
                 .orElseGet(() -> {
                     preflightAcknowledgement(device, spec);
                     return createPending(device, request, spec, parametersJson,
-                            SubmissionMetadata.api(auditContextService.currentSubjectOrAnonymous()));
+                            apiMetadata(auditContextService.currentSubjectOrAnonymous()));
                 });
     }
 
@@ -101,7 +101,8 @@ public class CommandService {
                         requestFingerprint,
                         "BATCH",
                         auditContextService.currentSubjectOrAnonymous(),
-                        expiresAt
+                        expiresAt,
+                        expiresAt == null ? null : timeProvider.legacyServerInstant(expiresAt)
                 ));
     }
 
@@ -120,6 +121,8 @@ public class CommandService {
         long nextSequence = (device.getCommandSequence() == null ? 0L : device.getCommandSequence()) + 1;
         device.setCommandSequence(nextSequence);
         String boundedReason = truncate(reason, MAX_ERROR_MESSAGE_LENGTH);
+        Instant rejectedAtUtc = timeProvider.now();
+        LocalDateTime rejectedAt = timeProvider.legacyServer(rejectedAtUtc);
         DeviceCommand command = commandRepository.save(DeviceCommand.builder()
                 .commandId("command-" + UUID.randomUUID())
                 .device(device)
@@ -136,8 +139,10 @@ public class CommandService {
                 .failureCode("PROFILE_UNSUPPORTED")
                 .errorMessage(boundedReason)
                 .resultJson(writeBoundedJson(Map.of("applied", false, "reason", boundedReason), "result"))
-                .requestedAt(LocalDateTime.now())
-                .completedAt(LocalDateTime.now())
+                .requestedAt(rejectedAt)
+                .requestedAtUtc(rejectedAtUtc)
+                .completedAt(rejectedAt)
+                .completedAtUtc(rejectedAtUtc)
                 .dispatchAttempts(0)
                 .build());
         publishTransition(command, device, null, "command_rejected", "Command rejected by device profile");
@@ -198,7 +203,7 @@ public class CommandService {
             device.setReportedStateJson(reportedStateJson);
             String previousStatus = command.getStatus();
             command.setStatus(ACKNOWLEDGED);
-            command.setAcknowledgedAt(LocalDateTime.now());
+            command.setAcknowledgedAt(timeProvider.legacyServerNow());
             command.setResultJson(resultJson);
             complete(command);
             publishTransition(command, device, previousStatus, "command_acknowledged", "Command acknowledged");
@@ -229,6 +234,7 @@ public class CommandService {
 
         long nextSequence = (device.getCommandSequence() == null ? 0L : device.getCommandSequence()) + 1;
         device.setCommandSequence(nextSequence);
+        Instant requestedAtUtc = timeProvider.now();
         DeviceCommand command = commandRepository.save(DeviceCommand.builder()
                 .commandId("command-" + UUID.randomUUID())
                 .device(device)
@@ -243,8 +249,10 @@ public class CommandService {
                 .requestOrigin(metadata.requestOrigin())
                 .requestedBy(metadata.requestedBy())
                 .expiresAt(metadata.expiresAt())
+                .expiresAtUtc(metadata.expiresAtUtc())
                 .dispatchAttempts(0)
-                .requestedAt(LocalDateTime.now())
+                .requestedAt(timeProvider.legacyServer(requestedAtUtc))
+                .requestedAtUtc(requestedAtUtc)
                 .build());
         publishTransition(command, device, null, "command_submitted", "Command submitted");
         return toView(command, device);
@@ -337,9 +345,12 @@ public class CommandService {
                 return toView(command, device);
             }
             String normalized = status == null ? FAILED : status.trim().toUpperCase(Locale.ROOT);
-            LocalDateTime completed = completedAt == null
-                    ? LocalDateTime.now()
-                    : LocalDateTime.ofInstant(completedAt, java.time.ZoneOffset.UTC);
+            // The edge-reported completion instant is diagnostic input only.
+            // Both persisted completion fields must represent server receipt
+            // time so legacy consumers cannot be shifted by a bad agent clock.
+            Instant receivedAt = timeProvider.now();
+            LocalDateTime completed = timeProvider.legacyServer(receivedAt);
+            command.setCompletedAtUtc(receivedAt);
             return switch (normalized) {
                 case ACKNOWLEDGED -> acknowledgeFromEdge(command, device, reportedState, completed);
                 case UNCONFIRMED -> unconfirmFromEdge(command, device, errorCode, errorMessage, completed);
@@ -410,7 +421,11 @@ public class CommandService {
     private void transition(DeviceCommand command, Device device, String nextStatus, String activityType, String detail) {
         String previousStatus = command.getStatus();
         command.setStatus(nextStatus);
-        if (SENT.equals(nextStatus)) command.setSentAt(LocalDateTime.now());
+        if (SENT.equals(nextStatus)) {
+            Instant sentAtUtc = timeProvider.now();
+            command.setSentAt(timeProvider.legacyServer(sentAtUtc));
+            command.setSentAtUtc(sentAtUtc);
+        }
         if (ACKNOWLEDGED.equals(nextStatus) || FAILED.equals(nextStatus) || UNCONFIRMED.equals(nextStatus) || REJECTED.equals(nextStatus)) {
             complete(command);
         }
@@ -418,7 +433,11 @@ public class CommandService {
     }
 
     private void complete(DeviceCommand command) {
-        if (command.getCompletedAt() == null) command.setCompletedAt(LocalDateTime.now());
+        if (command.getCompletedAt() == null) {
+            Instant completedAtUtc = timeProvider.now();
+            command.setCompletedAt(timeProvider.legacyServer(completedAtUtc));
+            command.setCompletedAtUtc(completedAtUtc);
+        }
     }
 
     private boolean isTerminal(String status) {
@@ -446,7 +465,7 @@ public class CommandService {
         );
         platformMetricsService.commandTransition(command.getStatus());
         DeviceCommandView view = toView(command, device);
-        webSocketService.broadcastEvent(new RealtimeEvent("command_update", view));
+        webSocketService.broadcastEvent("command_update", view);
         webSocketService.sendActivityUpdate(activity);
         batchSummaryService.refresh(command.getBatchId());
     }
@@ -577,16 +596,20 @@ public class CommandService {
         return value.substring(0, maxLength);
     }
 
+    private SubmissionMetadata apiMetadata(String requestedBy) {
+        Instant expiresAtUtc = timeProvider.now().plusSeconds(300);
+        return new SubmissionMetadata(
+                null, null, "API", requestedBy, timeProvider.legacyServer(expiresAtUtc), expiresAtUtc
+        );
+    }
+
     private record SubmissionMetadata(
             String batchId,
             String requestFingerprint,
             String requestOrigin,
             String requestedBy,
-            LocalDateTime expiresAt
-    ) {
-        private static SubmissionMetadata api(String requestedBy) {
-            return new SubmissionMetadata(null, null, "API", requestedBy, LocalDateTime.now().plusMinutes(5));
-        }
-    }
+            LocalDateTime expiresAt,
+            Instant expiresAtUtc
+    ) { }
 
 }

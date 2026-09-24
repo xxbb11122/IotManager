@@ -14,6 +14,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 @Entity
@@ -55,6 +56,12 @@ public class DeviceConnection {
 
     @Column(name = "last_seen")
     private LocalDateTime lastSeen;
+
+    @Column(name = "last_received_at")
+    private Instant lastReceivedAt;
+
+    @Column(name = "reported_at")
+    private Instant reportedAt;
 
     @Column(name = "connected_at")
     private LocalDateTime connectedAt;

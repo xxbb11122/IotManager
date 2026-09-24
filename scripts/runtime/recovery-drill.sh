@@ -158,7 +158,7 @@ run_flags=(--rm --no-deps)
 if [[ "$mode" == local ]]; then
   start_flags+=(--build)
 else
-  start_flags+=(--no-build)
+  start_flags+=(--no-build --pull never)
   run_flags=(--pull never "${run_flags[@]}")
 fi
 docker "${compose[@]}" up "${start_flags[@]}" volume-init postgres

@@ -17,6 +17,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 
 import java.sql.Types;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 @Entity
@@ -65,4 +66,7 @@ public class CommandEvent {
 
     @Column(name = "occurred_at", nullable = false)
     private LocalDateTime occurredAt;
+
+    @Column(name = "occurred_at_utc")
+    private Instant occurredAtUtc;
 }

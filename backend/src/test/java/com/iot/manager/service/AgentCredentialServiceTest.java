@@ -30,6 +30,9 @@ class AgentCredentialServiceTest {
     @Autowired
     private BootstrapService bootstrapService;
 
+    @Autowired
+    private TimeProvider timeProvider;
+
     @Test
     void provisionsHashAuthenticatesRotatesAndRevokesWithoutReturningTheHash() {
         Site site = bootstrapService.ensureDemoContext().getSite();
@@ -39,7 +42,7 @@ class AgentCredentialServiceTest {
                 agentId,
                 site.getCode(),
                 "Credential test agent",
-                LocalDateTime.now().plusDays(7),
+                timeProvider.legacyServerNow().plusDays(7),
                 "initial test provision"
         ), "test-operator");
 
@@ -56,7 +59,7 @@ class AgentCredentialServiceTest {
                 .isNotNull();
 
         var rotated = credentialService.rotate(agentId, new AgentCredentialRotateRequest(
-                LocalDateTime.now().plusDays(3), "scheduled rotation"
+                timeProvider.legacyServerNow().plusDays(3), "scheduled rotation"
         ), "test-operator");
         assertThat(credentialRepository.findByCredentialId(issued.credentialId()).orElseThrow().getStatus())
                 .isEqualTo(AgentCredentialService.REVOKED);
@@ -76,11 +79,11 @@ class AgentCredentialServiceTest {
         String agentId = "credential-expiry-" + UUID.randomUUID();
 
         assertThatThrownBy(() -> credentialService.provision(site, new AgentCredentialProvisionRequest(
-                agentId, site.getCode(), "Expiry test agent", LocalDateTime.now().minusMinutes(1), null
+                agentId, site.getCode(), "Expiry test agent", timeProvider.legacyServerNow().minusMinutes(1), null
         ), "test-operator")).isInstanceOf(IllegalArgumentException.class);
 
         assertThatThrownBy(() -> credentialService.provision(site, new AgentCredentialProvisionRequest(
-                agentId, site.getCode(), "Expiry test agent", LocalDateTime.now().plusDays(91), null
+                agentId, site.getCode(), "Expiry test agent", timeProvider.legacyServerNow().plusDays(91), null
         ), "test-operator")).isInstanceOf(IllegalArgumentException.class);
     }
 }

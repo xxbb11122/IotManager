@@ -1,10 +1,14 @@
 package com.iot.manager.entity;
 
 import jakarta.persistence.*;
+import org.springframework.data.annotation.CreatedDate;
+import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 import lombok.*;
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 @Entity
+@EntityListeners(AuditingEntityListener.class)
 @Table(name = "alerts")
 @Data
 @NoArgsConstructor
@@ -20,6 +24,14 @@ public class Alert {
     @JoinColumn(name = "device_id")
     private Device device;
 
+    /**
+     * A platform or edge-agent alert may apply to a site without identifying a
+     * single device.  Device alerts keep their existing association.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "site_id")
+    private Site site;
+
     @Column(nullable = false, length = 20)
     private String level;   // INFO / WARNING / CRITICAL
 
@@ -34,8 +46,15 @@ public class Alert {
     @Column(name = "alert_code", length = 100)
     private String alertCode;
 
+    @CreatedDate
     private LocalDateTime createdAt;
     private LocalDateTime resolvedAt;
+
+    @Column(name = "created_at_utc")
+    private Instant createdAtUtc;
+
+    @Column(name = "resolved_at_utc")
+    private Instant resolvedAtUtc;
 
     @Column(name = "acknowledged_at")
     private LocalDateTime acknowledgedAt;
@@ -45,7 +64,6 @@ public class Alert {
 
     @PrePersist
     public void prePersist() {
-        this.createdAt = LocalDateTime.now();
         if (this.status == null || this.status.isBlank()) this.status = this.resolved ? "RESOLVED" : "OPEN";
     }
 }

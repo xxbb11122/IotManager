@@ -27,6 +27,7 @@ import com.iot.manager.repository.SiteWeatherSnapshotRepository;
 import com.iot.manager.repository.WeatherProviderAccessEventRepository;
 import com.iot.manager.service.WebSocketService;
 import com.iot.manager.service.PlatformMetricsService;
+import com.iot.manager.service.TimeProvider;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -70,6 +71,7 @@ public class SiteWeatherService {
     private final EnvironmentStatusEvaluator environmentStatusEvaluator;
     private final WebSocketService webSocketService;
     private final PlatformMetricsService platformMetricsService;
+    private final TimeProvider timeProvider;
     private final ObjectMapper objectMapper;
     private final WeatherPrivacyProperties weatherPrivacyProperties;
     private final Set<Long> refreshingSiteIds = ConcurrentHashMap.newKeySet();
@@ -151,7 +153,7 @@ public class SiteWeatherService {
         if (coordinatesChanged && request.latitude() != null && request.longitude() != null) {
             setting.setLocationSource("MANUAL");
             setting.setLocationAccuracyM(null);
-            setting.setLocationUpdatedAt(Instant.now());
+            setting.setLocationUpdatedAt(timeProvider.now());
         }
         setting.setCondensationTemperatureField(blankToNull(request.condensationTemperatureField()));
         if (request.condensationTemperatureDeviceId() == null) {
@@ -204,7 +206,7 @@ public class SiteWeatherService {
         }
         setting.setLocationSource(request.source().toUpperCase(Locale.ROOT));
         setting.setLocationAccuracyM("MOBILE_GPS".equalsIgnoreCase(request.source()) ? request.accuracyM() : null);
-        setting.setLocationUpdatedAt(Instant.now());
+        setting.setLocationUpdatedAt(timeProvider.now());
         SiteWeatherSettings saved = settingsRepository.save(setting);
         boolean configurationChanged = !Objects.equals(previousConfigurationFingerprint, configurationFingerprint(saved));
         if (configurationChanged) {
@@ -228,7 +230,7 @@ public class SiteWeatherService {
     public SiteWeatherView refresh(Site site) {
         SiteWeatherSettings setting = settingsRepository.findBySiteId(site.getId())
                 .orElseThrow(() -> new IllegalArgumentException("Weather is not configured for this site"));
-        Instant now = Instant.now();
+        Instant now = timeProvider.now();
         if (setting.getLastManualRefreshAt() != null
                 && Duration.between(setting.getLastManualRefreshAt(), now).compareTo(MANUAL_REFRESH_COOLDOWN) < 0) {
             long remainingSeconds = Math.max(1, MANUAL_REFRESH_COOLDOWN.minus(Duration.between(setting.getLastManualRefreshAt(), now)).toSeconds());
@@ -258,7 +260,7 @@ public class SiteWeatherService {
 
     @Transactional(readOnly = true)
     public List<Long> retryDueSiteIds() {
-        return settingsRepository.findByEnabledTrueAndRetryAfterLessThanEqual(Instant.now())
+        return settingsRepository.findByEnabledTrueAndRetryAfterLessThanEqual(timeProvider.now())
                 .stream().map(setting -> setting.getSite().getId()).toList();
     }
 
@@ -296,9 +298,9 @@ public class SiteWeatherService {
             }
             WeatherProvider provider = provider(setting.getProviderCode());
             if (provider == null) throw new IllegalArgumentException("Unsupported weather provider");
-            setting.setLastRefreshAttemptAt(Instant.now());
+            setting.setLastRefreshAttemptAt(timeProvider.now());
             settingsRepository.save(setting);
-            Instant providerRequestedAt = Instant.now();
+            Instant providerRequestedAt = timeProvider.now();
             long providerStartedAtNanos = System.nanoTime();
             WeatherPayload payload;
             try {
@@ -311,7 +313,7 @@ public class SiteWeatherService {
                 throw exception;
             }
             String configurationFingerprint = configurationFingerprint(setting);
-            Instant fetchedAt = Instant.now();
+            Instant fetchedAt = timeProvider.now();
             WeatherCondition condition = weatherCodeMapper.map(payload.current().weatherCode());
             SiteWeatherSnapshot snapshot = snapshotRepository.save(SiteWeatherSnapshot.builder()
                     .site(site)
@@ -362,7 +364,7 @@ public class SiteWeatherService {
             return new SiteWeatherView(site.getCode(), site.getId(), "UNAVAILABLE", null, null, null,
                     "天气配置不存在。", null, null, unavailableIndicators("UNAVAILABLE"));
         }
-        Instant attemptedAt = Instant.now();
+        Instant attemptedAt = timeProvider.now();
         setting.setLastRefreshAttemptAt(attemptedAt);
         setting.setLastRefreshError(refreshErrorMessage(exception));
         setting.setLastRefreshOutcome("FAILURE");
@@ -525,7 +527,7 @@ public class SiteWeatherService {
             return "UNAVAILABLE";
         }
         if (snapshot == null) return "PENDING";
-        Duration age = Duration.between(snapshot.getFetchedAt(), Instant.now());
+        Duration age = Duration.between(snapshot.getFetchedAt(), timeProvider.now());
         if (age.compareTo(FRESH_FOR) <= 0) return "FRESH";
         if (age.compareTo(STALE_FOR) <= 0) return "STALE";
         return "EXPIRED";

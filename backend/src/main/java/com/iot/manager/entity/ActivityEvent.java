@@ -14,6 +14,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 @Entity
@@ -55,4 +56,8 @@ public class ActivityEvent {
 
     @Column(nullable = false)
     private LocalDateTime occurredAt;
+
+    /** Server-authoritative retention and audit ordering field; legacy rows remain null. */
+    @Column(name = "occurred_at_utc")
+    private Instant occurredAtUtc;
 }

@@ -19,6 +19,7 @@ public class CommandBatchSummaryService {
     private final CommandBatchRepository batchRepository;
     private final DeviceCommandRepository commandRepository;
     private final WebSocketService webSocketService;
+    private final TimeProvider timeProvider;
 
     @Transactional
     public CommandBatchView refresh(String batchId) {
@@ -46,7 +47,7 @@ public class CommandBatchSummaryService {
         batch.setRejectedCount(rejected);
         batch.setFailedCount(failed);
         batch.setStatus(nextStatus);
-        if (isTerminal(nextStatus) && batch.getCompletedAt() == null) batch.setCompletedAt(LocalDateTime.now());
+        if (isTerminal(nextStatus) && batch.getCompletedAt() == null) batch.setCompletedAt(timeProvider.legacyServerNow());
         CommandBatchView view = toView(batch);
         if (changed) webSocketService.broadcastEvent("command_batch_update", view);
         return view;

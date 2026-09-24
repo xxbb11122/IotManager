@@ -9,14 +9,18 @@ import com.iot.manager.entity.DeviceCommand;
 import com.iot.manager.entity.DeviceConnection;
 import com.iot.manager.entity.DiscoveredDevice;
 import com.iot.manager.entity.EdgeAgent;
+import com.iot.manager.entity.Alert;
+import com.iot.manager.entity.ObservedTimeTrust;
 import com.iot.manager.entity.Organization;
 import com.iot.manager.entity.Site;
 import com.iot.manager.config.IotSecurityProperties;
+import com.iot.manager.config.TimeProperties;
 import com.iot.manager.repository.DeviceCommandRepository;
 import com.iot.manager.repository.DeviceConnectionRepository;
 import com.iot.manager.repository.DeviceRepository;
 import com.iot.manager.repository.DiscoveredDeviceRepository;
 import com.iot.manager.repository.EdgeAgentRepository;
+import com.iot.manager.repository.AlertRepository;
 import com.iot.manager.repository.OrganizationRepository;
 import com.iot.manager.repository.SiteRepository;
 import com.iot.manager.websocket.EdgeAgentCredentialHandshakeInterceptor;
@@ -32,7 +36,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -49,6 +53,7 @@ public class EdgeAgentService {
     private static final int PROTOCOL_VERSION = 1;
 
     private final EdgeAgentRepository agentRepository;
+    private final AlertRepository alertRepository;
     private final DiscoveredDeviceRepository discoveredRepository;
     private final DeviceConnectionRepository connectionRepository;
     private final DeviceRepository deviceRepository;
@@ -63,6 +68,9 @@ public class EdgeAgentService {
     private final IotSecurityProperties securityProperties;
     private final AgentCredentialService credentialService;
     private final ScheduledDatabaseTaskGuard scheduledDatabaseTaskGuard;
+    private final TimeProvider timeProvider;
+    private final TimeProperties timeProperties;
+    private final PlatformMetricsService platformMetricsService;
 
     private final Map<String, WebSocketSession> sessionsByAgentId = new ConcurrentHashMap<>();
     private final Map<String, String> agentIdBySessionId = new ConcurrentHashMap<>();
@@ -92,11 +100,13 @@ public class EdgeAgentService {
             String type = envelope.path("type").asText();
             JsonNode payload = envelope.path("payload");
             if (!payload.isObject()) throw new IllegalArgumentException("Edge payload must be an object");
+            Instant receivedAt = timeProvider.now();
+            Instant sentAt = optionalInstant(envelope, "sentAt");
             switch (type) {
-                case "agent_hello" -> hello(session, payload);
-                case "agent_heartbeat" -> heartbeat(session, payload);
-                case "discovery_snapshot" -> discovery(session, payload);
-                case "telemetry" -> telemetry(session, payload);
+                case "agent_hello" -> hello(session, payload, receivedAt);
+                case "agent_heartbeat" -> heartbeat(session, payload, sentAt, receivedAt);
+                case "discovery_snapshot" -> discovery(session, payload, receivedAt);
+                case "telemetry" -> telemetry(session, payload, receivedAt);
                 case "command_result" -> commandResult(session, payload);
                 default -> log.debug("Ignoring unsupported edge message type {}", type);
             }
@@ -114,9 +124,9 @@ public class EdgeAgentService {
     @Scheduled(fixedDelayString = "${iot.edge-agent.timeout-interval-ms:1000}")
     public void markExpiredCommandsUnconfirmed() {
         scheduledDatabaseTaskGuard.run("edge-agent-command-timeout", () -> {
-            LocalDateTime now = LocalDateTime.now();
+            Instant now = timeProvider.now();
             commandRepository.findByStatusAndSource("SENT", "EDGE_AGENT").stream()
-                    .filter(command -> command.getExpiresAt() != null && command.getExpiresAt().isBefore(now))
+                    .filter(command -> isExpired(command, now))
                     .forEach(command -> commandService.markUnconfirmed(
                             command.getCommandId(), "The edge agent did not return a confirmation before expiry"
                     ));
@@ -133,7 +143,7 @@ public class EdgeAgentService {
         if (connection == null) {
             commandService.completeFromEdgeAgent(
                     pending.getCommandId(), "FAILED", Map.of(), "EDGE_CONNECTION_UNAVAILABLE",
-                    "No active edge connection is registered for this device", Instant.now()
+                    "No active edge connection is registered for this device", timeProvider.now()
             );
             return;
         }
@@ -141,14 +151,14 @@ public class EdgeAgentService {
         if (session == null || !session.isOpen()) {
             commandService.completeFromEdgeAgent(
                     pending.getCommandId(), "FAILED", Map.of(), "AGENT_OFFLINE",
-                    "The edge agent is offline", Instant.now()
+                    "The edge agent is offline", timeProvider.now()
             );
             return;
         }
         if (securityProperties.isEnabled() && !isCredentialActive(session)) {
             commandService.completeFromEdgeAgent(
                     pending.getCommandId(), "FAILED", Map.of(), "AGENT_CREDENTIAL_REVOKED",
-                    "The edge agent credential is no longer active", Instant.now()
+                    "The edge agent credential is no longer active", timeProvider.now()
             );
             return;
         }
@@ -159,17 +169,17 @@ public class EdgeAgentService {
         } catch (Exception exception) {
             commandService.completeFromEdgeAgent(
                     pending.getCommandId(), "FAILED", Map.of(), "DELIVERY_FAILED",
-                    "Unable to deliver command to edge agent: " + exception.getMessage(), Instant.now()
+                    "Unable to deliver command to edge agent: " + exception.getMessage(), timeProvider.now()
             );
         }
     }
 
     @Transactional
-    protected void hello(WebSocketSession session, JsonNode payload) {
+    protected void hello(WebSocketSession session, JsonNode payload, Instant receivedAt) {
         JsonNode descriptor = payload.path("agent");
         String agentId = requiredText(descriptor, "agentId");
         String siteCode = requiredText(descriptor, "siteCode");
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = timeProvider.legacyServer(receivedAt);
         EdgeAgent agent;
         if (securityProperties.isEnabled()) {
             Object boundAgentId = session.getAttributes().get(EdgeAgentCredentialHandshakeInterceptor.AGENT_ID_ATTRIBUTE);
@@ -205,6 +215,7 @@ public class EdgeAgentService {
         agent.setVersion(text(descriptor, "softwareVersion"));
         agent.setStatus("ONLINE");
         agent.setLastSeen(now);
+        agent.setLastReceivedAt(receivedAt);
         agent.setMetadataJson(writeJson(payload.path("drivers")));
         agent.setUpdatedAt(now);
         agentRepository.save(agent);
@@ -217,31 +228,40 @@ public class EdgeAgentService {
     }
 
     @Transactional
-    protected void heartbeat(WebSocketSession session, JsonNode payload) {
+    protected void heartbeat(WebSocketSession session, JsonNode payload, Instant sentAt, Instant receivedAt) {
         EdgeAgent agent = agentFor(session);
+        TimeObservation observation = observe(sentAt, receivedAt);
         agent.setStatus(text(payload, "status") == null ? "ONLINE" : text(payload, "status").toUpperCase());
-        agent.setLastSeen(LocalDateTime.now());
-        agent.setUpdatedAt(LocalDateTime.now());
+        agent.setLastSeen(timeProvider.legacyServer(receivedAt));
+        agent.setLastReceivedAt(receivedAt);
+        agent.setReportedAt(sentAt);
+        agent.setReportedTimeTrust(observation.trust());
+        agent.setReportedClockSkewMs(observation.skewMillis());
+        updateClockSkewState(agent, observation, receivedAt);
+        agent.setUpdatedAt(timeProvider.legacyServer(receivedAt));
         agent.setMetadataJson(writeJson(nodeMap(payload.path("metrics"))));
         agentRepository.save(agent);
+        platformMetricsService.edgeAgentClockTrust(observation.trust().name(), observation.skewMillis());
         webSocketService.broadcastEvent("edge_agent_update", agentPayload(agent));
     }
 
     @Transactional
-    protected void discovery(WebSocketSession session, JsonNode payload) {
+    protected void discovery(WebSocketSession session, JsonNode payload, Instant receivedAt) {
         EdgeAgent agent = agentFor(session);
         String siteCode = requiredText(payload, "siteCode");
         if (!agent.getSite().getCode().equals(siteCode)) throw new IllegalArgumentException("Discovery site does not match agent site");
         for (JsonNode node : payload.path("devices")) {
             String externalId = requiredText(node, "deviceKey");
             String profileId = requiredText(node, "profileId");
-            LocalDateTime observedAt = timestamp(node, "observedAt");
+            Instant observedAt = instant(node, "observedAt");
             DiscoveredDevice candidate = discoveredRepository.findByAgentIdAndExternalId(agent.getId(), externalId)
                     .orElseGet(() -> DiscoveredDevice.builder()
                             .candidateId(candidateId(agent.getAgentId(), externalId))
                             .agent(agent)
                             .externalId(externalId)
-                            .firstSeen(observedAt)
+                            .firstSeen(timeProvider.legacyServer(receivedAt))
+                            .lastSeen(timeProvider.legacyServer(receivedAt))
+                            .firstReceivedAt(receivedAt)
                             .status("DISCOVERED")
                             .build());
             candidate.setProfileId(profileId);
@@ -251,7 +271,9 @@ public class EdgeAgentService {
             candidate.setManufacturer(stringValue(identity.get("manufacturer")));
             candidate.setModel(stringValue(identity.get("model")));
             candidate.setEndpoint(requiredText(node, "endpoint"));
-            candidate.setLastSeen(observedAt);
+            candidate.setLastSeen(timeProvider.legacyServer(receivedAt));
+            candidate.setLastReceivedAt(receivedAt);
+            candidate.setReportedAt(observedAt);
             Map<String, Object> metadata = new LinkedHashMap<>();
             metadata.put("driverId", requiredText(node, "driverId"));
             metadata.put("endpoint", candidate.getEndpoint());
@@ -259,28 +281,32 @@ public class EdgeAgentService {
             metadata.put("reportedState", nodeMap(node.path("reportedState")));
             candidate.setMetadataJson(writeJson(metadata));
             discoveredRepository.save(candidate);
-            updateClaimedConnection(agent, candidate, nodeMap(node.path("reportedState")), observedAt);
+            updateClaimedConnection(agent, candidate, nodeMap(node.path("reportedState")), observedAt, receivedAt);
         }
-        agent.setLastSeen(LocalDateTime.now());
-        agent.setUpdatedAt(LocalDateTime.now());
+        agent.setLastSeen(timeProvider.legacyServer(receivedAt));
+        agent.setLastReceivedAt(receivedAt);
+        agent.setUpdatedAt(timeProvider.legacyServer(receivedAt));
         agentRepository.save(agent);
     }
 
     @Transactional
-    protected void telemetry(WebSocketSession session, JsonNode payload) {
+    protected void telemetry(WebSocketSession session, JsonNode payload, Instant receivedAt) {
         EdgeAgent agent = agentFor(session);
         for (JsonNode sample : payload.path("samples")) {
             String externalId = requiredText(sample, "deviceKey");
             List<DeviceConnection> connections = connectionRepository.findByAgentIdAndExternalId(agent.getAgentId(), externalId);
             if (connections.isEmpty()) continue;
             Map<String, Object> values = nodeMap(sample.path("values"));
-            LocalDateTime observedAt = timestamp(sample, "observedAt");
+            Instant observedAt = instant(sample, "observedAt");
             for (DeviceConnection connection : connections) {
                 Device device = connection.getDevice();
                 device.setReportedStateJson(writeJson(values));
-                device.setLastSeen(observedAt);
+                device.setLastSeen(timeProvider.legacyServer(receivedAt));
+                device.setLastReceivedAt(receivedAt);
                 device.setStatus("ONLINE");
-                connection.setLastSeen(observedAt);
+                connection.setLastSeen(timeProvider.legacyServer(receivedAt));
+                connection.setLastReceivedAt(receivedAt);
+                connection.setReportedAt(observedAt);
                 connection.setStatus("CONNECTED");
                 deviceRepository.save(device);
                 connectionRepository.save(connection);
@@ -325,22 +351,25 @@ public class EdgeAgentService {
     protected void markOffline(String agentId) {
         agentRepository.findByAgentId(agentId).ifPresent(agent -> {
             agent.setStatus("OFFLINE");
-            agent.setUpdatedAt(LocalDateTime.now());
+            agent.setUpdatedAt(timeProvider.legacyServerNow());
             agentRepository.save(agent);
             webSocketService.broadcastEvent("edge_agent_update", agentPayload(agent));
         });
     }
 
     private void updateClaimedConnection(
-            EdgeAgent agent, DiscoveredDevice candidate, Map<String, Object> state, LocalDateTime observedAt
+            EdgeAgent agent, DiscoveredDevice candidate, Map<String, Object> state, Instant observedAt, Instant receivedAt
     ) {
         connectionRepository.findByAgentIdAndExternalId(agent.getAgentId(), candidate.getExternalId()).forEach(connection -> {
             connection.setStatus("CONNECTED");
-            connection.setLastSeen(observedAt);
+            connection.setLastSeen(timeProvider.legacyServer(receivedAt));
+            connection.setLastReceivedAt(receivedAt);
+            connection.setReportedAt(observedAt);
             connection.setDriverId(stringValue(readJson(candidate.getMetadataJson()).get("driverId")));
             Device device = connection.getDevice();
             device.setReportedStateJson(writeJson(state));
-            device.setLastSeen(observedAt);
+            device.setLastSeen(timeProvider.legacyServer(receivedAt));
+            device.setLastReceivedAt(receivedAt);
             device.setStatus("ONLINE");
             deviceRepository.save(device);
             connectionRepository.save(connection);
@@ -387,12 +416,14 @@ public class EdgeAgentService {
         payload.put("endpoint", metadata.get("endpoint"));
         payload.put("command", command.getType());
         payload.put("parameters", readJson(command.getParametersJson()));
-        payload.put("expiresAt", command.getExpiresAt() == null ? null : command.getExpiresAt().toInstant(ZoneOffset.UTC));
+        payload.put("expiresAt", command.getExpiresAtUtc() != null
+                ? command.getExpiresAtUtc()
+                : command.getExpiresAt() == null ? null : timeProvider.legacyServerInstant(command.getExpiresAt()));
         Map<String, Object> envelope = new LinkedHashMap<>();
         envelope.put("type", "command_request");
         envelope.put("protocolVersion", PROTOCOL_VERSION);
         envelope.put("messageId", UUID.randomUUID());
-        envelope.put("sentAt", Instant.now());
+        envelope.put("sentAt", timeProvider.now());
         envelope.put("payload", payload);
         return envelope;
     }
@@ -416,7 +447,63 @@ public class EdgeAgentService {
         payload.put("version", agent.getVersion());
         payload.put("status", agent.getStatus());
         payload.put("lastSeen", agent.getLastSeen());
+        payload.put("lastReceivedAt", agent.getLastReceivedAt());
+        payload.put("reportedAt", agent.getReportedAt());
+        payload.put("reportedTimeTrust", agent.getReportedTimeTrust());
+        payload.put("reportedClockSkewMs", agent.getReportedClockSkewMs());
+        payload.put("clockSkewStreak", agent.getClockSkewStreak());
         return payload;
+    }
+
+    /**
+     * Clock skew is a diagnostic condition only.  It must never change the
+     * connection state because the service receipt time is the availability
+     * authority.  Persisting the streak makes the three-heartbeat threshold
+     * deterministic across reconnects and process restarts.
+     */
+    private void updateClockSkewState(EdgeAgent agent, TimeObservation observation, Instant receivedAt) {
+        if (observation.trust() != ObservedTimeTrust.SKEWED) {
+            agent.setClockSkewStreak(0);
+            // Missing sender time is not evidence that the remote clock recovered.
+            if (observation.trust() == ObservedTimeTrust.TRUSTED) {
+                String alertCode = clockSkewAlertCode(agent);
+                List<Alert> openAlerts = alertRepository.findBySite_IdAndResolvedFalseAndAlertCode(
+                        agent.getSite().getId(), alertCode);
+                for (Alert alert : openAlerts) {
+                    alert.setResolved(true);
+                    alert.setStatus("RESOLVED");
+                    alert.setResolvedAt(timeProvider.legacyServer(receivedAt));
+                    alert.setResolvedAtUtc(receivedAt);
+                    webSocketService.sendAlertUpdate(alertRepository.save(alert));
+                }
+                agent.setClockSkewAlerted(false);
+            }
+            return;
+        }
+
+        int streak = Math.min(3, Math.max(0, agent.getClockSkewStreak() == null ? 0 : agent.getClockSkewStreak()) + 1);
+        agent.setClockSkewStreak(streak);
+        if (streak < 3) return;
+
+        String alertCode = clockSkewAlertCode(agent);
+        if (!alertRepository.existsBySite_IdAndResolvedFalseAndAlertCode(agent.getSite().getId(), alertCode)) {
+            Alert alert = alertRepository.save(Alert.builder()
+                    .site(agent.getSite())
+                    .level("WARNING")
+                    .status("OPEN")
+                    .alertCode(alertCode)
+                    .message("Edge agent " + agent.getAgentId()
+                            + " reported clock skew outside the allowed tolerance for three consecutive heartbeats")
+                    .createdAt(timeProvider.legacyServer(receivedAt))
+                    .createdAtUtc(receivedAt)
+                    .build());
+            webSocketService.sendAlert(alert);
+        }
+        agent.setClockSkewAlerted(true);
+    }
+
+    private String clockSkewAlertCode(EdgeAgent agent) {
+        return "EDGE_AGENT_CLOCK_SKEW:" + agent.getAgentId();
     }
 
     private String requiredText(JsonNode node, String field) {
@@ -430,16 +517,52 @@ public class EdgeAgentService {
         return value != null && value.isTextual() && !value.asText().isBlank() ? value.asText() : null;
     }
 
-    private LocalDateTime timestamp(JsonNode node, String field) {
-        return LocalDateTime.ofInstant(instant(node, field), ZoneOffset.UTC);
-    }
-
     private Instant instant(JsonNode node, String field) {
         try {
             return Instant.parse(requiredText(node, field));
         } catch (RuntimeException exception) {
             throw new IllegalArgumentException("Edge payload field " + field + " must be an ISO-8601 instant");
         }
+    }
+
+    private Instant optionalInstant(JsonNode node, String field) {
+        String value = text(node, field);
+        if (value == null) return null;
+        try {
+            return Instant.parse(value);
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException("Edge payload field " + field + " must be an ISO-8601 instant");
+        }
+    }
+
+    private TimeObservation observe(Instant observedAt, Instant receivedAt) {
+        if (observedAt == null) return new TimeObservation(ObservedTimeTrust.UNKNOWN, null);
+        Duration skew;
+        try {
+            skew = Duration.between(observedAt, receivedAt);
+        } catch (ArithmeticException exception) {
+            return new TimeObservation(ObservedTimeTrust.SKEWED, null);
+        }
+        ObservedTimeTrust trust;
+        try {
+            trust = skew.abs().compareTo(timeProperties.getClockSkewTolerance()) <= 0
+                    ? ObservedTimeTrust.TRUSTED : ObservedTimeTrust.SKEWED;
+        } catch (ArithmeticException exception) {
+            trust = ObservedTimeTrust.SKEWED;
+        }
+        Long skewMillis;
+        try {
+            skewMillis = skew.toMillis();
+        } catch (ArithmeticException exception) {
+            skewMillis = null;
+        }
+        return new TimeObservation(trust, skewMillis);
+    }
+
+    private boolean isExpired(DeviceCommand command, Instant now) {
+        if (command.getExpiresAtUtc() != null) return !command.getExpiresAtUtc().isAfter(now);
+        return command.getExpiresAt() != null
+                && !command.getExpiresAt().isAfter(timeProvider.legacyServer(now));
     }
 
     private String writeJson(Object value) {
@@ -470,5 +593,8 @@ public class EdgeAgentService {
 
     private record DeviceCommandViewGuard(com.iot.manager.dto.DeviceCommandView command) {
         private String status() { return command.status(); }
+    }
+
+    private record TimeObservation(ObservedTimeTrust trust, Long skewMillis) {
     }
 }

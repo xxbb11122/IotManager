@@ -1,0 +1,8 @@
+# Included only by scripts/runtime/start-integration.{sh,ps1} when
+# IOT_ROLLBACK_COMPATIBILITY_MODE=true. It scopes Flyway's future-migration
+# tolerance to the N-1 half of an isolated application rollback drill. A
+# normal deployment must not carry an empty or permissive Flyway override.
+services:
+  backend:
+    environment:
+      SPRING_FLYWAY_IGNORE_MIGRATION_PATTERNS: "*:future"

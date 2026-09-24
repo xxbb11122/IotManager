@@ -43,7 +43,9 @@ import java.util.Set;
         EdgeAgentSecurityProperties.class,
         BootstrapOwnerProperties.class,
         ApiRateLimitProperties.class,
-        ObservabilityProperties.class
+        ObservabilityProperties.class,
+        TimeProperties.class,
+        RetentionProperties.class
 })
 public class SecurityConfig {
 
@@ -82,10 +84,11 @@ public class SecurityConfig {
             ApiRateLimitProperties apiRateLimitProperties,
             com.iot.manager.service.PlatformMetricsService platformMetricsService,
             ObservabilityProperties observabilityProperties,
-            CorsConfigurationSource corsConfigurationSource
+            CorsConfigurationSource corsConfigurationSource,
+            java.time.Clock applicationClock
     ) throws Exception {
         RequestCorrelationFilter requestCorrelationFilter = new RequestCorrelationFilter();
-        ApiRateLimitFilter apiRateLimitFilter = new ApiRateLimitFilter(apiRateLimitProperties, platformMetricsService);
+        ApiRateLimitFilter apiRateLimitFilter = new ApiRateLimitFilter(apiRateLimitProperties, platformMetricsService, applicationClock);
         http.csrf(csrf -> csrf.disable())
                 .formLogin(formLogin -> formLogin.disable())
                 .httpBasic(httpBasic -> httpBasic.disable())

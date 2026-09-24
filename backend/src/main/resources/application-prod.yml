@@ -67,6 +67,7 @@ iot:
   rate-limit:
     enabled: true
     reads-per-minute: ${IOT_RATE_LIMIT_READS_PER_MINUTE:120}
+    archive-reads-per-minute: ${IOT_RATE_LIMIT_ARCHIVE_READS_PER_MINUTE:5}
     commands-per-minute: ${IOT_RATE_LIMIT_COMMANDS_PER_MINUTE:30}
   web:
     # Required, comma-separated HTTPS origins supplied by deployment secrets,

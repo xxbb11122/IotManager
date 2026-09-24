@@ -5,6 +5,7 @@ const runtimeBaseUrl = String(process.env.IOT_RUNTIME_BASE_URL ?? '').trim();
 
 export default defineConfig({
   testDir: './e2e',
+  outputDir: process.env.IOT_PLAYWRIGHT_OUTPUT_DIR || './test-results',
   webServer: runtimeBaseUrl ? undefined : {
     command: 'npm run dev -- --host 127.0.0.1',
     url: loopbackBaseUrl,

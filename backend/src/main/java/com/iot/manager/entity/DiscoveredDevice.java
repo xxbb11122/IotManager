@@ -17,6 +17,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 
 import java.sql.Types;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 @Entity
@@ -71,6 +72,15 @@ public class DiscoveredDevice {
 
     @Column(name = "last_seen", nullable = false)
     private LocalDateTime lastSeen;
+
+    @Column(name = "first_received_at")
+    private Instant firstReceivedAt;
+
+    @Column(name = "last_received_at")
+    private Instant lastReceivedAt;
+
+    @Column(name = "reported_at")
+    private Instant reportedAt;
 
     @JdbcTypeCode(Types.LONGVARCHAR)
     @Column(name = "metadata_json")

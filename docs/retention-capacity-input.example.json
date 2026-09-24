@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "evidenceClass": "illustrative",
+  "sourceNote": "Illustrative sizing only; replace every value with measured trial or production-snapshot data before approval.",
+  "deviceCount": 1000,
+  "telemetrySamplesPerDevicePerDay": 720,
+  "averageStateJsonBytes": 512,
+  "telemetryBaseRowBytes": 192,
+  "nonRetentionDatabaseBytes": 2147483648,
+  "telemetryHotStorageMultiplier": 1.5,
+  "telemetryArchiveStorageMultiplier": 1.4,
+  "otherTables": [
+    { "table": "activity_events", "rowsPerDay": 5000, "averageRowBytes": 480, "storageMultiplier": 1.5, "retentionDays": 730 },
+    { "table": "command_events", "rowsPerDay": 10000, "averageRowBytes": 384, "storageMultiplier": 1.5, "retentionDays": 730 },
+    { "table": "device_commands", "rowsPerDay": 4000, "averageRowBytes": 448, "storageMultiplier": 1.5, "retentionDays": 730 },
+    { "table": "alerts", "rowsPerDay": 300, "averageRowBytes": 512, "storageMultiplier": 1.5, "retentionDays": 365 },
+    { "table": "site_weather_snapshots", "rowsPerDay": 500, "averageRowBytes": 1024, "storageMultiplier": 1.4, "retentionDays": 90 },
+    { "table": "site_weather_forecast_points", "rowsPerDay": 12000, "averageRowBytes": 320, "storageMultiplier": 1.4, "retentionDays": 30 },
+    { "table": "weather_provider_access_events", "rowsPerDay": 500, "averageRowBytes": 384, "storageMultiplier": 1.5, "retentionDays": 730 },
+    { "table": "credential_rotations", "rowsPerDay": 20, "averageRowBytes": 384, "storageMultiplier": 1.5, "retentionDays": 730 }
+  ],
+  "recovery": {
+    "backupCompressionRatio": 0.55,
+    "observedWalBytesPerDay": 8589934592,
+    "restoreMiBPerSecond": 120,
+    "walReplayMiBPerSecond": 80,
+    "walReplayWindowHours": 6,
+    "fixedRecoverySeconds": 600
+  }
+}

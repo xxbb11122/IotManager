@@ -1537,6 +1537,166 @@ function commandAggregateReleaseEvidence(parsed) {
   output(JSON.stringify({ status: 'PASS', output: path.relative(repositoryRoot, outputFile).replaceAll('\\', '/'), evidenceSha256: sha256File(outputFile) }));
 }
 
+/**
+ * Turns already-verified final Gate evidence into the immutable candidate
+ * document consumed by rollback drills. Mutable tags are deliberately absent.
+ */
+function commandCreateKnownGoodReleaseManifest(parsed) {
+  const candidateFile = resolveRepositoryPath(option(parsed, 'candidate', true), true);
+  const manifestFile = resolveRepositoryPath(option(parsed, 'manifest', true), true);
+  const evidenceFile = resolveRepositoryPath(option(parsed, 'evidence', true), true);
+  const scansFile = resolveRepositoryPath(option(parsed, 'scans', true), true);
+  const outputFile = resolveRepositoryPath(option(parsed, 'output', true), true);
+  const databaseSchemaVersion = String(option(parsed, 'database-schema-version', true));
+  const apiVersion = String(option(parsed, 'api-version', true));
+  const protocolVersion = Number(option(parsed, 'protocol-version', true));
+  const approvedAt = String(option(parsed, 'approved-at', true));
+  const candidate = readJson(candidateFile);
+  const manifest = readJson(manifestFile);
+  const evidence = readJson(evidenceFile);
+  const scans = readJson(scansFile);
+
+  validateKnownGoodReleaseInputs(candidate, manifest, evidence, scans, candidateFile, manifestFile);
+  if (!/^[1-9][0-9]*$/.test(databaseSchemaVersion)) {
+    fail('database-schema-version must be a positive Flyway version.', 64);
+  }
+  if (!/^v[1-9][0-9]*$/.test(apiVersion)) {
+    fail('api-version must use the supported vN form.', 64);
+  }
+  if (!Number.isInteger(protocolVersion) || protocolVersion < 1 || protocolVersion > 999) {
+    fail('protocol-version must be an integer between 1 and 999.', 64);
+  }
+  if (!validUtcInstant(approvedAt)) {
+    fail('approved-at must be an RFC3339 UTC instant.', 64);
+  }
+
+  const immutableImages = digestItems(manifest);
+  const images = {};
+  for (const artifact of artifactCatalog) {
+    images[artifact.services[0]] = immutableImages.get(artifact.artifactId);
+  }
+  const document = {
+    schemaVersion: 1,
+    releaseId: candidate.releaseCandidateId,
+    sourceSha: candidate.sourceSha,
+    databaseSchemaVersion: Number(databaseSchemaVersion),
+    apiVersion,
+    protocolVersion,
+    images,
+    artifacts: [...immutableImages.entries()].map(([artifactId, immutableRef]) => ({ artifactId, immutableRef })),
+    evidenceChecksums: {
+      releaseCandidate: sha256File(candidateFile),
+      imageManifest: sha256File(manifestFile),
+      imageScanSummary: sha256File(scansFile),
+      finalGateEvidence: sha256File(evidenceFile)
+    },
+    approvedAt,
+    status: 'KNOWN_GOOD'
+  };
+  writeJson(outputFile, document);
+  fs.writeFileSync(outputFile + '.sha256', sha256File(outputFile) + '  ' + path.basename(outputFile) + '\n', 'utf8');
+  output(JSON.stringify({
+    status: 'PASS',
+    releaseId: document.releaseId,
+    output: path.relative(repositoryRoot, outputFile).replaceAll('\\', '/'),
+    releaseManifestSha256: sha256File(outputFile)
+  }));
+}
+
+function commandValidateKnownGoodReleaseManifest(parsed) {
+  const releaseManifestFile = resolveRepositoryPath(option(parsed, 'release-manifest', true), true);
+  const candidateFile = resolveRepositoryPath(option(parsed, 'candidate', true), true);
+  const manifestFile = resolveRepositoryPath(option(parsed, 'manifest', true), true);
+  const evidenceFile = resolveRepositoryPath(option(parsed, 'evidence', true), true);
+  const scansFile = resolveRepositoryPath(option(parsed, 'scans', true), true);
+  const document = readJson(releaseManifestFile);
+  const candidate = readJson(candidateFile);
+  const manifest = readJson(manifestFile);
+  const evidence = readJson(evidenceFile);
+  const scans = readJson(scansFile);
+
+  validateKnownGoodReleaseInputs(candidate, manifest, evidence, scans, candidateFile, manifestFile);
+  if (!document || typeof document !== 'object' || document.schemaVersion !== 1 || document.status !== 'KNOWN_GOOD') {
+    fail('Known-good release manifest is incomplete or is not approved.', 65);
+  }
+  if (document.releaseId !== candidate.releaseCandidateId || document.sourceSha !== candidate.sourceSha) {
+    fail('Known-good release manifest does not belong to the supplied candidate.', 65);
+  }
+  if (!Number.isInteger(document.databaseSchemaVersion) || document.databaseSchemaVersion < 1 ||
+      !/^v[1-9][0-9]*$/.test(String(document.apiVersion || '')) ||
+      !Number.isInteger(document.protocolVersion) || document.protocolVersion < 1 ||
+      !validUtcInstant(document.approvedAt)) {
+    fail('Known-good release manifest has invalid compatibility metadata.', 65);
+  }
+  const expectedChecksums = {
+    releaseCandidate: sha256File(candidateFile),
+    imageManifest: sha256File(manifestFile),
+    imageScanSummary: sha256File(scansFile),
+    finalGateEvidence: sha256File(evidenceFile)
+  };
+  for (const [name, value] of Object.entries(expectedChecksums)) {
+    if (document.evidenceChecksums?.[name] !== value) {
+      fail('Known-good release manifest checksum mismatch for ' + name + '.', 65);
+    }
+  }
+  const expectedImages = digestItems(manifest);
+  const actualArtifacts = new Map((document.artifacts || []).map((item) => [item.artifactId, item.immutableRef]));
+  if (!exactSet(new Set(actualArtifacts.keys()), new Set(expectedImages.keys()))) {
+    fail('Known-good release manifest does not contain the approved eight artifacts.', 65);
+  }
+  for (const [artifactId, immutableRef] of expectedImages.entries()) {
+    if (actualArtifacts.get(artifactId) !== immutableRef) {
+      fail('Known-good release manifest digest mismatch for ' + artifactId + '.', 65);
+    }
+  }
+  const expectedImageKeys = new Set(artifactCatalog.map((artifact) => artifact.services[0]));
+  const actualImageKeys = new Set(Object.keys(document.images || {}));
+  if (!exactSet(actualImageKeys, expectedImageKeys)) {
+    fail('Known-good release manifest image index does not cover the approved artifacts.', 65);
+  }
+  for (const artifact of artifactCatalog) {
+    const expectedRef = expectedImages.get(artifact.artifactId);
+    if (document.images[artifact.services[0]] !== expectedRef) {
+      fail('Known-good release manifest image index mismatch for ' + artifact.artifactId + '.', 65);
+    }
+  }
+  output(JSON.stringify({
+    status: 'PASS',
+    releaseId: document.releaseId,
+    sourceSha: document.sourceSha,
+    databaseSchemaVersion: document.databaseSchemaVersion,
+    artifacts: actualArtifacts.size
+  }));
+}
+
+function validateKnownGoodReleaseInputs(candidate, manifest, evidence, scans, candidateFile, manifestFile) {
+  validateCandidate(candidate);
+  const manifestSha256 = sha256File(manifestFile);
+  if (manifest.releaseCandidateId !== candidate.releaseCandidateId ||
+      manifest.sourceSha !== candidate.sourceSha ||
+      manifest.topologySha256 !== candidate.topologySha256) {
+    fail('Image digest manifest does not belong to the supplied release candidate.', 65);
+  }
+  digestItems(manifest);
+  if (!evidence || evidence.decision !== 'PASS' ||
+      evidence.releaseCandidateId !== candidate.releaseCandidateId ||
+      evidence.sourceSha !== candidate.sourceSha ||
+      evidence.topologySha256 !== candidate.topologySha256 ||
+      evidence.manifestSha256 !== manifestSha256) {
+    fail('Final Gate evidence does not prove a PASS for the supplied candidate.', 65);
+  }
+  const scanArtifacts = new Set(artifactItems(scans).map((item) => item.artifactId));
+  if (!exactSet(scanArtifacts, new Set(artifactCatalog.map((item) => item.artifactId)))) {
+    fail('Image scan evidence does not cover the approved eight artifacts.', 65);
+  }
+}
+
+function validUtcInstant(value) {
+  return typeof value === 'string' &&
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/.test(value) &&
+      !Number.isNaN(Date.parse(value));
+}
+
 function parseSimpleVexYaml(file) {
   const result = {};
   const controls = [];
@@ -2174,7 +2334,7 @@ function usage() {
   output('Usage: node scripts/ci/release-tools.mjs <command> [options]');
   output('Commands: discover-images, discover-services, verify-image-set, prepare-candidate,');
   output('          build-image, assemble-image-manifest, create-image-scan-result, assemble-image-scans, write-stage-result,');
-  output('          aggregate-release-evidence, aggregate-service-digests, build-retry-manifest, record-runner-sample, evaluate-runner-reliability, validate-vex, classify-runner-outcome, list-digest-artifacts,');
+  output('          aggregate-release-evidence, create-known-good-release-manifest, validate-known-good-release-manifest, aggregate-service-digests, build-retry-manifest, record-runner-sample, evaluate-runner-reliability, validate-vex, classify-runner-outcome, list-digest-artifacts,');
   output('          render-digest-env, verify-service-digests, validate-release-candidate,');
   output('          validate-digest-manifest, validate-stage-handoff, validate-trusted-producer');
 }
@@ -2212,6 +2372,12 @@ try {
       break;
     case 'aggregate-release-evidence':
       commandAggregateReleaseEvidence(parsed);
+      break;
+    case 'create-known-good-release-manifest':
+      commandCreateKnownGoodReleaseManifest(parsed);
+      break;
+    case 'validate-known-good-release-manifest':
+      commandValidateKnownGoodReleaseManifest(parsed);
       break;
     case 'validate-vex':
       commandValidateVex(parsed);

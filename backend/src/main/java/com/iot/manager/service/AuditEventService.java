@@ -11,6 +11,7 @@ import com.iot.manager.repository.CommandEventRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Locale;
 import java.util.Objects;
@@ -27,6 +28,7 @@ public class AuditEventService {
     private final ActivityEventRepository activityEventRepository;
     private final CommandEventRepository commandEventRepository;
     private final AuditContextService auditContextService;
+    private final TimeProvider timeProvider;
 
     public ActivityEvent recordActivity(
             Device device,
@@ -36,6 +38,7 @@ public class AuditEventService {
     ) {
         Device target = Objects.requireNonNull(device, "device is required for an activity event");
         AuditScope scope = scopeFor(target);
+        Instant occurredAtUtc = timeProvider.now();
         return activityEventRepository.save(ActivityEvent.builder()
                 .device(target)
                 .actorId(auditContextService.currentActorId())
@@ -44,7 +47,8 @@ public class AuditEventService {
                 .eventType(eventType)
                 .detail(detail)
                 .payloadJson(payloadJson)
-                .occurredAt(LocalDateTime.now())
+                .occurredAt(timeProvider.legacyServer(occurredAtUtc))
+                .occurredAtUtc(occurredAtUtc)
                 .build());
     }
 
@@ -61,7 +65,8 @@ public class AuditEventService {
         Device targetDevice = Objects.requireNonNull(device, "device is required for a command event");
         AuditScope scope = scopeFor(targetDevice);
         Long actorId = auditContextService.currentActorId();
-        LocalDateTime occurredAt = LocalDateTime.now();
+        Instant occurredAtUtc = timeProvider.now();
+        LocalDateTime occurredAt = timeProvider.legacyServer(occurredAtUtc);
 
         commandEventRepository.save(CommandEvent.builder()
                 .command(targetCommand)
@@ -74,6 +79,7 @@ public class AuditEventService {
                 .detail(detail)
                 .payloadJson(payloadJson)
                 .occurredAt(occurredAt)
+                .occurredAtUtc(occurredAtUtc)
                 .build());
 
         return activityEventRepository.save(ActivityEvent.builder()
@@ -85,6 +91,7 @@ public class AuditEventService {
                 .detail(detail)
                 .payloadJson(payloadJson)
                 .occurredAt(occurredAt)
+                .occurredAtUtc(occurredAtUtc)
                 .build());
     }
 

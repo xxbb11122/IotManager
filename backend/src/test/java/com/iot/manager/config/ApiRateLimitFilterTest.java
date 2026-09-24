@@ -8,6 +8,10 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -25,7 +29,9 @@ class ApiRateLimitFilterTest {
         properties.setEnabled(true);
         properties.setReadsPerMinute(2);
         PlatformMetricsService metrics = mock(PlatformMetricsService.class);
-        ApiRateLimitFilter filter = new ApiRateLimitFilter(properties, metrics);
+        ApiRateLimitFilter filter = new ApiRateLimitFilter(
+                properties, metrics, Clock.fixed(Instant.parse("2026-09-23T00:00:00Z"), ZoneOffset.UTC)
+        );
 
         assertThat(response(filter).getStatus()).isEqualTo(200);
         assertThat(response(filter).getStatus()).isEqualTo(200);

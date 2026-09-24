@@ -149,7 +149,7 @@ $requiredRoleCodes = if ($env:IOT_REQUIRED_ROLE_CODES) { $env:IOT_REQUIRED_ROLE_
 if ([string]::IsNullOrWhiteSpace($expectedFlywayVersion)) { throw 'IOT_EXPECTED_FLYWAY_VERSION must not be empty.' }
 if ($requiredRoleCodes -notmatch '^[A-Z]+(,[A-Z]+)*$') { throw 'IOT_REQUIRED_ROLE_CODES must be a comma-separated uppercase role-code list.' }
 $requiredRoleCodes = (($requiredRoleCodes -split ',' | Sort-Object -Unique) -join ',')
-$startFlags = if ($Mode -eq 'local') { @('-d', '--build') } else { @('-d', '--no-build') }
+$startFlags = if ($Mode -eq 'local') { @('-d', '--build') } else { @('-d', '--no-build', '--pull', 'never') }
 Invoke-Docker -Arguments ($compose + @('up') + $startFlags + @('volume-init', 'postgres')) -Description 'Start isolated recovery PostgreSQL' | Out-Null
 
 $deadline = (Get-Date).AddSeconds(120)

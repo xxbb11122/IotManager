@@ -28,6 +28,7 @@ public class DeviceSimulator {
     private final AuditEventService auditEventService;
     private final WebSocketService wsService;
     private final DeviceService deviceService;
+    private final TimeProvider timeProvider;
 
     @Value("${iot.simulator.initial-device-count:12}")
     private int initialCount;
@@ -80,7 +81,7 @@ public class DeviceSimulator {
                     .cpuUsage(rng.nextDouble() * 70.0)
                     .uptimeSeconds(rng.nextLong(604800L))
                     .signalStrength(-30.0 - rng.nextDouble() * 60.0)
-                    .lastSeen(LocalDateTime.now())
+                    .lastSeen(timeProvider.legacyServerNow())
                     .build();
             devices.add(d);
         }
@@ -118,7 +119,7 @@ public class DeviceSimulator {
                     .orElseThrow(() -> new NoSuchElementException("Device not found"));
             String previousStatus = normalizeStatus(device.getStatus());
             String requestedStatus = chooseNextStatus(device, previousStatus);
-            updateTelemetry(device, LocalDateTime.now());
+            updateTelemetry(device, timeProvider.legacyServerNow());
 
             Device saved = persistStatus(device, previousStatus, requestedStatus);
             updates.add(toTelemetryUpdate(saved));
@@ -140,7 +141,7 @@ public class DeviceSimulator {
         Device device = deviceRepo.findByIdForUpdate(deviceId)
                 .orElseThrow(() -> new NoSuchElementException("Device not found"));
         String previousStatus = normalizeStatus(device.getStatus());
-        device.setLastSeen(LocalDateTime.now());
+        device.setLastSeen(timeProvider.legacyServerNow());
         return persistStatus(device, previousStatus, requestedStatus);
     }
 

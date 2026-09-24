@@ -1,0 +1,483 @@
+name: Isolated N-to-N-1 Rollback Drill
+
+on:
+  workflow_dispatch:
+    inputs:
+      current_evidence_digest:
+        description: GHCR release-evidence OCI digest (sha256:...) for known-good N
+        required: true
+        type: string
+      rollback_evidence_digest:
+        description: GHCR release-evidence OCI digest (sha256:...) for approved N-1
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+  attestations: write
+  artifact-metadata: write
+  id-token: write
+
+concurrency:
+  group: r1-rollback-drill
+  cancel-in-progress: false
+
+jobs:
+  n-to-n-minus-one:
+    name: Immutable N to N-1 compatibility proof
+    runs-on: [self-hosted, linux, iot-manager-recovery]
+    environment: r1-rollback-drill
+    timeout-minutes: 100
+    env:
+      IOT_ROLLBACK_PROJECT: iot-manager-rollback-${{ github.run_id }}
+      IOT_ROLLBACK_ENVIRONMENT: ${{ github.workspace }}/deploy/.runtime/iot-manager-rollback-${{ github.run_id }}/integration.env
+      IOT_ROLLBACK_STATE: ${{ github.workspace }}/deploy/.runtime/iot-manager-rollback-${{ github.run_id }}/runtime.env
+      IOT_ROLLBACK_ROOT: ${{ github.workspace }}/artifacts/rollback-drill/${{ github.run_id }}
+      IOT_RUNTIME_BASE_URL: https://iot-manager.localhost
+      IOT_CURRENT_EVIDENCE_DIGEST: ${{ inputs.current_evidence_digest }}
+      IOT_ROLLBACK_EVIDENCE_DIGEST: ${{ inputs.rollback_evidence_digest }}
+      DOCKER_CONFIG: ${{ runner.temp }}/iot-manager-rollback-docker-${{ github.run_id }}
+      IOT_ROLLBACK_CA_NICKNAME: iot-manager-rollback-${{ github.run_id }}
+    steps:
+      - name: Check out rollback tooling
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Use the pinned project Node.js toolchain
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install checksum-pinned ORAS client
+        run: bash scripts/ci/install-pinned-oras.sh
+
+      - name: Retrieve N and N-1 evidence from GHCR by approved OCI digest
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          CURRENT_EVIDENCE_DIGEST: ${{ inputs.current_evidence_digest }}
+          ROLLBACK_EVIDENCE_DIGEST: ${{ inputs.rollback_evidence_digest }}
+        run: |
+          set -euo pipefail
+          repository="ghcr.io/${GITHUB_REPOSITORY,,}/release-evidence"
+          install -d -m 0700 "$DOCKER_CONFIG"
+          printf '%s' "$GHCR_TOKEN" | oras login --registry-config "$DOCKER_CONFIG/config.json" ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          retrieve() {
+            local digest="$1" destination="$2"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+              echo '::error::Rollback evidence must be selected by a complete OCI digest.' >&2
+              exit 64
+            }
+            mkdir -p "$destination"
+            oras pull --registry-config "$DOCKER_CONFIG/config.json" "$repository@$digest" --output "$destination"
+            (cd "$destination" && sha256sum -c release-bundle.tar.gz.sha256)
+            python3 scripts/ci/extract-release-evidence.py \
+              "$destination/release-bundle.tar.gz" "$destination"
+          }
+          retrieve "$CURRENT_EVIDENCE_DIGEST" artifacts/rollback-input/current
+          retrieve "$ROLLBACK_EVIDENCE_DIGEST" artifacts/rollback-input/n-minus-one
+
+      - name: Validate known-good evidence and pre-pull every immutable digest
+        id: evidence
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          command -v gh >/dev/null || {
+            echo '::error::The protected recovery runner must have GitHub CLI with gh attestation verify support installed.' >&2
+            exit 69
+          }
+          gh version
+          find_bundle() {
+            local root="$1"
+            local manifest
+            manifest="$(find "$root" -type f -name release-manifest.json -print -quit)"
+            test -n "$manifest" || { echo "::error::No release-manifest.json was found below $root" >&2; exit 66; }
+            dirname "$manifest"
+          }
+          current_dir="$(find_bundle artifacts/rollback-input/current)"
+          rollback_dir="$(find_bundle artifacts/rollback-input/n-minus-one)"
+          test "$current_dir" != "$rollback_dir"
+          for directory in "$current_dir" "$rollback_dir"; do
+            for file in SHA256SUMS release-manifest.json release-manifest.json.sha256 release-manifest.attestation.json release-candidate.json release-topology.json release-services.json image-digests.json scanned-images.json evidence-manifest.json; do
+              test -s "$directory/$file" || { echo "::error::Missing immutable evidence $directory/$file" >&2; exit 66; }
+            done
+            (cd "$directory" && sha256sum -c SHA256SUMS)
+            (cd "$directory" && sha256sum -c release-manifest.json.sha256)
+            gh attestation verify "$directory/release-manifest.json" \
+              --bundle "$directory/release-manifest.attestation.json" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-gate.yml"
+            node scripts/ci/release-tools.mjs validate-known-good-release-manifest \
+              --release-manifest "$directory/release-manifest.json" \
+              --candidate "$directory/release-candidate.json" \
+              --manifest "$directory/image-digests.json" \
+              --evidence "$directory/evidence-manifest.json" \
+              --scans "$directory/scanned-images.json"
+            while IFS=$'\t' read -r artifact_id image_ref; do
+              test -n "$artifact_id"
+              docker pull "$image_ref"
+            done < <(node scripts/ci/release-tools.mjs list-digest-artifacts --manifest "$directory/image-digests.json")
+          done
+          node - "$current_dir/release-manifest.json" "$rollback_dir/release-manifest.json" <<'NODE'
+          const fs = require('fs');
+          const current = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          const rollback = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+          if (current.releaseId === rollback.releaseId) throw new Error('N and N-1 must be distinct known-good releases.');
+          if (Date.parse(current.approvedAt) <= Date.parse(rollback.approvedAt)) {
+            throw new Error('N must have been approved after the selected N-1 candidate.');
+          }
+          if (current.databaseSchemaVersion < rollback.databaseSchemaVersion) {
+            throw new Error('The selected N candidate predates N-1 schema metadata.');
+          }
+          if (current.apiVersion !== rollback.apiVersion || current.protocolVersion !== rollback.protocolVersion) {
+            throw new Error('The selected N-1 candidate cannot preserve the current API and edge protocol version.');
+          }
+          NODE
+          echo "current_dir=$current_dir" >> "$GITHUB_OUTPUT"
+          echo "rollback_dir=$rollback_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Materialize isolated non-production runtime configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$IOT_ROLLBACK_PROJECT" = "iot-manager-rollback-$GITHUB_RUN_ID" || {
+            echo '::error::Refusing a non-isolated rollback project name.' >&2
+            exit 64
+          }
+          install -d -m 0700 "$(dirname "$IOT_ROLLBACK_ENVIRONMENT")"
+          cp deploy/.env.integration.example "$IOT_ROLLBACK_ENVIRONMENT"
+          secret_dir="$GITHUB_WORKSPACE/deploy/.runtime/$IOT_ROLLBACK_PROJECT/secrets"
+          sed -i "s#^IOT_SECRET_DIR=.*#IOT_SECRET_DIR=$secret_dir#" "$IOT_ROLLBACK_ENVIRONMENT"
+          install -d -m 0700 "$IOT_ROLLBACK_ROOT"
+          test "$(grep -c '^IOT_SECRET_DIR=' "$IOT_ROLLBACK_ENVIRONMENT")" = '1'
+          runtime_zone="$(sed -n 's/^TZ=//p' "$IOT_ROLLBACK_ENVIRONMENT" | tail -n 1)"
+          legacy_zone="$(sed -n 's/^IOT_TIME_LEGACY_ZONE=//p' "$IOT_ROLLBACK_ENVIRONMENT" | tail -n 1)"
+          test -n "$runtime_zone" && test "$runtime_zone" = "$legacy_zone" || {
+            echo '::error::N-1 legacy time zone must match the isolated runtime TZ.' >&2
+            exit 64
+          }
+          docker info >/dev/null
+          command -v ss >/dev/null || {
+            echo '::error::The protected recovery runner must provide ss for port isolation checks.' >&2
+            exit 69
+          }
+          if ss -H -ltn | awk '$4 ~ /:(80|443)$/ { occupied=1 } END { exit !occupied }'; then
+            echo '::error::Ports 80/443 are already bound; the rollback drill refuses a shared or production host.' >&2
+            exit 69
+          fi
+
+      - name: Start N from pre-pulled immutable digests and write rollback marker
+        shell: bash
+        env:
+          CURRENT_DIR: ${{ steps.evidence.outputs.current_dir }}
+        run: |
+          set -euo pipefail
+          IOT_COMPOSE_PROJECT="$IOT_ROLLBACK_PROJECT" \
+          IOT_ENVIRONMENT_FILE="$IOT_ROLLBACK_ENVIRONMENT" \
+          IOT_RUNTIME_STATE_FILE="$IOT_ROLLBACK_STATE" \
+          IOT_ENABLE_OBSERVABILITY=true \
+          IOT_RUNTIME_EVIDENCE_DIR="$IOT_ROLLBACK_ROOT/runtime-n" \
+          IOT_RUNTIME_DIGEST_EVIDENCE_FILE="$IOT_ROLLBACK_ROOT/n-runtime-service-digests.json" \
+          bash scripts/runtime/start-integration.sh --verify --mode immutable \
+            --digest-manifest "$CURRENT_DIR/image-digests.json" \
+            --release-services "$CURRENT_DIR/release-services.json"
+          compose=(docker compose --project-name "$IOT_ROLLBACK_PROJECT" --profile application --env-file "$IOT_ROLLBACK_ENVIRONMENT" --env-file "$IOT_ROLLBACK_STATE" --env-file "$CURRENT_DIR/image-digests.env" -f deploy/docker-compose.yml -f deploy/docker-compose.integration.yml -f deploy/docker-compose.immutable.yml)
+          "${compose[@]}" cp caddy:/data/caddy/pki/authorities/local/root.crt "$RUNNER_TEMP/iot-manager-rollback-root.crt"
+          printf 'N started at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$IOT_ROLLBACK_ROOT/timeline.txt"
+
+      - name: Trust isolated Caddy CA and install browser runtime
+        shell: bash
+        working-directory: client
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libnss3-tools
+          nss_database="$HOME/.pki/nssdb"
+          install -d -m 0700 "$nss_database"
+          if [ ! -f "$nss_database/cert9.db" ]; then
+            certutil -d "sql:$nss_database" -N --empty-password
+          fi
+          certutil -d "sql:$nss_database" -D -n "$IOT_ROLLBACK_CA_NICKNAME" >/dev/null 2>&1 || true
+          certutil -d "sql:$nss_database" -A -t 'C,,' -n "$IOT_ROLLBACK_CA_NICKNAME" -i "$RUNNER_TEMP/iot-manager-rollback-root.crt"
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Write N marker through authenticated API v1
+        shell: bash
+        working-directory: client
+        run: |
+          set -euo pipefail
+          marker="rollback-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          owner_password="$(cat "../deploy/.runtime/$IOT_ROLLBACK_PROJECT/secrets/keycloak_owner_password")"
+          echo "::add-mask::$owner_password"
+          NODE_EXTRA_CA_CERTS="$RUNNER_TEMP/iot-manager-rollback-root.crt" \
+          IOT_RUNTIME_CA_CERTIFICATE="$RUNNER_TEMP/iot-manager-rollback-root.crt" \
+          IOT_RUNTIME_BASE_URL="$IOT_RUNTIME_BASE_URL" \
+          IOT_E2E_OWNER_USERNAME=integration-owner \
+          IOT_E2E_OWNER_PASSWORD="$owner_password" \
+          IOT_ROLLBACK_PHASE=write \
+          IOT_ROLLBACK_MARKER="$marker" \
+          IOT_PLAYWRIGHT_OUTPUT_DIR="$IOT_ROLLBACK_ROOT/playwright/n-write" \
+          npx playwright test e2e/rollback-data-compatibility.spec.js --reporter=json \
+            > "$IOT_ROLLBACK_ROOT/n-write-playwright.json"
+          printf '%s' "$marker" > "$IOT_ROLLBACK_ROOT/marker.txt"
+          printf 'N write completed at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$IOT_ROLLBACK_ROOT/timeline.txt"
+
+      - name: Stop N application without deleting isolated database volume
+        if: ${{ always() }}
+        shell: bash
+        env:
+          CURRENT_DIR: ${{ steps.evidence.outputs.current_dir }}
+        run: |
+          set -euo pipefail
+          test -f "$IOT_ROLLBACK_ROOT/marker.txt"
+          python3 -c 'import time; print(time.monotonic_ns())' > "$IOT_ROLLBACK_ROOT/rollback-start-monotonic-ns.txt"
+          printf 'N stop initiated at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$IOT_ROLLBACK_ROOT/timeline.txt"
+          docker compose --project-name "$IOT_ROLLBACK_PROJECT" --profile application --profile observability \
+            --env-file "$IOT_ROLLBACK_ENVIRONMENT" --env-file "$IOT_ROLLBACK_STATE" --env-file "$CURRENT_DIR/image-digests.env" \
+            -f deploy/docker-compose.yml -f deploy/docker-compose.integration.yml -f deploy/docker-compose.immutable.yml \
+            down --remove-orphans
+
+      - name: Start N-1 against N schema using only pre-pulled immutable digests
+        shell: bash
+        env:
+          ROLLBACK_DIR: ${{ steps.evidence.outputs.rollback_dir }}
+        run: |
+          set -euo pipefail
+          # This compatibility mode is scoped to the isolated N-1 phase. It
+          # prevents old Flyway from rejecting future Expand migrations; it
+          # does not apply any schema rollback or change normal deployments.
+          IOT_COMPOSE_PROJECT="$IOT_ROLLBACK_PROJECT" \
+          IOT_ENVIRONMENT_FILE="$IOT_ROLLBACK_ENVIRONMENT" \
+          IOT_RUNTIME_STATE_FILE="$IOT_ROLLBACK_STATE" \
+          IOT_ENABLE_OBSERVABILITY=true \
+          IOT_RUNTIME_EVIDENCE_DIR="$IOT_ROLLBACK_ROOT/runtime-n-minus-one" \
+          IOT_ROLLBACK_COMPATIBILITY_MODE=true \
+          IOT_RUNTIME_DIGEST_EVIDENCE_FILE="$IOT_ROLLBACK_ROOT/n-minus-one-runtime-service-digests.json" \
+          bash scripts/runtime/start-integration.sh --verify --mode immutable \
+            --digest-manifest "$ROLLBACK_DIR/image-digests.json" \
+            --release-services "$ROLLBACK_DIR/release-services.json"
+          printf 'N-1 started at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$IOT_ROLLBACK_ROOT/timeline.txt"
+
+      - name: Verify N-1 data compatibility, OIDC, RBAC, API, browser WSS, and edge WSS
+        shell: bash
+        working-directory: client
+        run: |
+          set -euo pipefail
+          marker="$(cat "$IOT_ROLLBACK_ROOT/marker.txt")"
+          owner_password="$(cat "../deploy/.runtime/$IOT_ROLLBACK_PROJECT/secrets/keycloak_owner_password")"
+          admin_password="$(cat "../deploy/.runtime/$IOT_ROLLBACK_PROJECT/secrets/keycloak_admin_password")"
+          operator_password="$(cat "../deploy/.runtime/$IOT_ROLLBACK_PROJECT/secrets/keycloak_operator_password")"
+          viewer_password="$(cat "../deploy/.runtime/$IOT_ROLLBACK_PROJECT/secrets/keycloak_viewer_password")"
+          for secret in "$owner_password" "$admin_password" "$operator_password" "$viewer_password"; do echo "::add-mask::$secret"; done
+          common_env=(
+            NODE_EXTRA_CA_CERTS="$RUNNER_TEMP/iot-manager-rollback-root.crt"
+            IOT_RUNTIME_CA_CERTIFICATE="$RUNNER_TEMP/iot-manager-rollback-root.crt"
+            IOT_RUNTIME_BASE_URL="$IOT_RUNTIME_BASE_URL"
+            IOT_E2E_OWNER_USERNAME=integration-owner
+            IOT_E2E_OWNER_PASSWORD="$owner_password"
+            IOT_E2E_ADMIN_USERNAME=integration-admin
+            IOT_E2E_ADMIN_PASSWORD="$admin_password"
+            IOT_E2E_OPERATOR_USERNAME=integration-operator
+            IOT_E2E_OPERATOR_PASSWORD="$operator_password"
+            IOT_E2E_VIEWER_USERNAME=integration-viewer
+            IOT_E2E_VIEWER_PASSWORD="$viewer_password"
+          )
+          env "${common_env[@]}" IOT_ROLLBACK_PHASE=read IOT_ROLLBACK_MARKER="$marker" \
+            IOT_PLAYWRIGHT_OUTPUT_DIR="$IOT_ROLLBACK_ROOT/playwright/n-minus-one-read" \
+            npx playwright test e2e/rollback-data-compatibility.spec.js --reporter=json \
+              > "$IOT_ROLLBACK_ROOT/n-minus-one-read-playwright.json"
+          env "${common_env[@]}" \
+            IOT_PLAYWRIGHT_OUTPUT_DIR="$IOT_ROLLBACK_ROOT/playwright/n-minus-one-auth" \
+            npx playwright test e2e/runtime-auth.spec.js --reporter=json \
+              > "$IOT_ROLLBACK_ROOT/n-minus-one-auth-playwright.json"
+          printf 'N-1 verification completed at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$IOT_ROLLBACK_ROOT/timeline.txt"
+          python3 - "$IOT_ROLLBACK_ROOT/rollback-start-monotonic-ns.txt" "$IOT_ROLLBACK_ROOT/rollback-duration-seconds.txt" <<'PY'
+          import pathlib
+          import sys
+          import time
+          start = int(pathlib.Path(sys.argv[1]).read_text().strip())
+          elapsed = (time.monotonic_ns() - start) / 1_000_000_000
+          pathlib.Path(sys.argv[2]).write_text(f"{elapsed:.3f}\n")
+          if elapsed < 0 or elapsed > 3600:
+              raise SystemExit(f"N-to-N-1 rollback violated the 60-minute RTO: {elapsed:.3f}s")
+          PY
+
+      - name: Write redacted rollback decision evidence
+        if: ${{ always() }}
+        shell: bash
+        env:
+          CURRENT_DIR: ${{ steps.evidence.outputs.current_dir }}
+          ROLLBACK_DIR: ${{ steps.evidence.outputs.rollback_dir }}
+          ROLLBACK_DECISION: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$IOT_ROLLBACK_ROOT"
+          node - "$CURRENT_DIR/release-manifest.json" "$ROLLBACK_DIR/release-manifest.json" "$IOT_ROLLBACK_ROOT/rollback-decision.json" <<'NODE'
+          const fs = require('fs');
+          const [currentFile, rollbackFile, output] = process.argv.slice(2);
+          const current = fs.existsSync(currentFile) ? JSON.parse(fs.readFileSync(currentFile, 'utf8')) : null;
+          const rollback = fs.existsSync(rollbackFile) ? JSON.parse(fs.readFileSync(rollbackFile, 'utf8')) : null;
+          const durationFile = `${process.env.IOT_ROLLBACK_ROOT}/rollback-duration-seconds.txt`;
+          const rollbackSeconds = fs.existsSync(durationFile) ? Number(fs.readFileSync(durationFile, 'utf8').trim()) : null;
+          fs.writeFileSync(output, JSON.stringify({
+            schemaVersion: 1,
+            decision: process.env.ROLLBACK_DECISION || 'incomplete',
+            current: current && { releaseId: current.releaseId, sourceSha: current.sourceSha, databaseSchemaVersion: current.databaseSchemaVersion, evidenceDigest: process.env.IOT_CURRENT_EVIDENCE_DIGEST },
+            rollback: rollback && { releaseId: rollback.releaseId, sourceSha: rollback.sourceSha, databaseSchemaVersion: rollback.databaseSchemaVersion, evidenceDigest: process.env.IOT_ROLLBACK_EVIDENCE_DIGEST },
+            project: process.env.IOT_ROLLBACK_PROJECT,
+            immutable: true,
+            rollbackSeconds,
+            rtoTargetSeconds: 3600,
+            rtoMet: rollbackSeconds !== null && rollbackSeconds <= 3600,
+            recordedAt: new Date().toISOString()
+          }, null, 2) + '\n');
+          NODE
+
+      - name: Refuse rollback evidence containing isolated secret values
+        id: artifact-scan
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d "$IOT_ROLLBACK_ROOT" || exit 0
+          secret_dir="$GITHUB_WORKSPACE/deploy/.runtime/$IOT_ROLLBACK_PROJECT/secrets"
+          for secret_file in "$secret_dir"/*; do
+            test -f "$secret_file" || continue
+            secret_value="$(cat "$secret_file")"
+            test -n "$secret_value" || continue
+            if grep -R -a -F -q -- "$secret_value" "$IOT_ROLLBACK_ROOT" 2>/dev/null; then
+              echo '::error::Refusing rollback evidence upload because it contains an isolated secret.' >&2
+              exit 1
+            fi
+          done
+
+      - name: Destroy and verify isolated rollback target before signing proof
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$IOT_ROLLBACK_PROJECT" = "iot-manager-rollback-$GITHUB_RUN_ID" || {
+            echo '::error::Refusing to clean a non-workflow Compose project.' >&2
+            exit 64
+          }
+          cleanup_status=0
+          if [ -f "$IOT_ROLLBACK_ENVIRONMENT" ]; then
+            compose=(docker compose --project-name "$IOT_ROLLBACK_PROJECT" \
+              --profile application --profile observability \
+              --env-file "$IOT_ROLLBACK_ENVIRONMENT")
+            if [ -f "$IOT_ROLLBACK_STATE" ]; then
+              compose+=(--env-file "$IOT_ROLLBACK_STATE")
+            fi
+            compose+=(-f deploy/docker-compose.yml -f deploy/docker-compose.integration.yml)
+            "${compose[@]}" down -v --remove-orphans || cleanup_status=$?
+          fi
+          if docker info >/dev/null 2>&1; then
+            remaining_containers="$(docker ps -aq --filter "label=com.docker.compose.project=$IOT_ROLLBACK_PROJECT")"
+            remaining_volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=$IOT_ROLLBACK_PROJECT")"
+            if [ -n "$remaining_containers" ] || [ -n "$remaining_volumes" ]; then
+              echo '::error::Isolated rollback containers or volumes remain after teardown.' >&2
+              cleanup_status=1
+            fi
+          else
+            echo '::error::Docker is unavailable; isolated teardown cannot be verified.' >&2
+            cleanup_status=1
+          fi
+          nss_database="$HOME/.pki/nssdb"
+          if command -v certutil >/dev/null && [ -f "$nss_database/cert9.db" ]; then
+            certutil -d "sql:$nss_database" -D -n "$IOT_ROLLBACK_CA_NICKNAME" >/dev/null 2>&1 || true
+          fi
+          rm -f "$RUNNER_TEMP/iot-manager-rollback-root.crt"
+          rm -rf "$GITHUB_WORKSPACE/deploy/.runtime/$IOT_ROLLBACK_PROJECT"
+          if [ -f "$IOT_ROLLBACK_ROOT/rollback-decision.json" ]; then
+            node - "$IOT_ROLLBACK_ROOT/rollback-decision.json" "$cleanup_status" <<'NODE'
+          const fs = require('fs');
+          const file = process.argv[2];
+          const status = Number(process.argv[3]);
+          const decision = JSON.parse(fs.readFileSync(file, 'utf8'));
+          decision.isolatedCleanup = status === 0 ? 'PASS' : 'FAIL';
+          if (status !== 0) decision.decision = 'failure';
+          fs.writeFileSync(file, JSON.stringify(decision, null, 2) + '\n');
+          NODE
+          fi
+          if [ "$cleanup_status" -ne 0 ]; then
+            echo '::error::Rollback target teardown failed; refusing a signed success proof.' >&2
+            exit "$cleanup_status"
+          fi
+
+      - name: Attest successful rollback decision
+        id: attest-rollback
+        if: ${{ success() && steps.artifact-scan.outcome == 'success' }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: artifacts/rollback-drill/${{ github.run_id }}/rollback-decision.json
+
+      - name: Archive rollback proof in GHCR by immutable digest
+        if: ${{ success() && steps.attest-rollback.outcome == 'success' }}
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          ATTESTATION_BUNDLE: ${{ steps.attest-rollback.outputs.bundle-path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$ATTESTATION_BUNDLE"
+          test -s "$IOT_ROLLBACK_ROOT/n-write-playwright.json"
+          test -s "$IOT_ROLLBACK_ROOT/n-minus-one-read-playwright.json"
+          test -s "$IOT_ROLLBACK_ROOT/n-minus-one-auth-playwright.json"
+          cp "$ATTESTATION_BUNDLE" "$IOT_ROLLBACK_ROOT/rollback-decision.attestation.json"
+          (
+            cd "$IOT_ROLLBACK_ROOT"
+            find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+          package_dir="$RUNNER_TEMP/rollback-evidence-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$package_dir"
+          tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+            -cf - "artifacts/rollback-drill/${GITHUB_RUN_ID}" | gzip -n > "$package_dir/rollback-proof.tar.gz"
+          (cd "$package_dir" && sha256sum rollback-proof.tar.gz > rollback-proof.tar.gz.sha256)
+          repository="ghcr.io/${GITHUB_REPOSITORY,,}/rollback-evidence"
+          tag_reference="$repository:rollback-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          printf '%s' "$GHCR_TOKEN" | oras login --registry-config "$DOCKER_CONFIG/config.json" ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          if oras resolve --registry-config "$DOCKER_CONFIG/config.json" "$tag_reference" >/dev/null 2>&1; then
+            echo '::error::A rollback-proof tag already exists; refusing to overwrite evidence.' >&2
+            exit 65
+          fi
+          (
+            cd "$package_dir"
+            oras push --registry-config "$DOCKER_CONFIG/config.json" --image-spec v1.0 --artifact-type application/vnd.iot-manager.rollback-proof.v1+tar \
+              --annotation "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+              "$tag_reference" rollback-proof.tar.gz:application/gzip rollback-proof.tar.gz.sha256:text/plain
+          )
+          digest="$(oras resolve --registry-config "$DOCKER_CONFIG/config.json" "$tag_reference")"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 65
+          evidence_ref="$repository@$digest"
+          mkdir -p "$package_dir/readback"
+          oras pull --registry-config "$DOCKER_CONFIG/config.json" "$evidence_ref" --output "$package_dir/readback"
+          (cd "$package_dir/readback" && sha256sum -c rollback-proof.tar.gz.sha256)
+          cmp "$package_dir/rollback-proof.tar.gz" "$package_dir/readback/rollback-proof.tar.gz"
+          echo "Durable rollback proof: \`$evidence_ref\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload isolated rollback evidence
+        if: ${{ always() && steps.artifact-scan.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rollback-drill-${{ github.run_id }}
+          path: |
+            artifacts/rollback-drill/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Scrub temporary registry credentials
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          rm -f "$DOCKER_CONFIG/config.json"
+          rmdir "$DOCKER_CONFIG" >/dev/null 2>&1 || true

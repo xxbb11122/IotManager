@@ -53,6 +53,7 @@ public class CommandBatchService {
     private final ObjectMapper objectMapper;
     private final SiteAccessService siteAccessService;
     private final AuditContextService auditContextService;
+    private final TimeProvider timeProvider;
 
     @Transactional
     public CommandBatchView create(CommandBatchRequest request) {
@@ -88,7 +89,7 @@ public class CommandBatchService {
                 .requestFingerprint(fingerprint)
                 .requestedVia("CONSOLE")
                 .requestedBy(auditContextService.currentSubjectOrAnonymous())
-                .requestedAt(LocalDateTime.now())
+                .requestedAt(timeProvider.legacyServerNow())
                 .expiresAt(expiry(request.expiresInSeconds()))
                 .totalCount(0)
                 .pendingCount(0)
@@ -187,11 +188,11 @@ public class CommandBatchService {
     }
 
     private LocalDateTime expiry(Integer seconds) {
-        if (seconds == null) return LocalDateTime.now().plusMinutes(5);
+        if (seconds == null) return timeProvider.legacyServerNow().plusMinutes(5);
         if (seconds < 1 || seconds > 3600) {
             throw new CommandValidationException(Map.of("expiresInSeconds", "must be between 1 and 3600"));
         }
-        return LocalDateTime.now().plusSeconds(seconds);
+        return timeProvider.legacyServerNow().plusSeconds(seconds);
     }
 
     private String fingerprint(Site site, List<Device> targets, String type, Map<String, Object> parameters, CommandBatchTarget target) {

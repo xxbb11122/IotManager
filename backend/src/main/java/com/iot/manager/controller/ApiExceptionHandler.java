@@ -5,6 +5,7 @@ import com.iot.manager.service.CommandValidationException;
 import com.iot.manager.service.LanCandidateAlreadyClaimedException;
 import com.iot.manager.service.IdempotencyConflictException;
 import com.iot.manager.service.GroupVersionConflictException;
+import com.iot.manager.service.TimeProvider;
 import com.iot.manager.weather.WeatherRefreshInProgressException;
 import com.iot.manager.weather.WeatherRefreshRateLimitedException;
 import com.iot.manager.weather.WeatherProviderException;
@@ -18,14 +19,17 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import lombok.RequiredArgsConstructor;
 
-import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.NoSuchElementException;
 
 @RestControllerAdvice
+@RequiredArgsConstructor
 public class ApiExceptionHandler {
+
+    private final TimeProvider timeProvider;
 
     @ExceptionHandler(NoSuchElementException.class)
     public ResponseEntity<ApiProblem> handleNotFound(NoSuchElementException exception) {
@@ -118,7 +122,7 @@ public class ApiExceptionHandler {
 
     private ApiProblem problemBody(HttpStatus status, String message, Map<String, String> fieldErrors) {
         return new ApiProblem(
-                Instant.now(),
+                timeProvider.now(),
                 status.value(),
                 status.getReasonPhrase(),
                 message,

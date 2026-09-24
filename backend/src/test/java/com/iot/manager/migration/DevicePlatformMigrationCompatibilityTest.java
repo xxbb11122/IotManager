@@ -80,6 +80,10 @@ class DevicePlatformMigrationCompatibilityTest {
                 INSERT INTO command_events (command_id, to_status, event_type, detail, payload_json, occurred_at)
                 VALUES (?, 'REQUESTED', 'LEGACY_COMMAND_EVENT', 'Legacy command event', '{}', CURRENT_TIMESTAMP)
                 """, legacyCommandId);
+        jdbcTemplate.update("""
+                INSERT INTO device_telemetry_samples (device_id, bucket_start, sampled_at, source, state_json)
+                VALUES (?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'LEGACY_MIGRATION_TEST', '{}')
+                """, legacyDeviceId);
 
         Flyway latest = Flyway.configure()
                 .dataSource(url, "sa", "")
@@ -87,7 +91,7 @@ class DevicePlatformMigrationCompatibilityTest {
                 .load();
         latest.migrate();
 
-        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("19");
+        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("25");
         assertThat(jdbcTemplate.queryForObject("""
                 SELECT command_id
                 FROM device_commands
@@ -104,6 +108,11 @@ class DevicePlatformMigrationCompatibilityTest {
                 FROM device_commands
                 WHERE device_id = ? AND idempotency_key IS NULL
                 """, Long.class, legacyDeviceId)).isEqualTo(2L);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT received_at IS NULL AND observed_time_trust IS NULL
+                FROM device_telemetry_samples
+                WHERE device_id = ? AND source = 'LEGACY_MIGRATION_TEST'
+                """, Boolean.class, legacyDeviceId)).isTrue();
         assertThat(jdbcTemplate.queryForObject("""
                 SELECT source
                 FROM device_commands
@@ -179,6 +188,34 @@ class DevicePlatformMigrationCompatibilityTest {
         assertThat(jdbcTemplate.queryForObject("""
                 SELECT COUNT(*) FROM information_schema.tables
                 WHERE table_name = 'WEATHER_PROVIDER_ACCESS_EVENTS'
+                """, Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.tables
+                WHERE table_name = 'DEVICE_TELEMETRY_SAMPLES_ARCHIVE'
+                """, Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.tables
+                WHERE table_name = 'RETENTION_HOLDS'
+                """, Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_name = 'DEVICE_TELEMETRY_SAMPLES' AND column_name = 'RECEIVED_AT'
+                """, Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_name = 'EDGE_AGENTS' AND column_name = 'CLOCK_SKEW_STREAK'
+                """, Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_name = 'ALERTS' AND column_name = 'SITE_ID'
+                """, Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_name = 'RETENTION_WATERMARKS' AND column_name = 'CURSOR_AT'
+                """, Integer.class)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_name = 'SCHEDULED_TASK_LOCKS' AND column_name = 'LEASE_UNTIL'
                 """, Integer.class)).isEqualTo(1);
 
         assertHibernateValidationPasses(dataSource);

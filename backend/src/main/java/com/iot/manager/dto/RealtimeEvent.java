@@ -9,7 +9,4 @@ public record RealtimeEvent(
 
     public static final int VERSION = 1;
 
-    public RealtimeEvent(String type, Object payload) {
-        this(type, payload, System.currentTimeMillis(), VERSION);
-    }
 }

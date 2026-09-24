@@ -2,6 +2,7 @@ package com.iot.manager.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -17,6 +18,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 
 import java.sql.Types;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 @Entity
@@ -49,6 +51,32 @@ public class EdgeAgent {
 
     @Column(name = "last_seen")
     private LocalDateTime lastSeen;
+
+    @Column(name = "last_received_at")
+    private Instant lastReceivedAt;
+
+    @Column(name = "reported_at")
+    private Instant reportedAt;
+
+    @Enumerated(jakarta.persistence.EnumType.STRING)
+    @Column(name = "reported_time_trust", length = 32)
+    private ObservedTimeTrust reportedTimeTrust;
+
+    @Column(name = "reported_clock_skew_ms")
+    private Long reportedClockSkewMs;
+
+    /**
+     * Consecutive heartbeats outside the diagnostic tolerance.  This is kept
+     * with the agent (instead of in process memory) so restarts cannot evade
+     * the three-heartbeat alert threshold.
+     */
+    @Column(name = "clock_skew_streak", nullable = false)
+    @Builder.Default
+    private Integer clockSkewStreak = 0;
+
+    @Column(name = "clock_skew_alerted", nullable = false)
+    @Builder.Default
+    private Boolean clockSkewAlerted = false;
 
     @JdbcTypeCode(Types.LONGVARCHAR)
     @Column(name = "metadata_json")

@@ -12,6 +12,8 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import jakarta.persistence.criteria.JoinType;
+
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -40,7 +42,17 @@ public class AlertService {
         if (allowedSiteIds != null) {
             specification = specification.and((root, criteriaQuery, builder) -> {
                 if (allowedSiteIds.isEmpty()) return builder.disjunction();
-                return root.get("device").get("site").get("id").in(allowedSiteIds);
+                // Device alerts retain their original site scope. Edge-agent
+                // clock alerts are site-scoped directly and have no single
+                // device, so use left joins instead of silently excluding
+                // them from an operator's permitted site.
+                var device = root.join("device", JoinType.LEFT);
+                var deviceSite = device.join("site", JoinType.LEFT);
+                var directSite = root.join("site", JoinType.LEFT);
+                return builder.or(
+                        deviceSite.get("id").in(allowedSiteIds),
+                        directSite.get("id").in(allowedSiteIds)
+                );
             });
         }
         if (resolved != null) specification = specification.and((root, criteriaQuery, builder) -> builder.equal(root.get("resolved"), resolved));
@@ -121,8 +133,9 @@ public class AlertService {
 
     private boolean isAllowed(Alert alert, Collection<Long> allowedSiteIds) {
         if (allowedSiteIds == null) return true;
-        return alert.getDevice() != null
-                && alert.getDevice().getSite() != null
-                && allowedSiteIds.contains(alert.getDevice().getSite().getId());
+        if (alert.getDevice() != null && alert.getDevice().getSite() != null) {
+            return allowedSiteIds.contains(alert.getDevice().getSite().getId());
+        }
+        return alert.getSite() != null && allowedSiteIds.contains(alert.getSite().getId());
     }
 }

@@ -117,6 +117,13 @@ jobs:
     needs: [candidate, image-security, runtime, recovery]
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      actions: read
+      attestations: write
+      artifact-metadata: write
+      contents: read
+      id-token: write
+      packages: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -183,6 +190,7 @@ jobs:
         run: |
           set -euo pipefail
           candidate="$(find artifacts -name release-candidate.json -print -quit)"
+          topology="$(find artifacts -name release-topology.json -print -quit)"
           manifest="$(find artifacts -name image-digests.json -print -quit)"
           services="$(find artifacts -name release-services.json -print -quit)"
           scans="$(find artifacts -name scanned-images.json -print -quit)"
@@ -192,7 +200,7 @@ jobs:
           image_stage="$(find artifacts -name stage-image.json -print -quit)"
           runtime_stage="$(find artifacts -name stage-runtime.json -print -quit)"
           recovery_stage="$(find artifacts -name stage-recovery.json -print -quit)"
-          for value in "$candidate" "$manifest" "$services" "$scans" "$runtime_evidence" "$recovery_evidence" "$logical_recovery" "$image_stage" "$runtime_stage" "$recovery_stage"; do
+          for value in "$candidate" "$topology" "$manifest" "$services" "$scans" "$runtime_evidence" "$recovery_evidence" "$logical_recovery" "$image_stage" "$runtime_stage" "$recovery_stage"; do
             test -n "$value"
           done
           node -e "const e=require('./' + process.argv[1]); if(e.status !== 'PASS') process.exit(1)" "$logical_recovery"
@@ -215,11 +223,103 @@ jobs:
             --stage "$runtime_stage" \
             --stage "$recovery_stage" \
             --output artifacts/final/evidence-manifest.json
+          schema_version="$(find backend/src/main/resources/db -type f -name 'V*__*.sql' -printf '%f\n' | sed -E 's/^V([0-9]+)__.*/\1/' | sort -n | tail -n 1)"
+          test -n "$schema_version"
+          approved_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          node scripts/ci/release-tools.mjs create-known-good-release-manifest \
+            --candidate "$candidate" \
+            --manifest "$manifest" \
+            --evidence artifacts/final/evidence-manifest.json \
+            --scans "$scans" \
+            --database-schema-version "$schema_version" \
+            --api-version v1 \
+            --protocol-version 1 \
+            --approved-at "$approved_at" \
+            --output artifacts/final/release-manifest.json
+          bundle=artifacts/final/release-bundle
+          mkdir -p "$bundle"
+          cp "$candidate" "$bundle/release-candidate.json"
+          cp "$topology" "$bundle/release-topology.json"
+          cp "$services" "$bundle/release-services.json"
+          cp "$manifest" "$bundle/image-digests.json"
+          cp "$scans" "$bundle/scanned-images.json"
+          cp artifacts/final/evidence-manifest.json "$bundle/evidence-manifest.json"
+          cp artifacts/final/release-manifest.json "$bundle/release-manifest.json"
+          cp artifacts/final/release-manifest.json.sha256 "$bundle/release-manifest.json.sha256"
+          cp artifacts/final/runtime-image-verification.json "$bundle/runtime-image-verification.json"
+          mkdir -p "$bundle/stages"
+          cp -R artifacts/image artifacts/runtime artifacts/recovery "$bundle/stages/"
+          node scripts/ci/release-tools.mjs validate-known-good-release-manifest \
+            --release-manifest "$bundle/release-manifest.json" \
+            --candidate "$bundle/release-candidate.json" \
+            --manifest "$bundle/image-digests.json" \
+            --evidence "$bundle/evidence-manifest.json" \
+            --scans "$bundle/scanned-images.json"
+      - name: Sign the known-good release manifest
+        id: attest-release-manifest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: artifacts/final/release-bundle/release-manifest.json
+      - name: Retain attestation bundle and seal release evidence file set
+        env:
+          ATTESTATION_BUNDLE: ${{ steps.attest-release-manifest.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          test -s "$ATTESTATION_BUNDLE"
+          bundle=artifacts/final/release-bundle
+          cp "$ATTESTATION_BUNDLE" "$bundle/release-manifest.attestation.json"
+          (
+            cd "$bundle"
+            sha256sum -c release-manifest.json.sha256
+            find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+      - name: Install checksum-pinned ORAS client
+        run: bash scripts/ci/install-pinned-oras.sh
+      - name: Publish and retrieve durable release evidence by OCI digest
+        id: archive-evidence
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.candidate.outputs.source_sha }}
+          RELEASE_CANDIDATE_ID: ${{ needs.candidate.outputs.release_candidate_id }}
+        run: |
+          set -euo pipefail
+          repository="ghcr.io/${GITHUB_REPOSITORY,,}/release-evidence"
+          tag_reference="$repository:$RELEASE_CANDIDATE_ID"
+          printf '%s' "$GHCR_TOKEN" | oras login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          if oras resolve "$tag_reference" >/dev/null 2>&1; then
+            echo '::error::A release-evidence tag already exists; refusing to overwrite immutable evidence.' >&2
+            exit 65
+          fi
+          tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+            -cf - -C artifacts/final release-bundle | gzip -n > artifacts/final/release-bundle.tar.gz
+          (cd artifacts/final && sha256sum release-bundle.tar.gz > release-bundle.tar.gz.sha256)
+          (
+            cd artifacts/final
+            oras push --image-spec v1.0 --artifact-type application/vnd.iot-manager.release-evidence.v1+tar \
+              --annotation "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+              --annotation "org.opencontainers.image.revision=$SOURCE_SHA" \
+              "$tag_reference" \
+              release-bundle.tar.gz:application/gzip \
+              release-bundle.tar.gz.sha256:text/plain
+          )
+          digest="$(oras resolve "$tag_reference")"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+            echo '::error::GHCR did not return a valid evidence manifest digest.' >&2
+            exit 65
+          }
+          evidence_ref="$repository@$digest"
+          mkdir -p artifacts/final/registry-readback
+          oras pull "$evidence_ref" --output artifacts/final/registry-readback
+          (cd artifacts/final/registry-readback && sha256sum -c release-bundle.tar.gz.sha256)
+          cmp artifacts/final/release-bundle.tar.gz artifacts/final/registry-readback/release-bundle.tar.gz
+          echo "evidence_ref=$evidence_ref" >> "$GITHUB_OUTPUT"
+          echo "Durable rollback evidence: \`$evidence_ref\`" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload final release decision evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: final-release-evidence-${{ needs.candidate.outputs.release_candidate_id }}
           path: artifacts/final/
-          if-no-files-found: warn
-          retention-days: 180
+          if-no-files-found: error
+          retention-days: 90

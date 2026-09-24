@@ -83,6 +83,13 @@ if ($env:IOT_ENABLE_OBSERVABILITY) {
     }
     $observabilityEnabled = $observabilityEnabled -or $env:IOT_ENABLE_OBSERVABILITY -eq 'true'
 }
+$rollbackCompatibilityEnabled = $false
+if ($env:IOT_ROLLBACK_COMPATIBILITY_MODE) {
+    if ($env:IOT_ROLLBACK_COMPATIBILITY_MODE -notin @('true', 'false')) {
+        throw 'IOT_ROLLBACK_COMPATIBILITY_MODE must be true or false.'
+    }
+    $rollbackCompatibilityEnabled = $env:IOT_ROLLBACK_COMPATIBILITY_MODE -eq 'true'
+}
 
 function Invoke-Native {
     param([string]$Description, [string[]]$Arguments)
@@ -100,6 +107,7 @@ function Compose-Arguments {
     if (Test-Path -LiteralPath $statePath) { $args += @('--env-file', $statePath) }
     $args += @('-f', (Join-Path $repositoryRoot 'deploy/docker-compose.yml'), '-f', (Join-Path $repositoryRoot 'deploy/docker-compose.integration.yml'))
     if ($Mode -eq 'immutable') { $args += @('-f', (Join-Path $repositoryRoot 'deploy/docker-compose.immutable.yml')) }
+    if ($script:rollbackCompatibilityEnabled) { $args += @('-f', (Join-Path $repositoryRoot 'deploy/docker-compose.rollback.yml')) }
     return $args
 }
 
@@ -198,10 +206,16 @@ if ($Mode -eq 'immutable') {
     if ($LASTEXITCODE -ne 0) { throw 'Digest environment rendering failed.' }
 }
 
-& (Join-Path $PSScriptRoot 'new-secrets.ps1')
+$configuredSecretDirectory = Get-EnvironmentFileValue -Path $environmentPath -Name 'IOT_SECRET_DIR'
+if ($configuredSecretDirectory) {
+    & (Join-Path $PSScriptRoot 'new-secrets.ps1') -SecretDirectory $configuredSecretDirectory
+}
+else {
+    & (Join-Path $PSScriptRoot 'new-secrets.ps1')
+}
 if ($LASTEXITCODE -ne 0) { throw 'Secret generation failed.' }
 
-$startFlags = if ($Mode -eq 'local') { @('-d', '--build') } else { @('-d', '--no-build') }
+$startFlags = if ($Mode -eq 'local') { @('-d', '--build') } else { @('-d', '--no-build', '--pull', 'never') }
 $identity = (Compose-Arguments) + @('up') + $startFlags + @('volume-init', 'postgres', 'keycloak', 'caddy')
 Invoke-Native -Description 'Start identity plane' -Arguments $identity
 Wait-ServiceHealthy -Service 'keycloak'

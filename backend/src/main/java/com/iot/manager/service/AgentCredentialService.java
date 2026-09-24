@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.List;
@@ -40,6 +41,7 @@ public class AgentCredentialService {
     private final EdgeAgentRepository agentRepository;
     private final AgentCredentialRepository credentialRepository;
     private final AgentCredentialRotationRepository rotationRepository;
+    private final TimeProvider timeProvider;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -54,12 +56,12 @@ public class AgentCredentialService {
                 .agentId(requestedAgentId)
                 .site(site)
                 .status("PROVISIONED")
-                .createdAt(LocalDateTime.now())
+                .createdAt(timeProvider.legacyServerNow())
                 .build());
         if (!agent.getSite().getId().equals(site.getId())) {
             throw new IllegalArgumentException("Agent identity is already assigned to a different site");
         }
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = timeProvider.legacyServerNow();
         agent.setName(requiredText(request.agentName(), "agentName"));
         agent.setUpdatedAt(now);
         if (agent.getStatus() == null || agent.getStatus().isBlank()) {
@@ -93,7 +95,7 @@ public class AgentCredentialService {
             throw new NoSuchElementException("Agent credential not found");
         }
         if (ACTIVE.equals(credential.getStatus())) {
-            LocalDateTime now = LocalDateTime.now();
+            LocalDateTime now = timeProvider.legacyServerNow();
             credential.setStatus(REVOKED);
             credential.setRevokedAt(now);
             credential.setUpdatedAt(now);
@@ -121,7 +123,7 @@ public class AgentCredentialService {
         String normalizedToken = requiredText(token, "token");
         AgentCredential credential = credentialRepository.findByCredentialId(normalizedCredentialId)
                 .orElseThrow(() -> new AccessDeniedException("Invalid edge agent credential"));
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = timeProvider.legacyServerNow();
         if (!ACTIVE.equals(credential.getStatus())
                 || !credential.getExpiresAt().isAfter(now)
                 || !passwordEncoder.matches(normalizedToken, credential.getTokenHash())) {
@@ -143,7 +145,7 @@ public class AgentCredentialService {
         return credentialRepository.findByCredentialId(credentialId.trim())
                 .filter(credential -> ACTIVE.equals(credential.getStatus()))
                 .filter(credential -> credential.getExpiresAt() != null
-                        && credential.getExpiresAt().isAfter(LocalDateTime.now()))
+                        && credential.getExpiresAt().isAfter(timeProvider.legacyServerNow()))
                 .isPresent();
     }
 
@@ -159,7 +161,7 @@ public class AgentCredentialService {
             String actorSubject,
             String reason
     ) {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = timeProvider.legacyServerNow();
         LocalDateTime expiresAt = resolveExpiry(requestedExpiry, now);
         List<AgentCredential> activeCredentials = credentialRepository
                 .findByAgentIdAndStatusForUpdate(agent.getId(), ACTIVE);
@@ -206,6 +208,7 @@ public class AgentCredentialService {
             String reason,
             LocalDateTime occurredAt
     ) {
+        Instant occurredAtUtc = timeProvider.now();
         rotationRepository.save(AgentCredentialRotation.builder()
                 .agent(agent)
                 .previousCredential(previous)
@@ -214,6 +217,7 @@ public class AgentCredentialService {
                 .actorSubject(normalizeOptional(actorSubject))
                 .reason(normalizeOptional(reason))
                 .occurredAt(occurredAt)
+                .occurredAtUtc(occurredAtUtc)
                 .build());
     }
 

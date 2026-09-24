@@ -11,6 +11,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -26,11 +27,13 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
 
     private final ApiRateLimitProperties properties;
     private final PlatformMetricsService metrics;
+    private final Clock clock;
     private final Map<String, Window> windows = new ConcurrentHashMap<>();
 
-    public ApiRateLimitFilter(ApiRateLimitProperties properties, PlatformMetricsService metrics) {
+    public ApiRateLimitFilter(ApiRateLimitProperties properties, PlatformMetricsService metrics, Clock clock) {
         this.properties = properties;
         this.metrics = metrics;
+        this.clock = clock;
     }
 
     @Override
@@ -52,12 +55,12 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
         if (principal != null) MDC.put("actor", principal);
         if (siteCode != null) MDC.put("siteCode", siteCode);
         try {
-            if (category == null || allow(category, principal, System.currentTimeMillis())) {
+            if (category == null || allow(category, principal, clock.millis())) {
                 filterChain.doFilter(request, response);
                 return;
             }
             metrics.rateLimited(category.name().toLowerCase());
-            long retryAfter = retryAfterSeconds(category, principal, System.currentTimeMillis());
+            long retryAfter = retryAfterSeconds(category, principal, clock.millis());
             response.setStatus(429);
             response.setContentType("application/json");
             response.setCharacterEncoding("UTF-8");
@@ -100,7 +103,9 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
     private Category category(HttpServletRequest request) {
         String method = request.getMethod();
         String path = request.getRequestURI();
-        if ("GET".equalsIgnoreCase(method) || "HEAD".equalsIgnoreCase(method)) return Category.READ;
+        if ("GET".equalsIgnoreCase(method) || "HEAD".equalsIgnoreCase(method)) {
+            return path.endsWith("/telemetry/archive") ? Category.ARCHIVE_READ : Category.READ;
+        }
         if (path.contains("/commands") || path.startsWith("/api/command-batches")) return Category.COMMAND;
         return null;
     }
@@ -126,10 +131,14 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
     }
 
     private int limit(Category category) {
-        return category == Category.READ ? properties.getReadsPerMinute() : properties.getCommandsPerMinute();
+        return switch (category) {
+            case READ -> properties.getReadsPerMinute();
+            case ARCHIVE_READ -> properties.getArchiveReadsPerMinute();
+            case COMMAND -> properties.getCommandsPerMinute();
+        };
     }
 
-    private enum Category { READ, COMMAND }
+    private enum Category { READ, ARCHIVE_READ, COMMAND }
 
     private record Window(long startedAtMillis, int count) { }
 }

@@ -43,6 +43,7 @@ public class DeviceGroupService {
     private final AuditEventService auditEventService;
     private final WebSocketService webSocketService;
     private final SiteAccessService siteAccessService;
+    private final TimeProvider timeProvider;
 
     @Transactional(readOnly = true)
     public List<DeviceGroupView> list(String siteCode) {
@@ -59,7 +60,7 @@ public class DeviceGroupService {
     @Transactional
     public DeviceGroupView create(DeviceGroupCreateRequest request) {
         Site site = resolveSite(request.siteCode());
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = timeProvider.legacyServerNow();
         DeviceGroup group = groupRepository.save(DeviceGroup.builder()
                 .publicId("group-" + UUID.randomUUID())
                 .site(site)
@@ -106,7 +107,7 @@ public class DeviceGroupService {
             Set<Long> existing = memberRepository.findByGroupIdAndDeviceIdIn(group.getId(), addIds).stream()
                     .map(member -> member.getDevice().getId())
                     .collect(java.util.stream.Collectors.toSet());
-            LocalDateTime now = LocalDateTime.now();
+            LocalDateTime now = timeProvider.legacyServerNow();
             devices.stream()
                     .filter(device -> !existing.contains(device.getId()))
                     .forEach(device -> {
@@ -133,7 +134,7 @@ public class DeviceGroupService {
     @Transactional
     public DeviceGroupView archive(String groupId) {
         DeviceGroup group = requireActiveForUpdate(groupId);
-        group.setArchivedAt(LocalDateTime.now());
+        group.setArchivedAt(timeProvider.legacyServerNow());
         touch(group);
         DeviceGroupView view = toView(group);
         webSocketService.broadcastEvent("device_group_update", view);
@@ -186,7 +187,7 @@ public class DeviceGroupService {
 
     private void touch(DeviceGroup group) {
         group.setVersion(group.getVersion() + 1);
-        group.setUpdatedAt(LocalDateTime.now());
+        group.setUpdatedAt(timeProvider.legacyServerNow());
     }
 
     private void assertVersion(DeviceGroup group, Long expectedVersion) {

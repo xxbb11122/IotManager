@@ -48,7 +48,7 @@ compose=(compose --project-name "$project_name" --profile application --env-file
 [[ -f "$state_file" ]] && compose+=(--env-file "$(docker_host_path "$state_file")")
 compose+=(-f "$(docker_host_path "$repository_root/deploy/docker-compose.yml")" -f "$(docker_host_path "$repository_root/deploy/docker-compose.integration.yml")")
 
-artifact_dir="$repository_root/artifacts/p0-runtime/$(date -u +%Y%m%dT%H%M%SZ)"
+artifact_dir="${IOT_RUNTIME_EVIDENCE_DIR:-$repository_root/artifacts/p0-runtime/$(date -u +%Y%m%dT%H%M%SZ)}"
 mkdir -p "$artifact_dir"
 
 container_id() {

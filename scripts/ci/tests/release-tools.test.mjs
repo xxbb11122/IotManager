@@ -336,6 +336,51 @@ try {
   ]), /"status":"PASS"/);
   assert.equal(JSON.parse(fs.readFileSync(finalEvidenceFile, 'utf8')).serviceVerification.verifiedUnionCount, 13);
 
+  const knownGoodReleaseFile = path.join(temporaryRoot, 'release-manifest.json');
+  assert.match(run('create-known-good-release-manifest', [
+    '--candidate', strictCandidateFile,
+    '--manifest', strictManifestFile,
+    '--evidence', finalEvidenceFile,
+    '--scans', scansFile,
+    '--database-schema-version', '22',
+    '--api-version', 'v1',
+    '--protocol-version', '1',
+    '--approved-at', '2026-09-23T00:00:00Z',
+    '--output', knownGoodReleaseFile
+  ]), /"releaseId":"r1-rc-test-/);
+  assert.match(run('validate-known-good-release-manifest', [
+    '--release-manifest', knownGoodReleaseFile,
+    '--candidate', strictCandidateFile,
+    '--manifest', strictManifestFile,
+    '--evidence', finalEvidenceFile,
+    '--scans', scansFile
+  ]), /"status":"PASS"/);
+  const tamperedKnownGoodFile = writeJson('release-manifest-tampered.json', {
+    ...JSON.parse(fs.readFileSync(knownGoodReleaseFile, 'utf8')),
+    sourceSha: 'd'.repeat(40)
+  });
+  run('validate-known-good-release-manifest', [
+    '--release-manifest', tamperedKnownGoodFile,
+    '--candidate', strictCandidateFile,
+    '--manifest', strictManifestFile,
+    '--evidence', finalEvidenceFile,
+    '--scans', scansFile
+  ], 65);
+  const tamperedKnownGoodImageFile = writeJson('release-manifest-image-tampered.json', {
+    ...JSON.parse(fs.readFileSync(knownGoodReleaseFile, 'utf8')),
+    images: {
+      ...JSON.parse(fs.readFileSync(knownGoodReleaseFile, 'utf8')).images,
+      backend: 'ghcr.io/example/backend@sha256:' + 'e'.repeat(64)
+    }
+  });
+  run('validate-known-good-release-manifest', [
+    '--release-manifest', tamperedKnownGoodImageFile,
+    '--candidate', strictCandidateFile,
+    '--manifest', strictManifestFile,
+    '--evidence', finalEvidenceFile,
+    '--scans', scansFile
+  ], 65);
+
   const buildResultsDirectory = path.join(temporaryRoot, 'build-results');
   fs.mkdirSync(buildResultsDirectory);
   for (const artifactId of artifactIds.slice(0, 6)) {

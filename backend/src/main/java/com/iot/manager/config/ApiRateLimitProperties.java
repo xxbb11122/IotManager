@@ -7,6 +7,7 @@ public class ApiRateLimitProperties {
 
     private boolean enabled;
     private int readsPerMinute = 120;
+    private int archiveReadsPerMinute = 5;
     private int commandsPerMinute = 30;
 
     public boolean isEnabled() {
@@ -23,6 +24,12 @@ public class ApiRateLimitProperties {
 
     public void setReadsPerMinute(int readsPerMinute) {
         this.readsPerMinute = readsPerMinute;
+    }
+
+    public int getArchiveReadsPerMinute() { return archiveReadsPerMinute; }
+
+    public void setArchiveReadsPerMinute(int archiveReadsPerMinute) {
+        this.archiveReadsPerMinute = archiveReadsPerMinute;
     }
 
     public int getCommandsPerMinute() {

@@ -23,6 +23,8 @@ spring:
     properties:
       hibernate:
         format_sql: true
+        jdbc:
+          time_zone: UTC
     open-in-view: false
 
 management:
@@ -54,7 +56,30 @@ iot:
   rate-limit:
     enabled: false
     reads-per-minute: 120
+    archive-reads-per-minute: 5
     commands-per-minute: 30
+  time:
+    clock-skew-tolerance: 30s
+    # N-1 wrote server-authored LocalDateTime fields in this deployment zone.
+    # Only compatibility columns use it; new decisions use UTC Instants.
+    legacy-zone: ${IOT_TIME_LEGACY_ZONE:Asia/Shanghai}
+  retention:
+    enabled: ${IOT_RETENTION_ENABLED:false}
+    dry-run: ${IOT_RETENTION_DRY_RUN:true}
+    schedule: ${IOT_RETENTION_SCHEDULE:0 30 2 * * *}
+    batch-size: ${IOT_RETENTION_BATCH_SIZE:5000}
+    lock-lease: ${IOT_RETENTION_LOCK_LEASE:45m}
+    batch-timeout: ${IOT_RETENTION_BATCH_TIMEOUT:2m}
+    capacity-sample-ms: ${IOT_RETENTION_CAPACITY_SAMPLE_MS:600000}
+    capacity-sample-initial-delay-ms: ${IOT_RETENTION_CAPACITY_SAMPLE_INITIAL_DELAY_MS:60000}
+    telemetry-hot: 90d
+    telemetry-total: 365d
+    audit: 730d
+    command: 730d
+    alert: 365d
+    weather-snapshot: 90d
+    weather-forecast: 30d
+    credential-rotation: 730d
   web:
     allowed-origins:
       - "*"

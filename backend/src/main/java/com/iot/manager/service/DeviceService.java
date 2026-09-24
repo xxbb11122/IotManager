@@ -40,6 +40,7 @@ public class DeviceService {
     private final BootstrapService bootstrapService;
     private final DeviceMapper deviceMapper;
     private final WebSocketService webSocketService;
+    private final TimeProvider timeProvider;
 
     public List<Device> getAll(String status, String type, String search) {
         return findDevices(status, type, search);
@@ -198,7 +199,7 @@ public class DeviceService {
         if (device.getArchivedAt() != null) {
             return;
         }
-        device.setArchivedAt(LocalDateTime.now());
+        device.setArchivedAt(timeProvider.legacyServerNow());
         device.setArchivedReason("Archived through device API");
         device.setArchivedBy(auditContextService.currentSubjectOrAnonymous());
         auditEventService.recordActivity(
@@ -226,7 +227,9 @@ public class DeviceService {
         stats.put("activeAlerts", alertRepo.findByResolvedFalseOrderByCreatedAtDesc().stream()
                 .filter(alert -> allowedSiteIds == null
                         || (alert.getDevice() != null && alert.getDevice().getSite() != null
-                        && allowedSiteIds.contains(alert.getDevice().getSite().getId())))
+                        && allowedSiteIds.contains(alert.getDevice().getSite().getId()))
+                        || (alert.getDevice() == null && alert.getSite() != null
+                        && allowedSiteIds.contains(alert.getSite().getId())))
                 .count());
 
         Map<String, Long> statusMap = new LinkedHashMap<>();
@@ -256,7 +259,9 @@ public class DeviceService {
             return alert;
         }
         alert.setResolved(true);
-        alert.setResolvedAt(LocalDateTime.now());
+        java.time.Instant resolvedAtUtc = timeProvider.now();
+        alert.setResolvedAt(timeProvider.legacyServer(resolvedAtUtc));
+        alert.setResolvedAtUtc(resolvedAtUtc);
         alert.setStatus("RESOLVED");
         Alert saved = alertRepo.save(alert);
         if (saved.getDevice() != null) {
@@ -274,12 +279,15 @@ public class DeviceService {
 
     @Transactional
     public Alert createAlert(Device device, String level, String message) {
+        java.time.Instant createdAtUtc = timeProvider.now();
         Alert alert = Alert.builder()
                 .device(device)
                 .level(level)
                 .message(message)
                 .resolved(false)
                 .status("OPEN")
+                .createdAt(timeProvider.legacyServer(createdAtUtc))
+                .createdAtUtc(createdAtUtc)
                 .build();
         return alertRepo.save(alert);
     }

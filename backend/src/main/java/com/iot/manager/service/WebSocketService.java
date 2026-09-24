@@ -48,6 +48,7 @@ public class WebSocketService {
     private final SiteRepository siteRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final PlatformMetricsService platformMetricsService;
+    private final TimeProvider timeProvider;
 
     /** Legacy/dev registration: receives all events. */
     public void register(WebSocketSession session) {
@@ -130,7 +131,7 @@ public class WebSocketService {
     }
 
     public void broadcastEvent(String type, Object payload) {
-        broadcastEvent(new RealtimeEvent(type, payload));
+        broadcastEvent(new RealtimeEvent(type, payload, timeProvider.currentTimeMillis(), RealtimeEvent.VERSION));
     }
 
     public void broadcastEvent(RealtimeEvent event) {
@@ -291,10 +292,19 @@ public class WebSocketService {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("id", alert.getId());
         payload.put("level", alert.getLevel());
+        payload.put("status", alert.getStatus());
+        payload.put("alertCode", alert.getAlertCode());
         payload.put("message", alert.getMessage());
         payload.put("resolved", alert.isResolved());
         payload.put("createdAt", alert.getCreatedAt());
+        payload.put("createdAtUtc", alert.getCreatedAtUtc());
         payload.put("resolvedAt", alert.getResolvedAt());
+        payload.put("resolvedAtUtc", alert.getResolvedAtUtc());
+        if (alert.getSite() != null) {
+            payload.put("siteId", alert.getSite().getId());
+            payload.put("siteCode", alert.getSite().getCode());
+            payload.put("organizationCode", alert.getSite().getOrganization().getCode());
+        }
 
         Device device = storedDevice(alert.getDevice());
         if (device != null) {

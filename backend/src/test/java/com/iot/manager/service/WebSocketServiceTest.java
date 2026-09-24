@@ -1,5 +1,6 @@
 package com.iot.manager.service;
 
+import com.iot.manager.config.TimeProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.iot.manager.dto.RealtimeEvent;
@@ -16,6 +17,9 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 
@@ -48,7 +52,8 @@ class WebSocketServiceTest {
     void setUp() {
         objectMapper = new ObjectMapper();
         webSocketService = new WebSocketService(
-                objectMapper, deviceRepository, siteRepository, eventPublisher, platformMetricsService
+                objectMapper, deviceRepository, siteRepository, eventPublisher, platformMetricsService,
+                new TimeProvider(Clock.fixed(Instant.parse("2026-09-23T00:00:00Z"), ZoneOffset.UTC), new TimeProperties())
         );
     }
 
@@ -58,10 +63,10 @@ class WebSocketServiceTest {
         webSocketService.register(session, List.of(10L));
 
         webSocketService.deliverAfterCommit(new RealtimeEvent(
-                "device_update", Map.of("deviceId", "device-a", "siteId", 10L)
+                "device_update", Map.of("deviceId", "device-a", "siteId", 10L), 1_000L, RealtimeEvent.VERSION
         ));
         webSocketService.deliverAfterCommit(new RealtimeEvent(
-                "device_update", Map.of("deviceId", "device-b", "siteId", 20L)
+                "device_update", Map.of("deviceId", "device-b", "siteId", 20L), 1_000L, RealtimeEvent.VERSION
         ));
 
         ArgumentCaptor<TextMessage> messages = ArgumentCaptor.forClass(TextMessage.class);
@@ -81,10 +86,10 @@ class WebSocketServiceTest {
                 List.of(
                         Map.of("deviceId", "device-a", "siteId", 10L),
                         Map.of("deviceId", "device-b", "siteId", 20L)
-                )
+                ), 1_000L, RealtimeEvent.VERSION
         ));
         webSocketService.deliverAfterCommit(new RealtimeEvent(
-                "stats", Map.of("online", 1)
+                "stats", Map.of("online", 1), 1_000L, RealtimeEvent.VERSION
         ));
 
         ArgumentCaptor<TextMessage> messages = ArgumentCaptor.forClass(TextMessage.class);
@@ -104,10 +109,10 @@ class WebSocketServiceTest {
         ));
 
         webSocketService.deliverAfterCommit(new RealtimeEvent(
-                "weather_update", Map.of("siteId", 20L, "siteCode", "shared-site")
+                "weather_update", Map.of("siteId", 20L, "siteCode", "shared-site"), 1_000L, RealtimeEvent.VERSION
         ));
         webSocketService.deliverAfterCommit(new RealtimeEvent(
-                "weather_update", Map.of("siteCode", "shared-site")
+                "weather_update", Map.of("siteCode", "shared-site"), 1_000L, RealtimeEvent.VERSION
         ));
 
         verify(session, never()).sendMessage(org.mockito.ArgumentMatchers.any(TextMessage.class));

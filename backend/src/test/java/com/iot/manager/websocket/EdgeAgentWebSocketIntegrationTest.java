@@ -12,10 +12,13 @@ import com.iot.manager.entity.EdgeAgent;
 import com.iot.manager.repository.DeviceCommandRepository;
 import com.iot.manager.repository.DiscoveredDeviceRepository;
 import com.iot.manager.repository.EdgeAgentRepository;
+import com.iot.manager.repository.AlertRepository;
+import com.iot.manager.repository.SiteRepository;
 import com.iot.manager.service.CommandService;
 import com.iot.manager.service.EdgeAgentService;
 import com.iot.manager.service.EdgeDiscoveryService;
 import com.iot.manager.service.DeviceProfileService;
+import com.iot.manager.service.TimeProvider;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -61,6 +64,12 @@ class EdgeAgentWebSocketIntegrationTest {
     private EdgeAgentRepository edgeAgentRepository;
 
     @Autowired
+    private AlertRepository alertRepository;
+
+    @Autowired
+    private SiteRepository siteRepository;
+
+    @Autowired
     private DiscoveredDeviceRepository discoveredDeviceRepository;
 
     @Autowired
@@ -77,6 +86,9 @@ class EdgeAgentWebSocketIntegrationTest {
 
     @Autowired
     private DeviceProfileService deviceProfileService;
+
+    @Autowired
+    private TimeProvider timeProvider;
 
     private final List<AgentSocket> sockets = new ArrayList<>();
 
@@ -140,7 +152,9 @@ class EdgeAgentWebSocketIntegrationTest {
 
         DeviceCommandView timedOut = dispatch(agent, true, "edge-timeout-");
         var expiredCommand = deviceCommandRepository.findByCommandId(timedOut.commandId()).orElseThrow();
-        expiredCommand.setExpiresAt(LocalDateTime.now().minusSeconds(1));
+        java.time.Instant expiredAtUtc = timeProvider.now().minusSeconds(1);
+        expiredCommand.setExpiresAt(timeProvider.legacyServer(expiredAtUtc));
+        expiredCommand.setExpiresAtUtc(expiredAtUtc);
         deviceCommandRepository.saveAndFlush(expiredCommand);
         edgeAgentService.markExpiredCommandsUnconfirmed();
 
@@ -169,6 +183,36 @@ class EdgeAgentWebSocketIntegrationTest {
         )));
         assertThat(awaitCommandStatus(submitted.commandId(), "ACKNOWLEDGED").reportedState())
                 .containsEntry("power", true);
+    }
+
+    @Test
+    void createsOneSiteScopedDiagnosticAlertAfterThreeSkewedHeartbeatsWithoutTakingAgentOffline() throws Exception {
+        AgentSocket socket = connect();
+        String agentId = "edge-clock-skew-" + UUID.randomUUID();
+        socket.send(envelope("agent_hello", helloPayload(agentId, "Clock Skew Agent")));
+        EdgeAgent registered = awaitValue(() -> edgeAgentRepository.findByAgentId(agentId));
+        Instant skewedSentAt = timeProvider.now().plusSeconds(8 * 60 * 60);
+
+        for (int count = 0; count < 3; count++) {
+            socket.send(envelope("agent_heartbeat", Map.of("status", "ONLINE", "metrics", Map.of()), skewedSentAt));
+        }
+
+        EdgeAgent skewed = awaitValue(() -> edgeAgentRepository.findById(registered.getId())
+                .filter(agent -> Integer.valueOf(3).equals(agent.getClockSkewStreak())));
+        String alertCode = "EDGE_AGENT_CLOCK_SKEW:" + agentId;
+        Long siteId = siteRepository.findFirstByCode(SITE_CODE).orElseThrow().getId();
+        awaitValue(() -> alertRepository.existsBySite_IdAndResolvedFalseAndAlertCode(
+                siteId, alertCode) ? Optional.of(Boolean.TRUE) : Optional.empty());
+
+        assertThat(skewed.getStatus()).isEqualTo("ONLINE");
+        assertThat(skewed.getReportedTimeTrust().name()).isEqualTo("SKEWED");
+        assertThat(skewed.getClockSkewAlerted()).isTrue();
+
+        socket.send(envelope("agent_heartbeat", Map.of("status", "ONLINE", "metrics", Map.of()), timeProvider.now()));
+        EdgeAgent trustedAgain = awaitValue(() -> edgeAgentRepository.findById(registered.getId())
+                .filter(agent -> Integer.valueOf(0).equals(agent.getClockSkewStreak())));
+        assertThat(trustedAgain.getStatus()).isEqualTo("ONLINE");
+        assertThat(trustedAgain.getClockSkewAlerted()).isFalse();
     }
 
     private DeviceCommandView dispatch(ClaimedAgent agent, boolean on, String keyPrefix) throws Exception {
@@ -277,11 +321,15 @@ class EdgeAgentWebSocketIntegrationTest {
     }
 
     private Map<String, Object> envelope(String type, Map<String, Object> payload) {
+        return envelope(type, payload, Instant.now());
+    }
+
+    private Map<String, Object> envelope(String type, Map<String, Object> payload, Instant sentAt) {
         Map<String, Object> envelope = new LinkedHashMap<>();
         envelope.put("type", type);
         envelope.put("protocolVersion", 1);
         envelope.put("messageId", UUID.randomUUID().toString());
-        envelope.put("sentAt", Instant.now().toString());
+        envelope.put("sentAt", sentAt.toString());
         envelope.put("payload", payload);
         return envelope;
     }

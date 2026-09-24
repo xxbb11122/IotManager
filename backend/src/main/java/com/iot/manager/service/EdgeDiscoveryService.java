@@ -51,6 +51,7 @@ public class EdgeDiscoveryService {
     private final WebSocketService webSocketService;
     private final ObjectMapper objectMapper;
     private final SiteAccessService siteAccessService;
+    private final TimeProvider timeProvider;
 
     @Transactional(readOnly = true)
     public boolean hasConnectedAgent(String siteCode) {
@@ -102,7 +103,7 @@ public class EdgeDiscoveryService {
                 .driverId(string(metadata.get("driverId")))
                 .externalId(candidate.getExternalId())
                 .status("CONNECTED")
-                .connectedAt(LocalDateTime.now())
+                .connectedAt(timeProvider.legacyServerNow())
                 .lastSeen(candidate.getLastSeen())
                 .metadataJson(writeJson(metadata))
                 .build());

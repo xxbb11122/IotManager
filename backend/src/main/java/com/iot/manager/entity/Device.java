@@ -1,11 +1,16 @@
 package com.iot.manager.entity;
 
 import jakarta.persistence.*;
+import org.springframework.data.annotation.CreatedDate;
+import org.springframework.data.annotation.LastModifiedDate;
+import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 import lombok.*;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
+@EntityListeners(AuditingEntityListener.class)
 @Table(name = "devices")
 @Data
 @NoArgsConstructor
@@ -88,13 +93,18 @@ public class Device {
     private Long commandSequence;
 
     private LocalDateTime lastSeen;
+
+    /** Platform-authoritative time of the latest valid device update. */
+    @Column(name = "last_received_at")
+    private Instant lastReceivedAt;
+    @CreatedDate
     private LocalDateTime registeredAt;
+
+    @LastModifiedDate
     private LocalDateTime updatedAt;
 
     @PrePersist
     public void prePersist() {
-        this.registeredAt = LocalDateTime.now();
-        this.updatedAt = LocalDateTime.now();
         if (this.publicId == null || this.publicId.isBlank()) this.publicId = "device-" + UUID.randomUUID();
         if (this.profileId == null || this.profileId.isBlank()) this.profileId = "legacy-generic-v1";
         if (this.profileVersion == null || this.profileVersion < 1) this.profileVersion = 1;
@@ -109,8 +119,4 @@ public class Device {
         if (this.commandSequence == null) this.commandSequence = 0L;
     }
 
-    @PreUpdate
-    public void preUpdate() {
-        this.updatedAt = LocalDateTime.now();
-    }
 }

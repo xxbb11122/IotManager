@@ -36,6 +36,7 @@ public class DeviceProfileService {
 
     private final DeviceProfileRepository profileRepository;
     private final ObjectMapper objectMapper;
+    private final TimeProvider timeProvider;
 
     @PostConstruct
     void synchronizeBundledProfiles() {
@@ -115,7 +116,7 @@ public class DeviceProfileService {
         String deviceType = requiredText(definition, "deviceType");
         String canonical = writeJson(definition);
         String hash = sha256(canonical);
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = timeProvider.legacyServerNow();
 
         DeviceProfile profile = profileRepository.findByProfileIdAndProfileVersion(profileId, profileVersion)
                 .orElseGet(() -> DeviceProfile.builder()
