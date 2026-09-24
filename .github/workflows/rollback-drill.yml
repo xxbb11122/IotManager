@@ -37,13 +37,20 @@ jobs:
       IOT_RUNTIME_BASE_URL: https://iot-manager.localhost
       IOT_CURRENT_EVIDENCE_DIGEST: ${{ inputs.current_evidence_digest }}
       IOT_ROLLBACK_EVIDENCE_DIGEST: ${{ inputs.rollback_evidence_digest }}
-      DOCKER_CONFIG: ${{ runner.temp }}/iot-manager-rollback-docker-${{ github.run_id }}
       IOT_ROLLBACK_CA_NICKNAME: iot-manager-rollback-${{ github.run_id }}
     steps:
       - name: Check out rollback tooling
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+
+      - name: Prepare isolated registry credential directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          DOCKER_CONFIG="$RUNNER_TEMP/iot-manager-rollback-docker-$GITHUB_RUN_ID"
+          install -d -m 0700 "$DOCKER_CONFIG"
+          printf 'DOCKER_CONFIG=%s\n' "$DOCKER_CONFIG" >> "$GITHUB_ENV"
 
       - name: Use the pinned project Node.js toolchain
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -479,5 +486,7 @@ jobs:
         run: |
           set -euo pipefail
           docker logout ghcr.io >/dev/null 2>&1 || true
-          rm -f "$DOCKER_CONFIG/config.json"
-          rmdir "$DOCKER_CONFIG" >/dev/null 2>&1 || true
+          if [[ -n "${DOCKER_CONFIG:-}" ]]; then
+            rm -f "$DOCKER_CONFIG/config.json"
+            rmdir "$DOCKER_CONFIG" >/dev/null 2>&1 || true
+          fi

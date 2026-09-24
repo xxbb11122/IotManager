@@ -120,19 +120,33 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: gradle
-      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          packages: ''
       - name: Install Android API 36
         run: |
+          java -version
+          sdkmanager --version
           yes | sdkmanager --licenses > /dev/null
           sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          sdkmanager --list_installed | grep -E 'platform-tools|platforms;android-36|build-tools;36.0.0'
       - name: Build debug APK with strict toolchain checks
         working-directory: .
         run: bash scripts/verify.sh --strict --android --skip-backend --skip-web --skip-deploy
+      - name: Verify APK and write checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=client/android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$apk"
+          sha256sum "$apk" > "$apk.sha256"
       - name: Upload debug APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: iot-manager-debug-apk-${{ github.sha }}
-          path: client/android/app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            client/android/app/build/outputs/apk/debug/app-debug.apk
+            client/android/app/build/outputs/apk/debug/app-debug.apk.sha256
           if-no-files-found: error
           retention-days: 14
 

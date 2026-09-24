@@ -278,9 +278,11 @@ HTTP/1.1 chunked API 请求，确保大请求不会先被 Backend 以 401/403 �
 ## 备份和恢复演练
 
 `backup` 在启动后立即生成一份自定义格式 `pg_dump`，随后按
-`BACKUP_INTERVAL_SECONDS` 执行并生成 SHA-256 sidecar；每次完整 dump/checksum 成功后
-才原子更新 `.backup-last-success`。healthcheck 会校验该 marker、dump、sidecar 和最大
-年龄，而不是仅因持久卷上存在旧文件就保持健康。WAL-G 也分别记录远端连接和最近一次
+`BACKUP_INTERVAL_SECONDS` 执行，并为每个备份生成 SHA-256 sidecar 与
+`<backup>.metadata.json`。元数据记录备份自身的 SHA-256 和执行 dump 时数据库的
+Flyway 版本；恢复工具要求版本元数据与该备份校验和一致。每次完整 dump/checksum/metadata
+成功后才原子更新 `.backup-last-success`。healthcheck 会校验该 marker、dump、sidecar、版本
+元数据和最大年龄，而不是仅因持久卷上存在旧文件就保持健康。WAL-G 也分别记录远端连接和最近一次
 base backup 的成功时间，并在远端探测陈旧或私有 spool 出现超龄未上传 WAL 时 fail closed。
 PostgreSQL 容器本身没有 egress 网络。
 
@@ -302,9 +304,11 @@ IOT_RESTORE_CONFIRM=RESTORE \
 ```
 
 脚本拒绝与源 project 同名的恢复目标，也拒绝复用已有 recovery `postgres-data` volume；
-恢复后检查预期的最新 Flyway 版本、零失败迁移、必需角色代码、关键表以及应用账户在
-`public.devices` 上的实际 DML 权限。默认版本为 V18；升级迁移后以
-`IOT_EXPECTED_FLYWAY_VERSION` 显式更新验收期望。恢复目标会保留以供检查，只能用
+备份时记录的 `sourceFlywayVersion` 必须等于实际恢复版本；immutable 模式还要求它等于本次
+精确 checkout 迁移目录计算出的 `candidateFlywayVersion`。恢复报告会同时记录源、候选和恢复
+版本，不再使用固定 V18 默认值。需要额外指定期望值时，`IOT_EXPECTED_FLYWAY_VERSION` 仅作为
+与来源比较的显式断言，不能替代备份元数据。恢复后还检查零失败迁移、必需角色代码、关键表以及
+应用账户在 `public.devices` 上的实际 DML 权限。恢复目标会保留以供检查，只能用
 `docker compose ... down` 停止，禁止添加 `-v` 直到演练证据归档完成。
 
 RPO ≤15 分钟、RTO ≤60 分钟必须依据真实对象存储、WAL、恢复起止时间、首个 readiness

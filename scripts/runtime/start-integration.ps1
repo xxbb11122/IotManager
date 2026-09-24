@@ -206,14 +206,39 @@ if ($Mode -eq 'immutable') {
     if ($LASTEXITCODE -ne 0) { throw 'Digest environment rendering failed.' }
 }
 
-$configuredSecretDirectory = Get-EnvironmentFileValue -Path $environmentPath -Name 'IOT_SECRET_DIR'
-if ($configuredSecretDirectory) {
-    & (Join-Path $PSScriptRoot 'new-secrets.ps1') -SecretDirectory $configuredSecretDirectory
+$configuredSecretDirectory = if (-not [string]::IsNullOrWhiteSpace($env:IOT_SECRET_DIR)) {
+    $env:IOT_SECRET_DIR
 }
 else {
-    & (Join-Path $PSScriptRoot 'new-secrets.ps1')
+    Get-EnvironmentFileValue -Path $environmentPath -Name 'IOT_SECRET_DIR'
 }
+if ([string]::IsNullOrWhiteSpace($configuredSecretDirectory)) { throw 'Integration environment is missing IOT_SECRET_DIR.' }
+$secretDirectory = (& node (Join-Path $PSScriptRoot 'resolve-secret-directory.mjs') $repositoryRoot $configuredSecretDirectory | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($secretDirectory)) { throw 'Unable to resolve IOT_SECRET_DIR relative to deploy/docker-compose.yml.' }
+$originalSecretDirectory = $env:IOT_SECRET_DIR
+$env:IOT_SECRET_DIR = $secretDirectory
+trap {
+    if ($null -eq $originalSecretDirectory) { Remove-Item Env:IOT_SECRET_DIR -ErrorAction SilentlyContinue }
+    else { $env:IOT_SECRET_DIR = $originalSecretDirectory }
+    throw
+}
+& (Join-Path $PSScriptRoot 'new-secrets.ps1') -SecretDirectory $secretDirectory
 if ($LASTEXITCODE -ne 0) { throw 'Secret generation failed.' }
+$requiredSecretNames = @(
+    'postgres_admin_password', 'iot_db_owner_password', 'iot_db_app_password',
+    'keycloak_db_password', 'keycloak_bootstrap_admin_password', 'keycloak_owner_password',
+    'keycloak_admin_password', 'keycloak_operator_password', 'keycloak_viewer_password',
+    'weather_fingerprint_secret', 'metrics_scrape_token', 'walg_s3_access_key', 'walg_s3_secret_key'
+)
+if (-not (Test-Path -LiteralPath $secretDirectory -PathType Container)) { throw "Generated integration secret directory is unavailable: $secretDirectory" }
+foreach ($secretName in $requiredSecretNames) {
+    $secretPath = Join-Path $secretDirectory $secretName
+    if (-not (Test-Path -LiteralPath $secretPath -PathType Leaf) -or (Get-Item -LiteralPath $secretPath).Length -eq 0) {
+        throw "Required integration secret file is missing or empty: $secretName"
+    }
+    $readProbe = [System.IO.File]::OpenRead($secretPath)
+    $readProbe.Dispose()
+}
 
 $startFlags = if ($Mode -eq 'local') { @('-d', '--build') } else { @('-d', '--no-build', '--pull', 'never') }
 $identity = (Compose-Arguments) + @('up') + $startFlags + @('volume-init', 'postgres', 'keycloak', 'caddy')
@@ -261,3 +286,5 @@ if ($Mode -eq 'immutable') {
 }
 
 Write-Host "Integration stack started. Project: $ProjectName (mode: $Mode)"
+if ($null -eq $originalSecretDirectory) { Remove-Item Env:IOT_SECRET_DIR -ErrorAction SilentlyContinue }
+else { $env:IOT_SECRET_DIR = $originalSecretDirectory }

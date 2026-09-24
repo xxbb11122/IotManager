@@ -132,14 +132,62 @@ environment_value() {
 bootstrap_user="$(environment_value POSTGRES_BOOTSTRAP_USERNAME)"
 database_name="$(environment_value IOT_DB_DATABASE)"
 owner_user="$(environment_value IOT_DB_OWNER_USERNAME)"
-expected_flyway_version="${IOT_EXPECTED_FLYWAY_VERSION:-18}"
 required_role_codes="${IOT_REQUIRED_ROLE_CODES:-OWNER,ADMIN,OPERATOR,VIEWER}"
-[[ -n "$expected_flyway_version" ]] || { printf 'IOT_EXPECTED_FLYWAY_VERSION must not be empty.\n' >&2; exit 64; }
 [[ "$required_role_codes" =~ ^[A-Z]+(,[A-Z]+)*$ ]] || {
   printf 'IOT_REQUIRED_ROLE_CODES must be a comma-separated uppercase role-code list.\n' >&2
   exit 64
 }
 required_role_codes="$(printf '%s' "$required_role_codes" | tr ',' '\n' | sort -u | paste -sd, -)"
+
+metadata_file="${backup_file}.metadata.json"
+[[ -s "$metadata_file" ]] || { printf 'Backup version metadata is required: %s\n' "$metadata_file" >&2; exit 66; }
+backup_checksum="$(awk 'NR == 1 { print $1; exit }' "$checksum_file")"
+[[ "$backup_checksum" =~ ^[[:xdigit:]]{64}$ ]] || { printf 'Backup checksum sidecar is malformed.\n' >&2; exit 65; }
+source_flyway_version="$(node - "$metadata_file" "$backup_checksum" <<'NODE'
+const fs = require('node:fs');
+const [metadataPath, checksum] = process.argv.slice(2);
+const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+if (metadata.schemaVersion !== 1 || metadata.backupSha256 !== checksum || !/^\d+$/.test(String(metadata.sourceFlywayVersion))) {
+  throw new Error('Backup metadata is invalid or is not bound to this backup checksum.');
+}
+process.stdout.write(String(metadata.sourceFlywayVersion));
+NODE
+)"
+
+latest_postgres_migration_version() {
+  local directory file filename version maximum=0
+  local -A seen_versions=()
+  for directory in "$repository_root/backend/src/main/resources/db/migration" \
+                   "$repository_root/backend/src/main/resources/db/migration-postgresql"; do
+    [[ -d "$directory" ]] || { printf 'PostgreSQL migration source is unavailable: %s\n' "$directory" >&2; return 66; }
+    for file in "$directory"/V*__*.sql; do
+      [[ -f "$file" ]] || continue
+      filename="$(basename "$file")"
+      [[ "$filename" =~ ^V([0-9]+)__.+\.sql$ ]] || { printf 'Invalid Flyway migration filename: %s\n' "$filename" >&2; return 65; }
+      version="${BASH_REMATCH[1]}"
+      [[ -z "${seen_versions[$version]+present}" ]] || { printf 'Duplicate effective PostgreSQL Flyway version: V%s\n' "$version" >&2; return 65; }
+      seen_versions[$version]="$filename"
+      (( 10#$version > maximum )) && maximum=$((10#$version))
+    done
+  done
+  (( maximum > 0 )) || { printf 'No PostgreSQL Flyway migrations were found.\n' >&2; return 66; }
+  printf '%s' "$maximum"
+}
+
+candidate_flyway_version=''
+if [[ "$mode" == immutable ]]; then
+  candidate_flyway_version="$(latest_postgres_migration_version)"
+  [[ "$candidate_flyway_version" == "$source_flyway_version" ]] || {
+    printf 'Immutable candidate Flyway version %s does not match the backup source version %s.\n' \
+      "$candidate_flyway_version" "$source_flyway_version" >&2
+    exit 1
+  }
+fi
+if [[ -n "${IOT_EXPECTED_FLYWAY_VERSION:-}" && "$IOT_EXPECTED_FLYWAY_VERSION" != "$source_flyway_version" ]]; then
+  printf 'Explicit expected Flyway version %s does not match backup source version %s.\n' \
+    "$IOT_EXPECTED_FLYWAY_VERSION" "$source_flyway_version" >&2
+  exit 1
+fi
 
 volume_name="${recovery_project}_postgres-data"
 if docker volume inspect "$volume_name" >/dev/null 2>&1; then
@@ -185,8 +233,8 @@ docker_container_paths "${compose[@]}" --profile application run "${run_flags[@]
 
 postgres_id="$(docker "${compose[@]}" ps -q postgres | head -n 1)"
 latest_flyway_version="$(docker exec -u postgres "$postgres_id" psql -U "$bootstrap_user" -d "$database_name" -Atc 'SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1')"
-[[ "$latest_flyway_version" == "$expected_flyway_version" ]] || {
-  printf 'Recovered Flyway version is %s; expected %s.\n' "$latest_flyway_version" "$expected_flyway_version" >&2
+[[ "$latest_flyway_version" =~ ^[0-9]+$ && "$latest_flyway_version" == "$source_flyway_version" ]] || {
+  printf 'Recovered Flyway version is %s; backup metadata records source version %s.\n' "$latest_flyway_version" "$source_flyway_version" >&2
   exit 1
 }
 failed_migration_count="$(docker exec -u postgres "$postgres_id" psql -U "$bootstrap_user" -d "$database_name" -Atc 'SELECT count(*) FROM flyway_schema_history WHERE NOT success')"
@@ -217,3 +265,22 @@ grep -qx '1' <<<"$application_probe" || { printf 'Recovered database did not com
 
 printf 'Logical recovery drill passed in isolated project: %s (mode: %s)\n' "$recovery_project" "$mode"
 printf 'The recovery project and volume were retained. Stop it with docker compose --project-name %s down (without -v).\n' "$recovery_project"
+
+report_directory="${IOT_RECOVERY_REPORT_DIR:-$repository_root/artifacts/recovery-drill/logical}"
+mkdir -p "$report_directory"
+report_project="$(printf '%s' "$recovery_project" | tr -c 'A-Za-z0-9_-' '_')"
+candidate_json=null
+[[ -n "$candidate_flyway_version" ]] && candidate_json="$candidate_flyway_version"
+cat > "$report_directory/logical-recovery-$report_project.json" <<EOF
+{
+  "schemaVersion": 1,
+  "drill": "logical-backup-recovery",
+  "sourceFlywayVersion": $source_flyway_version,
+  "candidateFlywayVersion": $candidate_json,
+  "recoveredFlywayVersion": $latest_flyway_version,
+  "versionsConsistent": true,
+  "backupSha256": "$backup_checksum",
+  "recoveryProject": "$recovery_project",
+  "status": "PASS"
+}
+EOF

@@ -256,6 +256,7 @@ jobs:
           backup_name="$(basename "$backup_path")"
           "${compose[@]}" cp "backup:$backup_path" "$RUNNER_TEMP/$backup_name"
           "${compose[@]}" cp "backup:$backup_path.sha256" "$RUNNER_TEMP/$backup_name.sha256"
+          "${compose[@]}" cp "backup:$backup_path.metadata.json" "$RUNNER_TEMP/$backup_name.metadata.json"
           # The owner-only backup sidecar creates its dump pair under umask
           # 077. Docker's container-to-host copy preserves that restrictive
           # mode, but the isolated recovery sidecar deliberately runs as UID
@@ -263,7 +264,8 @@ jobs:
           # bind mounts in this disposable runner-only directory, so expose
           # exactly the read bit that lets the non-root verifier consume the
           # pair without relaxing any production backup volume permission.
-          chmod 0644 "$RUNNER_TEMP/$backup_name" "$RUNNER_TEMP/$backup_name.sha256"
+          chmod 0644 "$RUNNER_TEMP/$backup_name" "$RUNNER_TEMP/$backup_name.sha256" "$RUNNER_TEMP/$backup_name.metadata.json"
+          IOT_RECOVERY_REPORT_DIR="$GITHUB_WORKSPACE/artifacts/p0-runtime/logical-recovery" \
           IOT_RESTORE_CONFIRM=RESTORE bash scripts/runtime/recovery-drill.sh "$RUNNER_TEMP/$backup_name"
 
       - name: Refuse a tampered logical backup before restore
@@ -322,10 +324,34 @@ jobs:
 
       - name: Stop only the dedicated Compose projects
         if: ${{ always() }}
+        shell: bash
         run: |
-          docker compose --project-name iot-manager-p0 --env-file deploy/.env.integration --env-file deploy/.runtime/iot-manager-p0/runtime.env -f deploy/docker-compose.yml -f deploy/docker-compose.integration.yml down --remove-orphans || true
-          docker compose --project-name iot-manager-p0-recovery --env-file deploy/.env.integration -f deploy/docker-compose.yml -f deploy/docker-compose.integration.yml down --remove-orphans || true
-          rm -rf deploy/.runtime
+          set -euo pipefail
+          cleanup_status=0
+          for project in iot-manager-p0 iot-manager-p0-recovery; do
+            case "$project" in
+              iot-manager-p0|iot-manager-p0-recovery) ;;
+              *) echo '::error::Refusing to clean a non-P0 Compose project.' >&2; exit 64 ;;
+            esac
+            environment_file=deploy/.env.integration
+            [[ -f "$environment_file" ]] || environment_file=deploy/.env.integration.example
+            compose=(docker compose --project-name "$project" --env-file "$environment_file" -f deploy/docker-compose.yml -f deploy/docker-compose.integration.yml)
+            state_file="deploy/.runtime/$project/runtime.env"
+            if [[ "$project" == iot-manager-p0 && -f "$state_file" ]]; then compose+=(--env-file "$state_file"); fi
+            "${compose[@]}" down -v --remove-orphans || cleanup_status=$?
+            remaining_containers="$(docker ps -aq --filter "label=com.docker.compose.project=$project")"
+            remaining_volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=$project")"
+            if [[ -n "$remaining_containers" || -n "$remaining_volumes" ]]; then
+              echo "::error::Isolated P0 Compose resources remain after teardown for $project." >&2
+              cleanup_status=1
+            fi
+          done
+          if [[ "$cleanup_status" -eq 0 ]]; then
+            rm -rf deploy/.runtime/iot-manager-p0 deploy/.runtime/iot-manager-p0-recovery
+          else
+            echo '::error::P0 teardown failed; scoped runtime files were retained for diagnosis.' >&2
+          fi
+          exit "$cleanup_status"
 
   immutable-release-runtime:
     if: ${{ github.event_name == 'workflow_call' }}
@@ -339,6 +365,7 @@ jobs:
       IOT_COMPOSE_PROJECT: iot-manager-release-${{ github.run_id }}
       IOT_ENVIRONMENT_FILE: ${{ github.workspace }}/deploy/.env.integration
       IOT_RUNTIME_STATE_FILE: ${{ github.workspace }}/deploy/.runtime/iot-manager-release-${{ github.run_id }}/runtime.env
+      IOT_SECRET_DIR: ${{ github.workspace }}/deploy/.runtime/iot-manager-release-${{ github.run_id }}/secrets
       IOT_ENABLE_OBSERVABILITY: "true"
       IOT_RELEASE_CANDIDATE_ID: ${{ inputs.release_candidate_id }}
       IOT_SOURCE_SHA: ${{ inputs.source_sha }}
@@ -500,13 +527,41 @@ jobs:
           retention-days: 90
       - name: Stop only the release Compose project
         if: ${{ always() }}
+        shell: bash
         run: |
-          docker compose --project-name "$IOT_COMPOSE_PROJECT" \
-            --env-file deploy/.env.integration \
-            --env-file "$IOT_RUNTIME_STATE_FILE" \
-            --env-file artifacts/release/image-digests.env \
-            -f deploy/docker-compose.yml \
-            -f deploy/docker-compose.integration.yml \
-            -f deploy/docker-compose.immutable.yml \
-            down --remove-orphans || true
-          rm -rf deploy/.runtime deploy/.env.integration
+          set -euo pipefail
+          expected_project="iot-manager-release-${GITHUB_RUN_ID}"
+          if [[ "$IOT_COMPOSE_PROJECT" != "$expected_project" ]]; then
+            echo '::error::Refusing to clean an unexpected immutable runtime Compose project.' >&2
+            exit 64
+          fi
+          cleanup_status=0
+          remaining_containers="$(docker ps -aq --filter "label=com.docker.compose.project=$expected_project")"
+          remaining_volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=$expected_project")"
+          if [[ -n "$remaining_containers" || -n "$remaining_volumes" ]]; then
+            if [[ ! -f deploy/.env.integration || ! -f artifacts/release/image-digests.env ]]; then
+              echo '::error::Cannot safely render the release Compose project for cleanup; runtime evidence was retained.' >&2
+              cleanup_status=1
+            else
+              compose=(docker compose --project-name "$expected_project" --profile application --profile observability \
+                --env-file deploy/.env.integration)
+              [[ ! -f "$IOT_RUNTIME_STATE_FILE" ]] || compose+=(--env-file "$IOT_RUNTIME_STATE_FILE")
+              compose+=(--env-file artifacts/release/image-digests.env \
+                -f deploy/docker-compose.yml \
+                -f deploy/docker-compose.integration.yml \
+                -f deploy/docker-compose.immutable.yml)
+              "${compose[@]}" down -v --remove-orphans || cleanup_status=$?
+            fi
+          fi
+          remaining_containers="$(docker ps -aq --filter "label=com.docker.compose.project=$expected_project")"
+          remaining_volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=$expected_project")"
+          if [[ -n "$remaining_containers" || -n "$remaining_volumes" ]]; then
+            echo '::error::Immutable runtime containers or volumes remain after teardown.' >&2
+            cleanup_status=1
+          fi
+          if [[ "$cleanup_status" -eq 0 ]]; then
+            rm -rf "deploy/.runtime/$expected_project" deploy/.env.integration
+          else
+            echo '::error::Immutable runtime teardown failed; scoped secrets were retained for diagnosis.' >&2
+          fi
+          exit "$cleanup_status"

@@ -164,15 +164,32 @@ if [[ "$mode" == immutable ]]; then
     --output "$image_environment_file"
 fi
 
-secret_directory="$(environment_value IOT_SECRET_DIR || true)"
-if [[ -n "$secret_directory" && "$secret_directory" != /* ]]; then
-  secret_directory="$repository_root/${secret_directory#./}"
-fi
-if [[ -n "$secret_directory" ]]; then
-  bash "$repository_root/scripts/runtime/new-secrets.sh" "$secret_directory"
-else
-  bash "$repository_root/scripts/runtime/new-secrets.sh"
-fi
+secret_directory="${IOT_SECRET_DIR:-$(environment_value IOT_SECRET_DIR || true)}"
+[[ -n "$secret_directory" ]] || {
+  printf 'Integration environment is missing IOT_SECRET_DIR.\n' >&2
+  exit 64
+}
+secret_directory="$(node "$repository_root/scripts/runtime/resolve-secret-directory.mjs" "$repository_root" "$secret_directory")"
+export IOT_SECRET_DIR="$secret_directory"
+bash "$repository_root/scripts/runtime/new-secrets.sh" "$secret_directory"
+
+required_secret_names=(
+  postgres_admin_password iot_db_owner_password iot_db_app_password
+  keycloak_db_password keycloak_bootstrap_admin_password keycloak_owner_password
+  keycloak_admin_password keycloak_operator_password keycloak_viewer_password
+  weather_fingerprint_secret metrics_scrape_token walg_s3_access_key walg_s3_secret_key
+)
+[[ -d "$secret_directory" && -r "$secret_directory" && -x "$secret_directory" ]] || {
+  printf 'Generated integration secret directory is not accessible: %s\n' "$secret_directory" >&2
+  exit 78
+}
+for secret_name in "${required_secret_names[@]}"; do
+  secret_path="$secret_directory/$secret_name"
+  [[ -f "$secret_path" && -s "$secret_path" && -r "$secret_path" ]] || {
+    printf 'Required integration secret file is missing, empty, or unreadable: %s\n' "$secret_name" >&2
+    exit 78
+  }
+done
 
 compose=(compose --project-name "$project_name" --env-file "$environment_file")
 [[ -n "$image_environment_file" ]] && compose+=(--env-file "$image_environment_file")

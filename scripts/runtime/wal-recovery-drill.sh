@@ -10,7 +10,6 @@ source_project="${IOT_COMPOSE_PROJECT:-iot-manager}"
 recovery_project="${IOT_RECOVERY_PROJECT:-iot-manager-recovery-$(date -u +%Y%m%d%H%M%S)}"
 recovery_timeout_seconds="${IOT_RECOVERY_TIMEOUT_SECONDS:-3600}"
 archive_timeout_seconds="${IOT_WAL_ARCHIVE_TIMEOUT_SECONDS:-300}"
-expected_flyway_version="${IOT_EXPECTED_FLYWAY_VERSION:-18}"
 report_directory="${IOT_RECOVERY_REPORT_DIR:-$repository_root/artifacts/recovery-drill/$(date -u +%Y%m%dT%H%M%SZ)}"
 mode="$(printenv IOT_RUNTIME_MODE 2>/dev/null || true)"
 digest_manifest="$(printenv IOT_DIGEST_MANIFEST 2>/dev/null || true)"
@@ -32,7 +31,7 @@ Optional environment:
   IOT_COMPOSE_PROJECT         Existing source project (default: iot-manager).
   IOT_RECOVERY_PROJECT        New, different recovery project name.
   IOT_RECOVERY_TIMEOUT_SECONDS (default: 3600, maximum permitted RTO).
-  IOT_EXPECTED_FLYWAY_VERSION (default: 18).
+  IOT_EXPECTED_FLYWAY_VERSION (optional assertion against the source version).
   IOT_RECOVERY_REPORT_DIR     Directory for a redacted JSON evidence report.
 EOF
 }
@@ -170,6 +169,36 @@ source_postgres_id="$(docker "${source_compose[@]}" ps -q postgres | head -n 1)"
 [[ -n "$source_postgres_id" ]] || { printf 'Source PostgreSQL service is not running in project %s.\n' "$source_project" >&2; exit 69; }
 source_health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$source_postgres_id")"
 [[ "$source_health" == "healthy" ]] || { printf 'Source PostgreSQL is not healthy: %s\n' "$source_health" >&2; exit 69; }
+source_flyway_version="$(docker exec -u postgres "$source_postgres_id" psql -U "$(environment_value POSTGRES_BOOTSTRAP_USERNAME)" \
+  -d "$(environment_value IOT_DB_DATABASE)" -Atc \
+  'SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1')"
+[[ "$source_flyway_version" =~ ^[0-9]+$ ]] || { printf 'Unable to determine the numeric source Flyway version.\n' >&2; exit 70; }
+
+candidate_flyway_version=''
+if [[ "$mode" == immutable ]]; then
+  candidate_versions=()
+  for migration_directory in "$repository_root/backend/src/main/resources/db/migration" \
+                             "$repository_root/backend/src/main/resources/db/migration-postgresql"; do
+    [[ -d "$migration_directory" ]] || { printf 'PostgreSQL migration source is unavailable: %s\n' "$migration_directory" >&2; exit 66; }
+    for migration_file in "$migration_directory"/V*__*.sql; do
+      [[ -f "$migration_file" ]] || continue
+      migration_name="$(basename "$migration_file")"
+      [[ "$migration_name" =~ ^V([0-9]+)__.+\.sql$ ]] || { printf 'Invalid Flyway migration filename: %s\n' "$migration_name" >&2; exit 65; }
+      candidate_versions+=("${BASH_REMATCH[1]}")
+    done
+  done
+  candidate_flyway_version="$(printf '%s\n' "${candidate_versions[@]}" | sort -n | tail -n 1)"
+  [[ "$candidate_flyway_version" =~ ^[0-9]+$ && "$candidate_flyway_version" == "$source_flyway_version" ]] || {
+    printf 'Immutable candidate Flyway version %s does not match the source version %s.\n' \
+      "$candidate_flyway_version" "$source_flyway_version" >&2
+    exit 1
+  }
+fi
+if [[ -n "${IOT_EXPECTED_FLYWAY_VERSION:-}" && "$IOT_EXPECTED_FLYWAY_VERSION" != "$source_flyway_version" ]]; then
+  printf 'Explicit expected Flyway version %s does not match source version %s.\n' \
+    "$IOT_EXPECTED_FLYWAY_VERSION" "$source_flyway_version" >&2
+  exit 1
+fi
 
 recovery_volume="${recovery_project}_postgres-data"
 if docker volume inspect "$recovery_volume" >/dev/null 2>&1; then
@@ -290,8 +319,8 @@ recovered_marker="$(docker "${recovery_compose[@]}" exec -T postgres psql -v ON_
 
 recovered_version="$(docker "${recovery_compose[@]}" exec -T postgres psql -v ON_ERROR_STOP=1 -U "$bootstrap_user" -d "$database_name" -Atc \
   'SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1')"
-[[ "$recovered_version" == "$expected_flyway_version" ]] || {
-  printf 'Recovered Flyway version is %s; expected %s.\n' "$recovered_version" "$expected_flyway_version" >&2
+[[ "$recovered_version" =~ ^[0-9]+$ && "$recovered_version" == "$source_flyway_version" ]] || {
+  printf 'Recovered Flyway version is %s; source database version is %s.\n' "$recovered_version" "$source_flyway_version" >&2
   exit 1
 }
 
@@ -321,7 +350,10 @@ cat > "$report_file" <<EOF
   "rpoTargetSeconds": 900,
   "rtoSeconds": $rto_seconds,
   "rtoTargetSeconds": 3600,
-  "flywayVersion": "$recovered_version",
+  "sourceFlywayVersion": $source_flyway_version,
+  "candidateFlywayVersion": ${candidate_flyway_version:-null},
+  "recoveredFlywayVersion": $recovered_version,
+  "versionsConsistent": true,
   "baseBackup": "$base_backup",
   "replayedWalSegment": "$wal_segment",
   "readWriteProof": true,

@@ -78,7 +78,6 @@ jobs:
       IOT_ENVIRONMENT_FILE: ${{ github.workspace }}/deploy/.env.recovery
       IOT_RECOVERY_REPORT_DIR: ${{ github.workspace }}/artifacts/recovery-drill/${{ github.run_id }}
       IOT_RECOVERY_TIMEOUT_SECONDS: "3600"
-      IOT_EXPECTED_FLYWAY_VERSION: "18"
       IOT_RECOVERY_ENV_FILE_BASE64: ${{ secrets.IOT_RECOVERY_ENV_FILE_BASE64 }}
       IOT_RECOVERY_SECRETS_TGZ_BASE64: ${{ secrets.IOT_RECOVERY_SECRETS_TGZ_BASE64 }}
     steps:
@@ -161,15 +160,38 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          case "$IOT_RECOVERY_PROJECT" in
-            iot-manager-gate2-pitr-*) ;;
-            *) echo 'Refusing to remove a non-workflow recovery project.' >&2; exit 1 ;;
-          esac
+          expected_project="iot-manager-gate2-pitr-${GITHUB_RUN_ID}"
+          if [[ "$IOT_RECOVERY_PROJECT" != "$expected_project" ]]; then
+            echo '::error::Refusing to clean an unexpected physical recovery project.' >&2
+            exit 64
+          fi
           export IOT_RECOVERY_TARGET_NAME=cleanup_restore_point
           export IOT_RECOVERY_BASE_BACKUP=base_cleanup_placeholder
-          docker compose --project-name "$IOT_RECOVERY_PROJECT" --env-file "$IOT_ENVIRONMENT_FILE" \
-            -f deploy/docker-compose.yml -f deploy/docker-compose.recovery.yml down -v --remove-orphans || true
-          rm -rf deploy/.runtime deploy/.env.recovery
+          cleanup_status=0
+          remaining_containers="$(docker ps -aq --filter "label=com.docker.compose.project=$expected_project")"
+          remaining_volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=$expected_project")"
+          if [[ -n "$remaining_containers" || -n "$remaining_volumes" ]]; then
+            if [[ ! -f "$IOT_ENVIRONMENT_FILE" ]]; then
+              echo '::error::Cannot safely render the recovery Compose project for cleanup; secrets were retained.' >&2
+              cleanup_status=1
+            else
+              compose=(docker compose --project-name "$expected_project" --env-file "$IOT_ENVIRONMENT_FILE" \
+                -f deploy/docker-compose.yml -f deploy/docker-compose.recovery.yml)
+              "${compose[@]}" down -v --remove-orphans || cleanup_status=$?
+            fi
+          fi
+          remaining_containers="$(docker ps -aq --filter "label=com.docker.compose.project=$expected_project")"
+          remaining_volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=$expected_project")"
+          if [[ -n "$remaining_containers" || -n "$remaining_volumes" ]]; then
+            echo '::error::Physical recovery containers or volumes remain after teardown.' >&2
+            cleanup_status=1
+          fi
+          if [[ "$cleanup_status" -eq 0 ]]; then
+            rm -rf deploy/.runtime/recovery-secrets "deploy/.runtime/$expected_project" deploy/.env.recovery
+          else
+            echo '::error::Physical recovery teardown failed; scoped secrets were retained for diagnosis.' >&2
+          fi
+          exit "$cleanup_status"
 
   immutable-physical-recovery:
     if: ${{ github.event_name == 'workflow_call' }}
@@ -187,7 +209,6 @@ jobs:
       IOT_ENVIRONMENT_FILE: ${{ github.workspace }}/deploy/.env.recovery
       IOT_RECOVERY_REPORT_DIR: ${{ github.workspace }}/artifacts/recovery-drill/${{ github.run_id }}
       IOT_RECOVERY_TIMEOUT_SECONDS: "3600"
-      IOT_EXPECTED_FLYWAY_VERSION: "18"
       IOT_RECOVERY_ENV_FILE_BASE64: ${{ secrets.IOT_RECOVERY_ENV_FILE_BASE64 }}
       IOT_RECOVERY_SECRETS_TGZ_BASE64: ${{ secrets.IOT_RECOVERY_SECRETS_TGZ_BASE64 }}
       IOT_RELEASE_CANDIDATE_ID: ${{ inputs.release_candidate_id }}
@@ -290,14 +311,15 @@ jobs:
           backup_name="$(basename "$backup_path")"
           "${source_compose[@]}" cp "backup:$backup_path" "artifacts/recovery-drill/logical/$backup_name"
           "${source_compose[@]}" cp "backup:$backup_path.sha256" "artifacts/recovery-drill/logical/$backup_name.sha256"
-          chmod 0644 "artifacts/recovery-drill/logical/$backup_name" "artifacts/recovery-drill/logical/$backup_name.sha256"
+          "${source_compose[@]}" cp "backup:$backup_path.metadata.json" "artifacts/recovery-drill/logical/$backup_name.metadata.json"
+          chmod 0644 "artifacts/recovery-drill/logical/$backup_name" "artifacts/recovery-drill/logical/$backup_name.sha256" "artifacts/recovery-drill/logical/$backup_name.metadata.json"
           IOT_RESTORE_CONFIRM=RESTORE \
           IOT_RECOVERY_PROJECT="$IOT_LOGICAL_RECOVERY_PROJECT" \
           bash scripts/runtime/recovery-drill.sh "artifacts/recovery-drill/logical/$backup_name" \
             --mode immutable \
             --digest-manifest artifacts/release/image-digests.json \
             --release-services artifacts/release/release-services.json
-          node -e "const fs=require('fs'); fs.writeFileSync('artifacts/recovery-drill/logical-recovery.json', JSON.stringify({schemaVersion:1,releaseCandidateId:process.env.IOT_RELEASE_CANDIDATE_ID,sourceSha:process.env.IOT_SOURCE_SHA,manifestSha256:process.env.IOT_IMAGE_MANIFEST_SHA256,status:'PASS'}, null, 2)+'\\n')"
+          node -e "const fs=require('fs'); const p=process.env.IOT_RECOVERY_REPORT_DIR+'/logical-recovery-'+process.env.IOT_LOGICAL_RECOVERY_PROJECT+'.json'; const r=JSON.parse(fs.readFileSync(p,'utf8')); if(!r.versionsConsistent || r.sourceFlywayVersion!==r.recoveredFlywayVersion || r.candidateFlywayVersion!==r.sourceFlywayVersion) throw new Error('Logical recovery migration versions are not consistent.'); r.releaseCandidateId=process.env.IOT_RELEASE_CANDIDATE_ID; r.sourceSha=process.env.IOT_SOURCE_SHA; r.manifestSha256=process.env.IOT_IMAGE_MANIFEST_SHA256; fs.writeFileSync('artifacts/recovery-drill/logical-recovery.json', JSON.stringify(r,null,2)+'\\n')"
       - name: Run protected immutable WAL-G physical recovery drill
         run: |
           IOT_PITR_CONFIRM=PITR bash scripts/runtime/wal-recovery-drill.sh \
@@ -307,7 +329,7 @@ jobs:
       - name: Verify recovery-added service digest evidence
         run: |
           set -euo pipefail
-          node -e "const e=require('./artifacts/recovery-drill/logical-recovery.json'); if(e.status !== 'PASS' || e.releaseCandidateId !== process.env.IOT_RELEASE_CANDIDATE_ID || e.sourceSha !== process.env.IOT_SOURCE_SHA || e.manifestSha256 !== process.env.IOT_IMAGE_MANIFEST_SHA256) process.exit(1)"
+          node -e "const e=require('./artifacts/recovery-drill/logical-recovery.json'); if(e.status !== 'PASS' || !e.versionsConsistent || e.sourceFlywayVersion !== e.recoveredFlywayVersion || e.candidateFlywayVersion !== e.sourceFlywayVersion || e.releaseCandidateId !== process.env.IOT_RELEASE_CANDIDATE_ID || e.sourceSha !== process.env.IOT_SOURCE_SHA || e.manifestSha256 !== process.env.IOT_IMAGE_MANIFEST_SHA256) process.exit(1)"
           evidence="$(find artifacts/recovery-drill -name service-digests.json -print -quit)"
           test -n "$evidence"
           node -e "const e=require('./' + process.argv[1]); if(e.status !== 'PASS' || e.verifiedServiceCount !== 1 || e.expectedServiceCount !== 1) process.exit(1)" "$evidence"
@@ -354,27 +376,51 @@ jobs:
           retention-days: 90
       - name: Remove only this release recovery target
         if: ${{ always() }}
+        shell: bash
         run: |
           set -euo pipefail
-          case "$IOT_RECOVERY_PROJECT" in
-            iot-manager-release-pitr-*) ;;
-            *) echo 'Refusing to remove a non-release recovery project.' >&2; exit 1 ;;
-          esac
+          expected_recovery="iot-manager-release-pitr-${GITHUB_RUN_ID}"
+          expected_logical="iot-manager-release-logical-${GITHUB_RUN_ID}"
+          if [[ "$IOT_RECOVERY_PROJECT" != "$expected_recovery" || "$IOT_LOGICAL_RECOVERY_PROJECT" != "$expected_logical" ]]; then
+            echo '::error::Refusing to clean unexpected release recovery projects.' >&2
+            exit 64
+          fi
           export IOT_RECOVERY_TARGET_NAME=cleanup_restore_point
           export IOT_RECOVERY_BASE_BACKUP=base_cleanup_placeholder
-          docker compose --project-name "$IOT_RECOVERY_PROJECT" \
-            --env-file "$IOT_ENVIRONMENT_FILE" \
-            --env-file artifacts/release/image-digests.env \
-            -f deploy/docker-compose.yml \
-            -f deploy/docker-compose.recovery.yml \
-            -f deploy/docker-compose.immutable.yml \
-            -f deploy/docker-compose.immutable.recovery.yml \
-            down -v --remove-orphans || true
-          docker compose --project-name "$IOT_LOGICAL_RECOVERY_PROJECT" \
-            --env-file "$IOT_ENVIRONMENT_FILE" \
-            --env-file artifacts/release/image-digests.env \
-            -f deploy/docker-compose.yml \
-            -f deploy/docker-compose.integration.yml \
-            -f deploy/docker-compose.immutable.yml \
-            down -v --remove-orphans || true
-          rm -rf deploy/.runtime deploy/.env.recovery
+          cleanup_status=0
+          for project in "$expected_recovery" "$expected_logical"; do
+            remaining_containers="$(docker ps -aq --filter "label=com.docker.compose.project=$project")"
+            remaining_volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=$project")"
+            if [[ -z "$remaining_containers" && -z "$remaining_volumes" ]]; then continue; fi
+            if [[ ! -f "$IOT_ENVIRONMENT_FILE" || ! -f artifacts/release/image-digests.env ]]; then
+              echo "::error::Cannot safely render recovery project $project for cleanup; secrets were retained." >&2
+              cleanup_status=1
+              continue
+            fi
+            if [[ "$project" == "$expected_recovery" ]]; then
+              compose=(docker compose --project-name "$project" --env-file "$IOT_ENVIRONMENT_FILE" \
+                --env-file artifacts/release/image-digests.env \
+                -f deploy/docker-compose.yml -f deploy/docker-compose.recovery.yml \
+                -f deploy/docker-compose.immutable.yml -f deploy/docker-compose.immutable.recovery.yml)
+            else
+              compose=(docker compose --project-name "$project" --profile application \
+                --env-file "$IOT_ENVIRONMENT_FILE" --env-file artifacts/release/image-digests.env \
+                -f deploy/docker-compose.yml -f deploy/docker-compose.integration.yml \
+                -f deploy/docker-compose.immutable.yml)
+            fi
+            "${compose[@]}" down -v --remove-orphans || cleanup_status=$?
+          done
+          for project in "$expected_recovery" "$expected_logical"; do
+            remaining_containers="$(docker ps -aq --filter "label=com.docker.compose.project=$project")"
+            remaining_volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=$project")"
+            if [[ -n "$remaining_containers" || -n "$remaining_volumes" ]]; then
+              echo "::error::Recovery resources remain after teardown for $project." >&2
+              cleanup_status=1
+            fi
+          done
+          if [[ "$cleanup_status" -eq 0 ]]; then
+            rm -rf deploy/.runtime/recovery-secrets "deploy/.runtime/$expected_recovery" "deploy/.runtime/$expected_logical" deploy/.env.recovery
+          else
+            echo '::error::Release recovery teardown failed; scoped secrets were retained for diagnosis.' >&2
+          fi
+          exit "$cleanup_status"

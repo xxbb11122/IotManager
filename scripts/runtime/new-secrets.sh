@@ -3,6 +3,9 @@ set -euo pipefail
 
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 secret_directory="${1:-$repository_root/deploy/.runtime/iot-manager-p0/secrets}"
+if [[ "$secret_directory" != /* ]] && [[ ! "$secret_directory" =~ ^[A-Za-z]:[\\/] ]]; then
+  secret_directory="$repository_root/deploy/${secret_directory#./}"
+fi
 force="${IOT_FORCE_SECRETS:-false}"
 
 mkdir -p "$secret_directory"

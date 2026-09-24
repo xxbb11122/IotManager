@@ -23,6 +23,7 @@ status_file="$backup_dir/.backup-last-success"
 epoch="$(sed -n 's/^epoch=//p' "$status_file" | head -n 1)"
 backup_name="$(sed -n 's/^backup=//p' "$status_file" | head -n 1)"
 recorded_checksum="$(sed -n 's/^checksum=//p' "$status_file" | head -n 1)"
+metadata_name="$(sed -n 's/^metadata=//p' "$status_file" | head -n 1)"
 case "$epoch" in ''|*[!0-9]*) exit 1 ;; esac
 case "$backup_name" in ''|.*|*/*|*'\\'*) exit 1 ;; esac
 printf '%s\n' "$recorded_checksum" | grep -Eq '^[[:xdigit:]]{64}$' || exit 1
@@ -33,6 +34,13 @@ checksum_file="$backup_file.sha256"
 [ -r "$checksum_file" ] || exit 1
 sidecar_checksum="$(awk 'NR == 1 { print $1; exit }' "$checksum_file")"
 [ "$sidecar_checksum" = "$recorded_checksum" ] || exit 1
+case "$metadata_name" in ''|.*|*/*|*'\\'*) exit 1 ;; esac
+metadata_file="$backup_dir/$metadata_name"
+[ -s "$metadata_file" ] || exit 1
+metadata_checksum="$(sed -n 's/.*"backupSha256":"\([[:xdigit:]]\{64\}\)".*/\1/p' "$metadata_file")"
+metadata_version="$(sed -n 's/.*"sourceFlywayVersion":"\([0-9][0-9]*\)".*/\1/p' "$metadata_file")"
+[ "$metadata_checksum" = "$recorded_checksum" ] || exit 1
+case "$metadata_version" in ''|*[!0-9]*) exit 1 ;; esac
 
 now="$(date -u +%s)"
 [ "$now" -ge "$epoch" ] || exit 1

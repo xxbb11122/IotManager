@@ -10,7 +10,7 @@ if (-not $SecretDirectory) {
     $SecretDirectory = Join-Path $repositoryRoot 'deploy/.runtime/iot-manager-p0/secrets'
 }
 elseif (-not [System.IO.Path]::IsPathRooted($SecretDirectory)) {
-    $SecretDirectory = Join-Path $repositoryRoot $SecretDirectory
+    $SecretDirectory = Join-Path (Join-Path $repositoryRoot 'deploy') ($SecretDirectory -replace '^(\.\/|\.\\)+', '')
 }
 
 function New-RandomHex {

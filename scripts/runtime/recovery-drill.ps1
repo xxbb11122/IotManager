@@ -52,6 +52,17 @@ $checksumPath = "$backupPath.sha256"
 if (-not (Test-Path -LiteralPath $checksumPath)) {
     throw "Backup checksum sidecar was not found: $checksumPath"
 }
+$metadataPath = "$backupPath.metadata.json"
+if (-not (Test-Path -LiteralPath $metadataPath)) { throw "Backup version metadata is required: $metadataPath" }
+$recordedBackupChecksum = ((Get-Content -LiteralPath $checksumPath -TotalCount 1 -Encoding UTF8) -split '\s+')[0]
+if ($recordedBackupChecksum -notmatch '^[0-9A-Fa-f]{64}$') { throw 'Backup checksum sidecar is malformed.' }
+$backupMetadata = Get-Content -LiteralPath $metadataPath -Raw -Encoding UTF8 | ConvertFrom-Json
+if ($backupMetadata.schemaVersion -ne 1 -or $backupMetadata.backupSha256 -ne $recordedBackupChecksum -or
+    [string]$backupMetadata.sourceFlywayVersion -notmatch '^\d+$') {
+    throw 'Backup metadata is invalid or is not bound to this backup checksum.'
+}
+$sourceFlywayVersion = [string]$backupMetadata.sourceFlywayVersion
+$candidateFlywayVersion = $null
 $backupFileName = [System.IO.Path]::GetFileName($backupPath)
 $checksumFileName = "$backupFileName.sha256"
 
@@ -144,11 +155,28 @@ if ($Mode -eq 'immutable') { $compose += @('-f', (Join-Path $repositoryRoot 'dep
 $bootstrapUser = Get-EnvironmentValue -Key 'POSTGRES_BOOTSTRAP_USERNAME'
 $databaseName = Get-EnvironmentValue -Key 'IOT_DB_DATABASE'
 $ownerUsername = Get-EnvironmentValue -Key 'IOT_DB_OWNER_USERNAME'
-$expectedFlywayVersion = if ($env:IOT_EXPECTED_FLYWAY_VERSION) { $env:IOT_EXPECTED_FLYWAY_VERSION } else { '18' }
 $requiredRoleCodes = if ($env:IOT_REQUIRED_ROLE_CODES) { $env:IOT_REQUIRED_ROLE_CODES } else { 'OWNER,ADMIN,OPERATOR,VIEWER' }
-if ([string]::IsNullOrWhiteSpace($expectedFlywayVersion)) { throw 'IOT_EXPECTED_FLYWAY_VERSION must not be empty.' }
 if ($requiredRoleCodes -notmatch '^[A-Z]+(,[A-Z]+)*$') { throw 'IOT_REQUIRED_ROLE_CODES must be a comma-separated uppercase role-code list.' }
 $requiredRoleCodes = (($requiredRoleCodes -split ',' | Sort-Object -Unique) -join ',')
+if ($Mode -eq 'immutable') {
+    $migrationVersions = @()
+    foreach ($location in @('migration', 'migration-postgresql')) {
+        $directory = Join-Path $repositoryRoot "backend/src/main/resources/db/$location"
+        if (-not (Test-Path -LiteralPath $directory -PathType Container)) { throw "PostgreSQL migration source is unavailable: $directory" }
+        foreach ($migration in Get-ChildItem -LiteralPath $directory -File -Filter 'V*__*.sql') {
+            if ($migration.Name -notmatch '^V([0-9]+)__.+\.sql$') { throw "Invalid Flyway migration filename: $($migration.Name)" }
+            $migrationVersions += [int]$Matches[1]
+        }
+    }
+    if (($migrationVersions | Group-Object | Where-Object Count -gt 1).Count -gt 0) { throw 'Duplicate effective PostgreSQL Flyway migration versions.' }
+    $candidateFlywayVersion = [string](($migrationVersions | Measure-Object -Maximum).Maximum)
+    if ($candidateFlywayVersion -ne $sourceFlywayVersion) {
+        throw "Immutable candidate Flyway version $candidateFlywayVersion does not match backup source version $sourceFlywayVersion."
+    }
+}
+if ($env:IOT_EXPECTED_FLYWAY_VERSION -and $env:IOT_EXPECTED_FLYWAY_VERSION -ne $sourceFlywayVersion) {
+    throw "Explicit expected Flyway version $($env:IOT_EXPECTED_FLYWAY_VERSION) does not match backup source version $sourceFlywayVersion."
+}
 $startFlags = if ($Mode -eq 'local') { @('-d', '--build') } else { @('-d', '--no-build', '--pull', 'never') }
 Invoke-Docker -Arguments ($compose + @('up') + $startFlags + @('volume-init', 'postgres')) -Description 'Start isolated recovery PostgreSQL' | Out-Null
 
@@ -179,7 +207,9 @@ Invoke-Docker -Arguments $restoreArgs -Description 'Restore logical backup into 
 # Windows Docker CLI quoting from swallowing its one-line result.
 $latestFlywayVersion = (Invoke-Docker -Arguments @('exec', '-u', 'postgres', $postgresId, 'psql', '-U', $bootstrapUser, '-d', $databaseName,
     '-Atc', 'SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1') -Description 'Verify recovered Flyway version' | Out-String).Trim()
-if ($latestFlywayVersion -ne $expectedFlywayVersion) { throw "Recovered Flyway version is $latestFlywayVersion; expected $expectedFlywayVersion." }
+if ($latestFlywayVersion -notmatch '^\d+$' -or $latestFlywayVersion -ne $sourceFlywayVersion) {
+    throw "Recovered Flyway version is $latestFlywayVersion; backup metadata records source version $sourceFlywayVersion."
+}
 $failedMigrationCount = (Invoke-Docker -Arguments @('exec', '-u', 'postgres', $postgresId, 'psql', '-U', $bootstrapUser, '-d', $databaseName,
     '-Atc', 'SELECT count(*) FROM flyway_schema_history WHERE NOT success') -Description 'Verify recovered Flyway failures' | Out-String).Trim()
 if ($failedMigrationCount -notmatch '^0$') { throw "Recovered database contains $failedMigrationCount failed Flyway migration row(s)." }
@@ -209,3 +239,20 @@ if ([regex]::Matches($applicationProbeOutput, '(?m)^t\s*$').Count -ne 2) { throw
 
 Write-Host "Logical recovery drill passed in isolated project: $RecoveryProjectName (mode: $Mode)"
 Write-Host "The recovery project and volume were intentionally retained for inspection. Stop it with docker compose --project-name $RecoveryProjectName down (without -v)."
+$reportDirectory = if ($env:IOT_RECOVERY_REPORT_DIR) { $env:IOT_RECOVERY_REPORT_DIR } else { Join-Path $repositoryRoot 'artifacts/recovery-drill/logical' }
+[System.IO.Directory]::CreateDirectory($reportDirectory) | Out-Null
+$safeProjectName = $RecoveryProjectName -replace '[^A-Za-z0-9_-]', '_'
+$reportPath = Join-Path $reportDirectory "logical-recovery-$safeProjectName.json"
+$recoveryReport = [ordered]@{
+    schemaVersion = 1
+    drill = 'logical-backup-recovery'
+    sourceFlywayVersion = [int]$sourceFlywayVersion
+    candidateFlywayVersion = if ($candidateFlywayVersion) { [int]$candidateFlywayVersion } else { $null }
+    recoveredFlywayVersion = [int]$latestFlywayVersion
+    versionsConsistent = $true
+    backupSha256 = $recordedBackupChecksum
+    recoveryProject = $RecoveryProjectName
+    status = 'PASS'
+}
+$recoveryReportJson = ConvertTo-Json -InputObject $recoveryReport -Depth 5
+[System.IO.File]::WriteAllText($reportPath, $recoveryReportJson + [Environment]::NewLine, [System.Text.UTF8Encoding]::new($false))

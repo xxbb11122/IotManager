@@ -35,6 +35,10 @@ class MigrationVersionAllocationTest {
         assertThat(h2).containsKey(19);
         assertThat(generic).doesNotContainKey(19);
         assertThat(postgresql).doesNotContainKey(19);
+
+        assertThat(generic).doesNotContainKey(24);
+        assertThat(h2).containsKey(24);
+        assertThat(postgresql).containsKey(24);
     }
 
     private Map<Integer, String> migrationVersions(String location) throws IOException {
