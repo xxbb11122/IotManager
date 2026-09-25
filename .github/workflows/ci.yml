@@ -135,6 +135,7 @@ jobs:
         run: bash scripts/verify.sh --strict --android --skip-backend --skip-web --skip-deploy
       - name: Verify APK and write checksum
         shell: bash
+        working-directory: .
         run: |
           set -euo pipefail
           apk=client/android/app/build/outputs/apk/debug/app-debug.apk

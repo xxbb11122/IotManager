@@ -20,6 +20,7 @@ const backupHealthcheck = read('deploy/backup/backup-healthcheck.sh');
 const runtimeWorkflow = read('.github/workflows/runtime-e2e.yml');
 const recoveryWorkflow = read('.github/workflows/recovery-drill.yml');
 const quickCi = read('.github/workflows/ci.yml');
+const monitoringDockerfile = read('deploy/monitoring/Dockerfile');
 
 assert.match(releaseGate, /create-known-good-release-manifest/,
   'A completed Release Gate must generate a known-good release manifest.');
@@ -162,7 +163,13 @@ assert.match(quickCi, /android-actions\/setup-android\@40fd30fb8d7440372e1316f5d
   'Android setup must use the pinned v4.0.1 action with automatic deprecated package installation disabled.');
 assert.match(quickCi, /sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36\.0\.0"[\s\S]*Verify APK and write checksum[\s\S]*sha256sum/,
   'Android toolchains must be installed explicitly and the nonempty APK must receive a SHA-256 sidecar.');
+assert.match(quickCi, /- name: Verify APK and write checksum\r?\n\s+shell: bash\r?\n\s+working-directory: \.\r?\n\s+run: \|[\s\S]*?apk=client\/android\/app\/build\/outputs\/apk\/debug\/app-debug\.apk/,
+  'The APK verification path must be resolved from the repository root, not from client/client.');
 assert.doesNotMatch(quickCi, /android-actions\/setup-android\@[^\s]+ # v3/,
   'The broken v3 Android SDK setup action must not remain in Quick CI.');
+assert.match(monitoringDockerfile, /ADD --checksum=sha256:[a-f0-9]{64}[\s\\]+https:\/\/github\.com\/prometheus\/alertmanager\/releases\/download\/v0\.33\.1\/alertmanager-web-ui-0\.33\.1\.tar\.gz/,
+  'The Alertmanager UI must come from the SHA-256-pinned v0.33.1 release asset.');
+assert.match(monitoringDockerfile, /test "\$\{ALERTMANAGER_VERSION\}" = 'v0\.33\.1'[\s\S]*test -s \/src\/ui\/app\/dist\/index\.html\.gz/,
+  'The UI asset must match the server release and contain the compressed index consumed by Go.');
 
 console.log('PASS release workflow contract tests');

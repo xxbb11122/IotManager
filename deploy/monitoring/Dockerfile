@@ -53,27 +53,26 @@ RUN set -eux; \
     git checkout --detach FETCH_HEAD; \
     test "$(git rev-parse HEAD)" = "${ALERTMANAGER_SOURCE_COMMIT}"
 
-# The Alertmanager release tag deliberately excludes ui/app/dist. The Go
-# server embeds that directory at compile time, so rebuild the signed release
-# UI with its locked npm dependency graph before compiling the patched server.
-# This stage is not part of either runtime image; the Node image is pinned to
-# the current linux/amd64 Docker Hub manifest for reproducible CI builds.
-FROM node:22-bookworm-slim@sha256:4d676821dff059fd00d277ee4261ef34ea712317fed0737c03941481b5760c96 AS alertmanager-ui-build
-
-COPY --from=alertmanager-source /src/ui/app/package.json /src/ui/app/package-lock.json /workspace/
-WORKDIR /workspace
-RUN npm ci --ignore-scripts
-COPY --from=alertmanager-source /src/ui/app/ /workspace/
-RUN npm run build; \
-    test -f /workspace/dist/index.html; \
-    test -d /workspace/dist/assets
-
 FROM alertmanager-source AS alertmanager-build
+
+# The v0.33.1 source tag omits ui/app/dist, but its official release publishes
+# the matching prebuilt UI. Pin the release asset by SHA-256; the Go server
+# embeds the compressed .gz/.br files directly (there is no plain index.html).
+# This avoids a network-dependent Elm/Vite rebuild inside the runtime image.
+ADD --checksum=sha256:1f63344e196e47ba7bfe27276f44c1da77e39fb76493e42b2cf0a50ca8f04321 \
+    https://github.com/prometheus/alertmanager/releases/download/v0.33.1/alertmanager-web-ui-0.33.1.tar.gz \
+    /tmp/alertmanager-web-ui.tar.gz
+RUN set -eux; \
+    test "${ALERTMANAGER_VERSION}" = 'v0.33.1'; \
+    tar -xzf /tmp/alertmanager-web-ui.tar.gz -C /src/ui/app; \
+    test -s /src/ui/app/dist/index.html.gz; \
+    test -s /src/ui/app/dist/index.html.br; \
+    test -d /src/ui/app/dist/assets; \
+    rm /tmp/alertmanager-web-ui.tar.gz
 
 # Preserve the signed release's existing tidy graph and only change the audited
 # runtime modules required by the security baseline. The subsequent `go build`
 # is the authoritative compile-time graph validation.
-COPY --from=alertmanager-ui-build /workspace/dist /src/ui/app/dist
 RUN --mount=type=cache,id=iot-manager-alertmanager-go-mod,target=/go/pkg/mod \
     set -eux; \
     for attempt in 1 2 3 4 5; do \

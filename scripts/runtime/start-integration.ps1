@@ -225,10 +225,19 @@ trap {
 & (Join-Path $PSScriptRoot 'new-secrets.ps1') -SecretDirectory $secretDirectory
 if ($LASTEXITCODE -ne 0) { throw 'Secret generation failed.' }
 $requiredSecretNames = @(
-    'postgres_admin_password', 'iot_db_owner_password', 'iot_db_app_password',
-    'keycloak_db_password', 'keycloak_bootstrap_admin_password', 'keycloak_owner_password',
-    'keycloak_admin_password', 'keycloak_operator_password', 'keycloak_viewer_password',
-    'weather_fingerprint_secret', 'metrics_scrape_token', 'walg_s3_access_key', 'walg_s3_secret_key'
+    'postgres_admin_password'
+    'iot_db_owner_password'
+    'iot_db_app_password'
+    'keycloak_db_password'
+    'keycloak_bootstrap_admin_password'
+    'keycloak_owner_password'
+    'keycloak_admin_password'
+    'keycloak_operator_password'
+    'keycloak_viewer_password'
+    'weather_fingerprint_secret'
+    'metrics_scrape_token'
+    'walg_s3_access_key'
+    'walg_s3_secret_key'
 )
 if (-not (Test-Path -LiteralPath $secretDirectory -PathType Container)) { throw "Generated integration secret directory is unavailable: $secretDirectory" }
 foreach ($secretName in $requiredSecretNames) {
