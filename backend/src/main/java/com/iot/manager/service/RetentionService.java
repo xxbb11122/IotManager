@@ -46,6 +46,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -196,12 +197,20 @@ public class RetentionService {
     private CategoryCounts retainTelemetry(Instant now, RetentionTaskLockService.Lease lease) {
         Instant archiveCutoff = now.minus(properties.getTelemetryTotal());
         Instant hotCutoff = now.minus(properties.getTelemetryHot());
+        // Dry-run does not insert archives, but an execution can archive and
+        // purge an already-overdue hot row in the same pass. Project those
+        // new archive rows so its purge estimate matches the real pass.
+        List<PurgeProjection> projectedArchives = new ArrayList<>();
         CategoryCounts archive = executeBatches("TELEMETRY_ARCHIVE", (cursor, holds) -> archiveTelemetryBatch(
-                hotCutoff, cursor.at(), cursor.id(), now, holds
+                hotCutoff, archiveCutoff, cursor.at(), cursor.id(), now, holds, projectedArchives
         ), lease);
-        CategoryCounts purge = executeBatches("TELEMETRY_PURGE", (cursor, holds) -> purgeArchivedTelemetryBatch(
-                archiveCutoff, cursor.at(), cursor.id(), holds
-        ), lease);
+        CategoryCounts purge = properties.isDryRun()
+                ? executeBatches("TELEMETRY_PURGE", (cursor, holds) -> previewPurgeArchivedTelemetryBatch(
+                        archiveCutoff, cursor.at(), cursor.id(), holds, projectedArchives
+                ), lease)
+                : executeBatches("TELEMETRY_PURGE", (cursor, holds) -> purgeArchivedTelemetryBatch(
+                        archiveCutoff, cursor.at(), cursor.id(), holds
+                ), lease);
         return archive.plus(purge);
     }
 
@@ -269,10 +278,12 @@ public class RetentionService {
 
     private CursorBatchResult archiveTelemetryBatch(
             Instant hotCutoff,
+            Instant archiveCutoff,
             Instant cursorAt,
             long cursorId,
             Instant archivedAt,
-            RetentionHoldService.ActiveHoldIndex holds
+            RetentionHoldService.ActiveHoldIndex holds,
+            List<PurgeProjection> projectedArchives
     ) {
         List<DeviceTelemetrySample> candidates = telemetryRepository.findArchiveCandidatesAfter(
                 hotCutoff, cursorAt, cursorId, PageRequest.of(0, properties.getBatchSize())
@@ -301,7 +312,18 @@ public class RetentionService {
         }
         long archived = copies.size();
         long deleted = removable.size();
-        if (!properties.isDryRun()) {
+        if (properties.isDryRun()) {
+            // Archive IDs allocated by the real pass are newer than existing
+            // archive IDs. Virtual high IDs preserve the same tie order for
+            // rows sharing receivedAt without writing anything in dry-run.
+            for (DeviceTelemetrySampleArchive copy : copies) {
+                if (copy.getReceivedAt().isBefore(archiveCutoff)) {
+                    projectedArchives.add(new PurgeProjection(copy.getReceivedAt(),
+                            Long.MAX_VALUE - MAX_BATCHES_PER_RUN * 5_000L + projectedArchives.size(),
+                            copy.getDeviceId()));
+                }
+            }
+        } else {
             if (!copies.isEmpty()) telemetryArchiveRepository.saveAllAndFlush(copies);
             // Compare database-persisted values, not the managed objects that
             // may retain sub-microsecond precision lost by a TIMESTAMPTZ write.
@@ -442,6 +464,41 @@ public class RetentionService {
                 candidates.size(), new CategoryCounts(candidates.size(), 0, removable.size(), held, 0, last.getReceivedAt()),
                 last.getReceivedAt(), last.getId()
         );
+    }
+
+    private CursorBatchResult previewPurgeArchivedTelemetryBatch(
+            Instant cutoff,
+            Instant cursorAt,
+            long cursorId,
+            RetentionHoldService.ActiveHoldIndex holds,
+            List<PurgeProjection> projectedArchives
+    ) {
+        int batchSize = properties.getBatchSize();
+        List<PurgeProjection> candidates = new ArrayList<>();
+        for (DeviceTelemetrySampleArchive archive : telemetryArchiveRepository.findPurgeCandidatesAfter(
+                cutoff, cursorAt, cursorId, PageRequest.of(0, batchSize))) {
+            candidates.add(new PurgeProjection(archive.getReceivedAt(), archive.getId(), archive.getDeviceId()));
+        }
+        int added = 0;
+        for (PurgeProjection projection : projectedArchives) {
+            if (projection.receivedAt().isAfter(cursorAt)
+                    || (projection.receivedAt().equals(cursorAt) && projection.id() > cursorId)) {
+                candidates.add(projection);
+                if (++added == batchSize) break;
+            }
+        }
+        if (candidates.isEmpty()) return CursorBatchResult.empty();
+        candidates.sort(Comparator.comparing(PurgeProjection::receivedAt).thenComparingLong(PurgeProjection::id));
+        if (candidates.size() > batchSize) candidates = candidates.subList(0, batchSize);
+        long held = 0;
+        for (PurgeProjection candidate : candidates) {
+            Device device = deviceRepository.findById(candidate.deviceId()).orElse(null);
+            if (device == null || isHeld(holds, "TELEMETRY", device, null)) held++;
+        }
+        PurgeProjection last = candidates.get(candidates.size() - 1);
+        return new CursorBatchResult(candidates.size(), new CategoryCounts(
+                candidates.size(), 0, candidates.size() - held, held, 0, last.receivedAt()),
+                last.receivedAt(), last.id());
     }
 
     private CategoryCounts pruneActivityEvents(Instant cutoff, RetentionTaskLockService.Lease lease) {
@@ -720,6 +777,8 @@ public class RetentionService {
     private record CursorBatchResult(int fetched, CategoryCounts counts, Instant lastAt, long lastId) {
         static CursorBatchResult empty() { return new CursorBatchResult(0, CategoryCounts.empty(), null, 0L); }
     }
+
+    private record PurgeProjection(Instant receivedAt, long id, long deviceId) { }
 
     private record Cursor(Instant at, long id) {
         private static final Cursor START = new Cursor(Instant.EPOCH, 0L);

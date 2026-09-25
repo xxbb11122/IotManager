@@ -20,6 +20,7 @@ import org.springframework.test.context.ActiveProfiles;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -149,6 +150,67 @@ class RetentionServiceIntegrationTest {
     }
 
     @Test
+    void dryRunPredictsTheSameDeletionCountAsAnExpiredHotBacklogExecution() {
+        Device device = device("overdue");
+        Instant receivedAt = timeProvider.now().minus(400, ChronoUnit.DAYS).truncatedTo(ChronoUnit.MINUTES);
+        DeviceTelemetrySample overdue = sample(device, receivedAt, receivedAt);
+
+        retentionProperties.setDryRun(true);
+        RetentionService.RetentionRunOutcome prediction = retentionService.runOnce().stream()
+                .filter(outcome -> "TELEMETRY".equals(outcome.category()))
+                .findFirst().orElseThrow();
+        assertThat(telemetryRepository.findById(overdue.getId())).isPresent();
+        assertThat(archiveRepository.findAll()).isEmpty();
+
+        retentionProperties.setDryRun(false);
+        RetentionService.RetentionRunOutcome execution = retentionService.runOnce().stream()
+                .filter(outcome -> "TELEMETRY".equals(outcome.category()))
+                .findFirst().orElseThrow();
+
+        assertThat(prediction.counts().archived()).isEqualTo(execution.counts().archived());
+        assertThat(prediction.counts().deleted()).isEqualTo(execution.counts().deleted());
+    }
+
+    @Test
+    void overdueDryRunProjectionRespectsTheBatchLimitAndResumeCursor() {
+        retentionProperties.setBatchSize(1);
+        Device device = device("batch-preview");
+        Instant first = timeProvider.now().minus(400, ChronoUnit.DAYS).truncatedTo(ChronoUnit.MINUTES);
+        for (int index = 0; index < 22; index++) {
+            sample(device, first.plus(index, ChronoUnit.MINUTES), first.plus(index, ChronoUnit.MINUTES));
+        }
+
+        retentionProperties.setDryRun(true);
+        RetentionService.CategoryCounts firstPrediction = telemetryCounts(retentionService.runOnce());
+        RetentionService.CategoryCounts repeatedPrediction = telemetryCounts(retentionService.runOnce());
+        assertThat(firstPrediction.archived()).isEqualTo(20);
+        assertThat(firstPrediction.deleted()).isEqualTo(40);
+        assertThat(repeatedPrediction).isEqualTo(firstPrediction);
+        assertThat(telemetryRepository.findAll()).hasSize(22);
+        assertThat(archiveRepository.findAll()).isEmpty();
+
+        retentionProperties.setDryRun(false);
+        RetentionService.CategoryCounts firstExecution = telemetryCounts(retentionService.runOnce());
+        assertThat(firstExecution.archived()).isEqualTo(firstPrediction.archived());
+        assertThat(firstExecution.deleted()).isEqualTo(firstPrediction.deleted());
+        assertThat(telemetryRepository.findAll()).hasSize(2);
+        assertThat(archiveRepository.findAll()).isEmpty();
+
+        retentionProperties.setDryRun(true);
+        RetentionService.CategoryCounts secondPrediction = telemetryCounts(retentionService.runOnce());
+        retentionProperties.setDryRun(false);
+        RetentionService.CategoryCounts secondExecution = telemetryCounts(retentionService.runOnce());
+        assertThat(secondPrediction.archived()).isEqualTo(2);
+        assertThat(secondPrediction.deleted()).isEqualTo(4);
+        assertThat(secondExecution.archived()).isEqualTo(secondPrediction.archived());
+        assertThat(secondExecution.deleted()).isEqualTo(secondPrediction.deleted());
+        assertThat(telemetryRepository.findAll()).isEmpty();
+        assertThat(archiveRepository.findAll()).isEmpty();
+        assertThat(watermarkRepository.findById("TELEMETRY_ARCHIVE")).isEmpty();
+        assertThat(watermarkRepository.findById("TELEMETRY_PURGE")).isEmpty();
+    }
+
+    @Test
     void interruptedTelemetryPassResumesFromItsWatermarkThenClearsItAfterCompletion() {
         retentionProperties.setBatchSize(1);
         Device device = device("watermark");
@@ -238,6 +300,11 @@ class RetentionServiceIntegrationTest {
                 .reportedStateJson("{}")
                 .desiredStateJson("{}")
                 .build());
+    }
+
+    private RetentionService.CategoryCounts telemetryCounts(List<RetentionService.RetentionRunOutcome> outcomes) {
+        return outcomes.stream().filter(outcome -> "TELEMETRY".equals(outcome.category()))
+                .findFirst().orElseThrow().counts();
     }
 
     private DeviceTelemetrySample sample(Device device, Instant receivedAt, Instant observedAt) {

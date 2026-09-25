@@ -94,10 +94,18 @@ class RetentionServicePostgresIntegrationTest {
         Device dryRunDevice = device("pg-dry-run");
         Instant receivedAt = timeProvider.now().minus(120, ChronoUnit.DAYS).truncatedTo(ChronoUnit.MINUTES);
         DeviceTelemetrySample validSample = sample(dryRunDevice, receivedAt, "{\"temperature\":22.5}");
+        Device overdueDevice = device("pg-overdue");
+        DeviceTelemetrySample overdueSample = sample(overdueDevice,
+                timeProvider.now().minus(400, ChronoUnit.DAYS).truncatedTo(ChronoUnit.MINUTES),
+                "{\"temperature\":18.5}");
         retentionProperties.setDryRun(true);
-        retentionService.runOnce();
+        RetentionService.RetentionRunOutcome prediction = retentionService.runOnce().stream()
+                .filter(outcome -> "TELEMETRY".equals(outcome.category()))
+                .findFirst().orElseThrow();
         assertThat(telemetryRepository.findById(validSample.getId())).isPresent();
+        assertThat(telemetryRepository.findById(overdueSample.getId())).isPresent();
         assertThat(archivesFor(dryRunDevice)).isEmpty();
+        assertThat(archivesFor(overdueDevice)).isEmpty();
 
         retentionProperties.setDryRun(false);
         RetentionTaskLockService.Lease lease = retentionTaskLockService.tryAcquire("retention", Duration.ofMinutes(5));
@@ -107,12 +115,18 @@ class RetentionServicePostgresIntegrationTest {
                 .hasMessageContaining("already running");
         retentionTaskLockService.release(lease);
 
-        retentionService.runOnce();
+        RetentionService.RetentionRunOutcome execution = retentionService.runOnce().stream()
+                .filter(outcome -> "TELEMETRY".equals(outcome.category()))
+                .findFirst().orElseThrow();
+        assertThat(prediction.counts().archived()).isEqualTo(execution.counts().archived());
+        assertThat(prediction.counts().deleted()).isEqualTo(execution.counts().deleted());
         assertThat(telemetryRepository.findById(validSample.getId())).isEmpty();
+        assertThat(telemetryRepository.findById(overdueSample.getId())).isEmpty();
         assertThat(archivesFor(dryRunDevice)).singleElement().satisfies(archive -> {
             assertThat(archive.getSourceSampleId()).isEqualTo(validSample.getId());
             assertThat(archive.getStateJson()).isEqualTo(validSample.getStateJson());
         });
+        assertThat(archivesFor(overdueDevice)).isEmpty();
         retentionService.runOnce();
         assertThat(archivesFor(dryRunDevice)).hasSize(1);
 
