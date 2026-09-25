@@ -73,6 +73,8 @@ RUN set -eux; \
 # Preserve the signed release's existing tidy graph and only change the audited
 # runtime modules required by the security baseline. The subsequent `go build`
 # is the authoritative compile-time graph validation.
+# x/mod is used by the build graph but need not be linked into the server;
+# verify its selected module version rather than demanding binary metadata.
 RUN --mount=type=cache,id=iot-manager-alertmanager-go-mod,target=/go/pkg/mod \
     set -eux; \
     for attempt in 1 2 3 4 5; do \
@@ -94,7 +96,7 @@ RUN --mount=type=cache,id=iot-manager-alertmanager-go-mod,target=/go/pkg/mod \
     go version -m /out/alertmanager | grep -Eq '^[[:space:]]*dep[[:space:]]+golang.org/x/crypto[[:space:]]+v0.55.0'; \
     go version -m /out/alertmanager | grep -Eq '^[[:space:]]*dep[[:space:]]+golang.org/x/net[[:space:]]+v0.58.0'; \
     go version -m /out/alertmanager | grep -Eq '^[[:space:]]*dep[[:space:]]+golang.org/x/text[[:space:]]+v0.41.0'; \
-    go version -m /out/alertmanager | grep -Eq '^[[:space:]]*dep[[:space:]]+golang.org/x/mod[[:space:]]+v0.40.0'; \
+    go list -m -f '{{.Version}}' golang.org/x/mod | grep -Fx 'v0.40.0'; \
     go version -m /out/alertmanager | grep -Eq '^[[:space:]]*dep[[:space:]]+google.golang.org/grpc[[:space:]]+v1.82.1'
 RUN mkdir -p /out/rootfs/etc/alertmanager
 
