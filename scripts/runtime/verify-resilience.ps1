@@ -91,6 +91,18 @@ function Wait-ServiceHealthy {
 
 $bootstrapUser = Get-EnvironmentValue -Key 'POSTGRES_BOOTSTRAP_USERNAME'
 $databaseName = Get-EnvironmentValue -Key 'IOT_DB_DATABASE'
+$migrationDirectories = @(
+    (Join-Path $repositoryRoot 'backend/src/main/resources/db/migration')
+    (Join-Path $repositoryRoot 'backend/src/main/resources/db/migration-postgresql')
+)
+$expectedMigrations = 0
+foreach ($migrationDirectory in $migrationDirectories) {
+    if (-not (Test-Path -LiteralPath $migrationDirectory -PathType Container)) {
+        throw "PostgreSQL migration source is unavailable: $migrationDirectory"
+    }
+    $expectedMigrations += @(Get-ChildItem -LiteralPath $migrationDirectory -Filter 'V*__*.sql' -File).Count
+}
+if ($expectedMigrations -le 0) { throw 'No PostgreSQL Flyway migrations were found.' }
 function Get-PostgresSnapshot {
     param([string]$PostgresId)
     $queries = [ordered]@{
@@ -103,7 +115,7 @@ function Get-PostgresSnapshot {
     foreach ($entry in $queries.GetEnumerator()) {
         $values[$entry.Key] = (Invoke-Docker -Arguments @('exec', '-u', 'postgres', $PostgresId, 'psql', '-U', $bootstrapUser, '-d', $databaseName, '-Atc', $entry.Value) -Description "Read PostgreSQL $($entry.Key) snapshot" | Out-String).Trim()
     }
-    if ($values.migrations -ne '18') { throw "Expected 18 successful PostgreSQL migrations, found $($values.migrations)." }
+    if ($values.migrations -ne [string]$expectedMigrations) { throw "Expected $expectedMigrations successful PostgreSQL migrations, found $($values.migrations)." }
     if ($values.roles -ne '4') { throw "Expected four platform role seeds, found $($values.roles)." }
     return ($values.Values -join '|')
 }

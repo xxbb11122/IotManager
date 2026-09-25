@@ -63,6 +63,16 @@ wait_healthy() {
 
 bootstrap_user="$(environment_value POSTGRES_BOOTSTRAP_USERNAME)"
 database_name="$(environment_value IOT_DB_DATABASE)"
+expected_migrations=0
+for migration_directory in "$repository_root/backend/src/main/resources/db/migration" \
+                           "$repository_root/backend/src/main/resources/db/migration-postgresql"; do
+  [[ -d "$migration_directory" ]] || { printf 'PostgreSQL migration source is unavailable: %s\n' "$migration_directory" >&2; exit 66; }
+  for migration_file in "$migration_directory"/V*__*.sql; do
+    [[ -f "$migration_file" ]] || continue
+    expected_migrations=$((expected_migrations + 1))
+  done
+done
+(( expected_migrations > 0 )) || { printf 'No PostgreSQL Flyway migrations were found.\n' >&2; exit 66; }
 
 snapshot() {
   local postgres_id="$1"
@@ -71,7 +81,7 @@ snapshot() {
   roles="$(docker exec -u postgres "$postgres_id" psql -U "$bootstrap_user" -d "$database_name" -Atc 'SELECT count(*) FROM roles' | tr -d '\r\n')"
   devices="$(docker exec -u postgres "$postgres_id" psql -U "$bootstrap_user" -d "$database_name" -Atc 'SELECT count(*) FROM devices' | tr -d '\r\n')"
   commands="$(docker exec -u postgres "$postgres_id" psql -U "$bootstrap_user" -d "$database_name" -Atc 'SELECT count(*) FROM device_commands' | tr -d '\r\n')"
-  [[ "$migrations" == 18 ]] || { printf 'Expected 18 successful PostgreSQL migrations, found %s.\n' "$migrations" >&2; exit 1; }
+  [[ "$migrations" == "$expected_migrations" ]] || { printf 'Expected %s successful PostgreSQL migrations, found %s.\n' "$expected_migrations" "$migrations" >&2; exit 1; }
   [[ "$roles" == 4 ]] || { printf 'Expected four platform role seeds, found %s.\n' "$roles" >&2; exit 1; }
   printf '%s|%s|%s|%s' "$migrations" "$roles" "$devices" "$commands"
 }

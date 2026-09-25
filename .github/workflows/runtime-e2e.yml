@@ -335,7 +335,8 @@ jobs:
             esac
             environment_file=deploy/.env.integration
             [[ -f "$environment_file" ]] || environment_file=deploy/.env.integration.example
-            compose=(docker compose --project-name "$project" --env-file "$environment_file" -f deploy/docker-compose.yml -f deploy/docker-compose.integration.yml)
+            compose=(docker compose --project-name "$project" --profile application --profile observability \
+              --env-file "$environment_file" -f deploy/docker-compose.yml -f deploy/docker-compose.integration.yml)
             state_file="deploy/.runtime/$project/runtime.env"
             if [[ "$project" == iot-manager-p0 && -f "$state_file" ]]; then compose+=(--env-file "$state_file"); fi
             "${compose[@]}" down -v --remove-orphans || cleanup_status=$?

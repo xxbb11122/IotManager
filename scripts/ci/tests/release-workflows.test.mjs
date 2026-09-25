@@ -15,6 +15,8 @@ const secretGenerator = read('scripts/runtime/new-secrets.sh');
 const logicalRecovery = read('scripts/runtime/recovery-drill.sh');
 const logicalRecoveryPs = read('scripts/runtime/recovery-drill.ps1');
 const physicalRecovery = read('scripts/runtime/wal-recovery-drill.sh');
+const resilience = read('scripts/runtime/verify-resilience.sh');
+const resiliencePs = read('scripts/runtime/verify-resilience.ps1');
 const backupScript = read('deploy/backup/backup.sh');
 const backupHealthcheck = read('deploy/backup/backup-healthcheck.sh');
 const runtimeWorkflow = read('.github/workflows/runtime-e2e.yml');
@@ -120,6 +122,9 @@ assert.match(secretGenerator, /repository_root\/deploy\/\$\{secret_directory#\.\
   'Relative calls to the Bash secret generator must share the deploy/ path base.');
 assert.match(runtimeWorkflow, /rm -rf deploy\/\.runtime\/iot-manager-p0 deploy\/\.runtime\/iot-manager-p0-recovery/,
   'P0 cleanup must be restricted to its two named Compose projects.');
+const p0RuntimeCleanup = runtimeWorkflow.slice(runtimeWorkflow.indexOf('Stop only the dedicated Compose projects'));
+assert.match(p0RuntimeCleanup, /--profile application --profile observability[\s\S]*down -v --remove-orphans/,
+  'P0 teardown must activate every profile that may have started containers.');
 assert.match(runtimeWorkflow, /rm -rf "deploy\/\.runtime\/\$expected_project" deploy\/\.env\.integration/,
   'Immutable runtime cleanup must be restricted to this run-specific project.');
 const immutableRuntimeCleanup = runtimeWorkflow.slice(runtimeWorkflow.indexOf('Stop only the release Compose project'));
@@ -154,6 +159,12 @@ assert.match(physicalRecovery, /source_flyway_version=[\s\S]*flyway_schema_histo
   'Physical recovery must compare source, checked-out candidate, and recovered schema versions.');
 assert.doesNotMatch(logicalRecovery + logicalRecoveryPs + physicalRecovery + recoveryWorkflow, /(?:\:-|else\s*\{\s*)['"]?18['"]?/,
   'Recovery scripts and workflows must not guess the schema version from stale V18 defaults.');
+assert.match(resilience, /migration-postgresql[\s\S]*expected_migrations[\s\S]*flyway_schema_history/,
+  'Bash resilience verification must derive the expected PostgreSQL migration count from candidate sources.');
+assert.match(resiliencePs, /migration-postgresql[\s\S]*expectedMigrations[\s\S]*flyway_schema_history/,
+  'PowerShell resilience verification must derive the same migration count from candidate sources.');
+assert.doesNotMatch(resilience + resiliencePs, /Expected 18 successful PostgreSQL migrations/,
+  'Resilience verification must not retain a stale hard-coded migration count.');
 assert.match(runtimeWorkflow, /\.metadata\.json/,
   'Runtime logical restore must retrieve and validate the metadata sidecar.');
 assert.match(recoveryWorkflow, /\.metadata\.json[\s\S]*candidateFlywayVersion/,
