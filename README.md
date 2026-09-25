@@ -19,13 +19,14 @@
   <img alt="Release status" src="https://img.shields.io/badge/Release-R1%20Pilot%20Candidate-orange" />
 </p>
 
-> [!IMPORTANT] > **Current release status / 当前发布状态**
+> [!IMPORTANT]
+> **Current release status / 当前发布状态**
 >
 > IoT Manager 当前是 **R1 受控试点候选版本（Controlled-Pilot Candidate）**，不是已批准的正式生产版本。
 >
-> 源码已包含完整的受控试点业务主链、Docker 部署资产、Keycloak/OIDC、HTTPS/WSS、四角色 RBAC、逻辑恢复、监控告警与 CI/Release Integrity 基础。正式生产发布仍需完成：针对同一候选 SHA 的受保护 Release Integrity Gate、绿色 P0 Docker Runtime、真实远端 S3/WAL-G PITR、容量与稳定性基线，以及真实设备验收。
+> 当前已验证候选提交：`70d6e99ed4a1c3b95f38734aeb5e08498e54bf60`。Quick CI 全绿，同一 SHA 的两次 P0 Docker Runtime 集成运行全绿；验证覆盖 OIDC/RBAC/WSS、数据库重启与就绪、隔离逻辑恢复、篡改备份拒绝、脱敏检查及限定范围的清理。
 >
-> 当前 [Quick CI 已通过](https://github.com/xxbb11122/IotManager/actions/runs/33642830708)，但最新 P0 Docker Runtime 尚未绿色通过；它仍是发布阻断项。详见 [项目进度评估](docs/PROJECT-PROGRESS-EVALUATION-2026-09-02.md)。
+> 这不等于正式生产发布通过：普通 P0 运行未执行受保护的 12 服务不可变发布证据门禁，也未证明签名版本 N→N−1 回滚、远端 S3/WAL-G PITR、RPO/RTO、容量稳定性或真实设备验收。详见下方验证基线与发布阻断项。
 
 ## What is IoT Manager?
 
@@ -161,28 +162,29 @@ Release and recovery gates are **fail-closed**: a skipped scan, missing evidence
 
 ## Current verified baseline
 
-> Evidence is scoped to the 2026-09-02 assessment. Formal production approval still requires the complete protected Release Integrity Gate for one exact candidate SHA.
+> Evidence below is for candidate `70d6e99ed4a1c3b95f38734aeb5e08498e54bf60` (2026-09-25). These successful checks establish a tested pilot candidate, not formal production approval.
 
-| Area               | Verified result                                                          | Evidence scope             |
-| ------------------ | ------------------------------------------------------------------------ | -------------------------- |
-| Backend            | 123 tests, 0 failures, 0 errors, 1 expected skip                         | Local + Quick CI           |
-| Edge Agent         | 7 tests passed                                                           | Local + Quick CI           |
-| Client             | 86 Node unit tests passed                                                | Local + Quick CI           |
-| Frontend / Console | Playwright E2E + production build passed                                 | Local + Quick CI           |
-| Android            | Capacitor sync + Debug APK build passed                                  | Local + Quick CI           |
-| Auth & WSS         | PKCE / JWT / 4-role RBAC / WSS flows verified                            | Local integration evidence |
-| Logical recovery   | Isolated restore and DB-permission validation passed                     | Local integration evidence |
-| Release topology   | 8 artifacts / 6 buildable images / 13 service evidence objects validated | Contract validation        |
-| Docker runtime     | Local full-stack evidence exists; latest GitHub P0 runtime is not green  | Release blocker            |
+| Area               | Verified result                                                        | Evidence |
+| ------------------ | ---------------------------------------------------------------------- | -------- |
+| Backend / Edge     | 141 backend tests passed in UTC and Asia/Shanghai; Edge Agent checks passed | [Quick CI #34](https://github.com/xxbb11122/IotManager/actions/runs/36098833690) |
+| Web / Console / PDA | Frontend, Console, and Client checks passed                            | [Quick CI #34](https://github.com/xxbb11122/IotManager/actions/runs/36098833690) |
+| Android            | Debug APK built successfully with JDK 21 / Android API 36              | [APK artifact](https://github.com/xxbb11122/IotManager/actions/runs/36098833690) |
+| Supply chain       | Gitleaks, Trivy source scan, and repository CycloneDX SBOM passed      | [Quick CI #34](https://github.com/xxbb11122/IotManager/actions/runs/36098833690) |
+| Docker runtime     | Two successful P0 integration runs on the same candidate SHA           | [Push run](https://github.com/xxbb11122/IotManager/actions/runs/36098833625) · [repeat run](https://github.com/xxbb11122/IotManager/actions/runs/36102570022) |
+| Protected release  | Immutable 12-service Release Integrity Gate and signed rollback not yet accepted | Release blocker |
+
+### Android debug package
+
+The debug APK built from the verified candidate is available in the [Quick CI #34 run artifacts](https://github.com/xxbb11122/IotManager/actions/runs/36098833690) as `iot-manager-debug-apk-70d6e99ed4a1c3b95f38734aeb5e08498e54bf60` (14-day Actions artifact retention). It is for installation/testing only; it is **not a release-signed production APK**.
 
 ### Production-release blockers
 
-1. a green P0 Docker Runtime run for the exact candidate SHA;
-2. a clean protected GitHub Release Integrity Gate;
-3. protected GHCR digest, scan, SBOM, provenance, and runtime-evidence closure;
-4. real remote S3-compatible WAL-G PITR with measured RPO / RTO;
+1. a clean protected GitHub Release Integrity Gate for the exact candidate SHA, including immutable runtime evidence for all required services;
+2. protected GHCR digest, scan, SBOM, provenance, and runtime-evidence closure;
+3. signed candidate N and N−1 plus an approved protected runner to verify rollback from N to N−1;
+4. real remote S3-compatible WAL-G PITR with measured RPO ≤ 15 minutes and RTO ≤ 60 minutes;
 5. capacity, load, and long-running stability baselines;
-6. real Android, BLE, Edge, and network-condition acceptance;
+6. real Android, GPS/weather, BLE, Edge, and network-condition acceptance;
 7. external weather-provider quota, failover, privacy, and operational review.
 
 ## Technology stack
@@ -301,7 +303,7 @@ HIGH/CRITICAL findings remain release blockers unless fixed or covered by an exp
 
 ## Documentation
 
-- [Project status](docs/PROJECT-PROGRESS-EVALUATION-2026-09-02.md)
+- [Historical project assessment (2026-09-02)](docs/PROJECT-PROGRESS-EVALUATION-2026-09-02.md)
 - [Verification](docs/VERIFICATION.md)
 - [CI / Release](docs/CI-RELEASE-RUNBOOK.md)
 - [Deployment](deploy/DEPLOYMENT.md)
@@ -314,9 +316,9 @@ HIGH/CRITICAL findings remain release blockers unless fixed or covered by an exp
 
 ```text
 Core product functionality       ████████▌░  R1 pilot candidate
-Automated verification           ████████░░  Quick CI green; P0 runtime pending
+Automated verification           ████████░░  Quick CI green; P0 integration 2/2, protected gate pending
 Runtime & security foundation    ████████░░  controlled-pilot foundation
-Release integrity                ██████▌░░░  protected Gate still required
+Release integrity                ██████▌░░░  protected Gate / signed rollback pending
 Production operations            ██████░░░░  external / physical evidence pending
 ```
 
