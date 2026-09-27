@@ -49,19 +49,25 @@ export async function probeEndpoint({
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let restOk = false;
   try {
     const api = new ApiClient({ baseUrl: profile.apiBaseUrl, fetchImpl, accessToken: profile.accessToken });
-    const devices = await api.listDevices({}, { signal: controller.signal });
+    const devices = await api.listDevices({ siteCode }, { signal: controller.signal });
+    restOk = true;
     if (verifyWebSocket) {
       await probeWebSocket(profile.wsUrl, webSocketFactory, timeoutMs, profile.accessToken, siteCode);
     }
     return {
       ok: true,
+      restOk: true,
+      realtimeOk: verifyWebSocket ? true : null,
       message: Array.isArray(devices) && devices.length > 0
-        ? `连接成功：API 与实时连接正常，已获取 ${devices.length} 台设备。`
-        : '连接成功：API 与实时连接正常，当前没有设备。'
+        ? `连接成功：${verifyWebSocket ? 'API 与实时连接正常' : 'API 正常，实时连接未测试'}，已获取 ${devices.length} 台设备。`
+        : `连接成功：${verifyWebSocket ? 'API 与实时连接正常' : 'API 正常，实时连接未测试'}，当前没有设备。`
     };
   } catch (error) {
+    if (restOk) return { ok: false, partial: true, restOk: true, realtimeOk: false,
+      message: `部分可用：API 已通过，实时连接未通过。${friendlyEndpointError(error)}` };
     if (error?.name === 'AbortError') {
       return { ok: false, message: '连接超时，请确认地址可访问。' };
     }

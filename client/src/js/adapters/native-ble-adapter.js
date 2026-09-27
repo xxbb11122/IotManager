@@ -24,6 +24,7 @@ export class NativeBleAdapter {
     this.listeners = new Set();
     this.candidates = new Map();
     this.scanning = false;
+    this.scanRevision = 0;
     this.connection = null;
     this.profile = null;
     this.confirmationTimeoutMs = confirmationTimeoutMs;
@@ -46,33 +47,41 @@ export class NativeBleAdapter {
 
   async scan(listener) {
     if (typeof listener !== 'function') throw new TypeError('BLE scan requires a listener');
+    const revision = ++this.scanRevision;
     await this.requestPermissions();
-    await this.bleClient.requestLEScan({}, (result) => {
-      const deviceId = result?.device?.deviceId;
-      if (!deviceId) return;
-      const existing = this.candidates.get(deviceId);
-      const candidate = {
-        ...(existing ?? {}),
-        ...result.device,
-        rssi: result.rssi ?? existing?.rssi ?? null,
-        transport: 'BLE_DIRECT',
-        identityScope: 'app_local',
-        firstSeenAt: existing?.firstSeenAt ?? Date.now(),
-        lastSeenAt: Date.now()
-      };
-      this.candidates.set(deviceId, candidate);
-      listener(candidate, this.getCandidates());
-    });
+    if (revision !== this.scanRevision) return;
     this.scanning = true;
+    try {
+      await this.bleClient.requestLEScan({}, (result) => {
+        if (revision !== this.scanRevision || !this.scanning) return;
+        const deviceId = result?.device?.deviceId;
+        if (!deviceId) return;
+        const existing = this.candidates.get(deviceId);
+        const candidate = {
+          ...(existing ?? {}),
+          ...result.device,
+          rssi: result.rssi ?? existing?.rssi ?? null,
+          transport: 'BLE_DIRECT',
+          identityScope: 'app_local',
+          firstSeenAt: existing?.firstSeenAt ?? Date.now(),
+          lastSeenAt: Date.now()
+        };
+        this.candidates.set(deviceId, candidate);
+        listener(candidate, this.getCandidates());
+      });
+    } catch (error) {
+      if (revision === this.scanRevision) this.scanning = false;
+      throw error;
+    }
   }
 
   async stopScan() {
+    const revision = ++this.scanRevision;
     if (!this.scanning) return undefined;
-    try {
-      return await this.bleClient.stopLEScan();
-    } finally {
-      this.scanning = false;
-    }
+    const result = await this.bleClient.stopLEScan();
+    // A rejected stop is not a confirmed stop: retain a retryable state.
+    if (revision === this.scanRevision) this.scanning = false;
+    return result;
   }
 
   clearCandidates() {
@@ -126,6 +135,7 @@ export class NativeBleAdapter {
 
   handleDisconnect(deviceId) {
     if (!this.connection || this.connection.status === 'DISCONNECTED') return;
+    if (deviceId && deviceId !== this.connection.deviceId) return;
     this.connection = { ...this.connection, deviceId, status: 'DISCONNECTED' };
     this.emit('connection_update', this.connection);
   }

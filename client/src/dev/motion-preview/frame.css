@@ -1,0 +1,8 @@
+/* Preview-only opt-out; retain transform values that express real control state. */
+html[data-preview-motion="reduce"] *,
+html[data-preview-motion="reduce"] *::before,
+html[data-preview-motion="reduce"] *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}

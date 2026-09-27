@@ -1,0 +1,24 @@
+:root { color-scheme: light; font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; color: #163238; background: #edf2f3; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+#motion-preview { max-width: 1440px; margin: auto; padding: 24px; }
+.preview-heading h1 { margin: 0; font-size: clamp(24px, 4vw, 36px); letter-spacing: -.03em; }
+.preview-kicker { color: #286a71; font-size: 12px; letter-spacing: .12em; font-weight: 700; }
+.preview-heading p { margin: 10px 0; }
+.preview-safety { font-size: 14px; color: #5f6d71; }
+.preview-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; background: #fff; border: 1px solid #c8dadd; border-radius: 12px; padding: 16px; margin-top: 20px; }
+.preview-controls label { display: grid; gap: 5px; font-size: 13px; font-weight: 600; min-width: 0; }
+.preview-controls select, .preview-controls button { min-height: 48px; border: 1px solid #b7cdd1; border-radius: 6px; padding: 8px; font: inherit; max-width: 100%; background: white; color: #163238; }
+.preview-controls button { background: #1f6f78; color: white; font-weight: 600; cursor: pointer; }
+.preview-buttons { display: flex; flex-wrap: wrap; gap: 8px; grid-column: 1 / -1; }
+.preview-notes { margin: 18px 0; padding: 0 4px; }
+.preview-notes h2 { font-size: 19px; margin: 0 0 7px; }
+.preview-notes p, .preview-notes output { font-size: 14px; margin: 5px 0; overflow-wrap: anywhere; }
+#preview-boundary { color: #6e5f42; }
+.preview-stage { overflow: auto; width: 100%; display: flex; justify-content: flex-start; background: #dce7e8; border: 1px solid #c4d4d7; border-radius: 12px; padding: 12px; }
+#preview-app { display: block; box-sizing: content-box; flex: 0 0 auto; border: 1px solid #a6bec2; border-radius: 8px; background: #f3f6f7; }
+.preview-ledger { margin-top: 20px; font-size: 14px; }
+.preview-ledger summary { cursor: pointer; min-height: 48px; padding: 12px 0; }
+.preview-ledger li { margin: 12px 0; }
+:focus-visible { outline: 3px solid #51a1ac; outline-offset: 3px; }
+@media (max-width: 600px) { #motion-preview { padding: 14px; } .preview-controls { grid-template-columns: minmax(0, 1fr); padding: 12px; } .preview-stage { padding: 0; } }

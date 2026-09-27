@@ -1,7 +1,9 @@
 import { defineConfig } from 'vite';
+import { motionPreviewPlugin } from './src/dev/motion-preview/dev-plugin.js';
 
 export default defineConfig({
   root: '.',
+  plugins: [motionPreviewPlugin()],
   server: {
     port: 5175,
     proxy: {

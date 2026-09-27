@@ -313,6 +313,26 @@ export function createClientStore(initialState = {}) {
     });
   }
 
+  function clearPlatformData() {
+    const devices = currentState.devices.filter(device => device.localOnly === true);
+    const localReferences = new Set(devices.flatMap(device => [...deviceReferences(device)]));
+    const localCollection = collection => Object.fromEntries(Object.entries(collection)
+      .filter(([reference]) => localReferences.has(reference)));
+    const commandsById = Object.fromEntries(Object.entries(currentState.commandsById)
+      .filter(([, command]) => command.accessRoute === 'BLE_LOCAL' && localReferences.has(String(payloadDeviceReference(command)))));
+    return publish({
+      ...currentState, devices, commandsById,
+      activitiesByDeviceId: localCollection(currentState.activitiesByDeviceId),
+      alertsByDeviceId: localCollection(currentState.alertsByDeviceId),
+      activeDeviceId: localReferences.has(String(currentState.activeDeviceId)) ? currentState.activeDeviceId : null,
+      activeConnection: currentState.activeConnection?.transport === 'BLE_DIRECT'
+        || localReferences.has(String(currentState.activeConnection?.deviceId)) ? currentState.activeConnection : null,
+      weather: null, weatherForecast: null,
+      connectionHealth: { ...DEFAULT_CONNECTION_HEALTH },
+      runtime: { ...currentState.runtime, stale: true, lastSyncedAt: null }
+    }, { domains: [CHANGE_DOMAIN.STRUCTURE], structural: true, reason: 'clear_platform_context' });
+  }
+
   function upsertDevice(device) {
     const reference = payloadDeviceReference(device);
     const index = findDeviceIndex(currentState.devices, reference);
@@ -580,6 +600,7 @@ export function createClientStore(initialState = {}) {
     selectDevice,
     selectActiveDevice,
     setDevices,
+    clearPlatformData,
     upsertDevice,
     patchDevice,
     removeDevice,

@@ -51,6 +51,48 @@ test('native BLE exposes permission and disabled-Bluetooth failures', async () =
   await assert.rejects(() => disabled.scan(() => {}), /disabled/);
 });
 
+test('native scan stop failure remains retryable and late callbacks cannot add candidates', async () => {
+  let onResult;
+  let stops = 0;
+  const adapter = new NativeBleAdapter({ bleClient: {
+    async initialize() {}, async isEnabled() { return true; },
+    async requestLEScan(_options, callback) { onResult = callback; },
+    async stopLEScan() { if (++stops === 1) throw new Error('stop failed'); }
+  } });
+  await adapter.scan(() => {});
+  onResult({ device: { deviceId: 'a' } });
+  await assert.rejects(adapter.stopScan(), /stop failed/);
+  assert.equal(adapter.scanning, true);
+  onResult({ device: { deviceId: 'late' } });
+  assert.equal(adapter.getCandidates().length, 1);
+  await adapter.stopScan();
+  assert.equal(adapter.scanning, false);
+  assert.equal(stops, 2);
+});
+
+test('stopping while permission is pending does not start a later native scan', async () => {
+  let grant;
+  let starts = 0;
+  const adapter = new NativeBleAdapter({ bleClient: {
+    initialize: () => new Promise(resolve => { grant = resolve; }),
+    async isEnabled() { return true; }, async requestLEScan() { starts += 1; }
+  } });
+  const pending = adapter.scan(() => {});
+  await adapter.stopScan();
+  grant();
+  await pending;
+  assert.equal(starts, 0);
+  assert.equal(adapter.scanning, false);
+});
+
+test('a prior device disconnect callback cannot disconnect the newer BLE link', async () => {
+  const adapter = new NativeBleAdapter({ bleClient: { async connect() {}, async getServices() { return []; } } });
+  await adapter.connect({ deviceId: 'new-device' });
+  adapter.handleDisconnect('old-device');
+  assert.equal(adapter.connection.status, 'CONNECTED');
+  assert.equal(adapter.connection.deviceId, 'new-device');
+});
+
 test('profile read-back is the only source of acknowledged reported state', async () => {
   const registry = {
     matchDiscoveredServices: () => ({ id: 'confirmed' }),

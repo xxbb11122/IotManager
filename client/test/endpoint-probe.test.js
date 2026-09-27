@@ -19,6 +19,8 @@ test('probe reports success with a device count when the API responds', async ()
   });
   assert.equal(result.ok, true);
   assert.match(result.message, /已获取 2 台设备/);
+  assert.equal(result.realtimeOk, null);
+  assert.match(result.message, /实时连接未测试/);
 });
 
 test('probe verifies the realtime endpoint when requested', async () => {
@@ -81,6 +83,9 @@ test('probe reports a readable realtime failure when the WebSocket cannot open',
   });
   assert.equal(result.ok, false);
   assert.match(result.message, /实时连接失败/);
+  assert.equal(result.partial, true);
+  assert.equal(result.restOk, true);
+  assert.equal(result.realtimeOk, false);
 });
 
 test('probe reports success with an empty inventory message', async () => {

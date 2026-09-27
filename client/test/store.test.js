@@ -17,6 +17,35 @@ function seededStore() {
   });
 }
 
+test('context clearing atomically removes platform receipts without dropping local BLE history', () => {
+  const store = createClientStore({
+    devices: [{ id: 'server', reportedState: { power: false } }, { id: 'local', localOnly: true }],
+    activeDeviceId: 'server', weather: { status: 'FRESH' }, weatherForecast: { hourly: [] },
+    commandsById: {
+      old: { commandId: 'old', deviceId: 'server', status: 'ACKNOWLEDGED', reportedState: { power: true }, accessRoute: 'SITE_API' },
+      ble: { commandId: 'ble', deviceId: 'local', accessRoute: 'BLE_LOCAL', status: 'UNCONFIRMED' }
+    },
+    activitiesByDeviceId: { server: [{ id: 'old-event' }], local: [{ id: 'ble-event' }] },
+    alertsByDeviceId: { server: [{ id: 'old-alert' }] }
+  });
+  const notifications = [];
+  store.subscribe((state, metadata) => notifications.push(metadata));
+  store.clearPlatformData();
+  const state = store.getState();
+  assert.deepEqual(state.devices.map(device => device.id), ['local']);
+  assert.deepEqual(Object.keys(state.commandsById), ['ble']);
+  assert.deepEqual(Object.keys(state.activitiesByDeviceId), ['local']);
+  assert.deepEqual(state.alertsByDeviceId, {});
+  assert.equal(state.activeDeviceId, null);
+  assert.equal(state.weather, null);
+  assert.equal(state.weatherForecast, null);
+  assert.equal(state.runtime.stale, true);
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0].structural, true);
+  store.setDevices([{ id: 'server', reportedState: { power: false } }]);
+  assert.equal(store.getState().devices[0].reportedState.power, false);
+});
+
 test('store publishes a new immutable snapshot without changing the prior snapshot', () => {
   const store = seededStore();
   const before = store.getState();

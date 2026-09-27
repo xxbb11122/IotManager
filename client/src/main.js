@@ -15,13 +15,14 @@ import { createCommandDispatcher } from './js/platform/command-dispatcher.js';
 import { deviceLocationErrorMessage, getCurrentDeviceLocation } from './js/platform/device-location.js';
 import { friendlyEndpointError, probeEndpoint } from './js/platform/endpoint-probe.js';
 import { createPlatformAdapter } from './js/platform/platform-adapter-factory.js';
-import { ACCESS_ROUTES, repairLegacyNativeEndpoint, RuntimeConfigRepository } from './js/platform/runtime-config.js';
+import { ACCESS_ROUTES, normalizeEndpointProfile, repairLegacyNativeEndpoint, RuntimeConfigRepository } from './js/platform/runtime-config.js';
 import { browserWeatherTimezone } from './js/platform/weather-timezone.js';
 import { CHANGE_DOMAIN, store } from './js/store.js';
 import { createRenderCoordinator } from './js/render-coordinator.js';
 import { createRenderMetrics } from './js/render-metrics.js';
 import { createClientUi } from './js/ui.js';
 import { createWeatherRefreshCooldown } from './js/weather-refresh-cooldown.js';
+import { resourceState, beginResource, resolveResource, rejectResource, createRuntimeTaskRegistry, parseWeatherCoordinates, refreshPresentation } from './js/runtime-resource-state.js';
 
 const DEMO_CONTEXT = Object.freeze({
   organizationName: '演示组织',
@@ -81,11 +82,13 @@ let platform = null;
 let endpointProfile = null;
 let authSession = null;
 let authUrlListener = null;
+let nativeBackListener = null;
 let ble = nativeRuntime ? new NativeBleAdapter() : new BleAdapter();
 let platformUnsubscribers = [];
 let lifecycleHandle = null;
 let appInstallId = null;
 let deviceResyncPromise = null;
+let weatherRefreshPromise = null;
 let lastWeatherReadAt = 0;
 let lastForecastReadAt = 0;
 let lastDeviceResyncAt = 0;
@@ -94,6 +97,14 @@ let appBackgroundedAt = null;
 let realtimeState = 'idle';
 let weatherCooldownDirty = false;
 let weatherCooldownFallbackUsed = false;
+let sessionRevision = 0;
+let endpointActivationRevision = 0;
+let bleScanRevision = 0;
+let bleConnectionIntent = null;
+const runtimeTasks = createRuntimeTaskRegistry(() => JSON.stringify([
+  endpointProfile?.id, endpointProfile?.apiBaseUrl, clientState.context.organizationCode,
+  clientState.context.siteCode, sessionRevision
+]));
 
 let clientState = {
   context: DEMO_CONTEXT,
@@ -112,6 +123,10 @@ let clientState = {
     native: nativeRuntime
   },
   loading: {},
+  resources: Object.fromEntries(['devices', 'sites', 'activity', 'lanDiscovery', 'weather', 'weatherForecast'].map((key) => [key, resourceState()])),
+  startup: { phase: 'loading', error: null },
+  notices: [],
+  commandObservation: {},
   weatherSettings: null,
   pendingWeatherLocation: null,
   weatherRefreshRetryAt: null,
@@ -226,35 +241,60 @@ const unsubscribeBle = ble.subscribe((event) => {
 
   const existing = store.selectDevice(pluginDeviceId);
   const candidate = clientState.ble.candidates.find((item) => bleCandidateId(item) === String(pluginDeviceId))
-    ?? clientState.ble.candidate
-    ?? existing
+    ?? (bleCandidateId(bleConnectionIntent?.candidate) === String(pluginDeviceId) ? bleConnectionIntent.candidate : null)
+    ?? (bleCandidateId(clientState.ble.candidate) === String(pluginDeviceId) ? clientState.ble.candidate : null)
+    ?? (existing ? { ...existing, id: pluginDeviceId, deviceId: pluginDeviceId } : null)
     ?? { deviceId: pluginDeviceId, name: connection.name };
   if (pluginDeviceId) {
-    const device = createLocalBleDevice(candidate, connection, clientState.context);
+    const sourceContext = bleCandidateId(bleConnectionIntent?.candidate) === String(pluginDeviceId)
+      ? bleConnectionIntent.context : existing?.pendingOrganizationContext ?? clientState.context;
+    const device = createLocalBleDevice(candidate, connection, sourceContext);
     store.upsertDevice(device);
-    void persistBleBinding(device, connection);
+    void persistBleBinding(device, connection).catch(() => storageNotice('蓝牙连接状态已更新，但本机绑定保存失败。', 'ble-binding'));
   }
 });
 
-const dispatchCommand = createCommandDispatcher({
-  getPlatform: () => platform,
-  getEndpointProfile: () => endpointProfile,
-  getBleAdapter: () => ble,
-  getBleConnected: () => clientState.ble.connection?.status === 'CONNECTED',
-  isPlatformStale: () => store.getState().runtime.stale,
-  onCommand: (command) => {
-    store.upsertCommand(command);
-    if (command.accessRoute === 'BLE_LOCAL' && isTerminalCommandStatus(command.status)) {
-      const pluginDeviceId = clientState.ble.connection?.deviceId;
-      if (pluginDeviceId && appInstallId) {
-        void persistLocalCommandActivity(`${appInstallId}:${pluginDeviceId}`, command);
-      }
+// Late receipts remain associated with the session which actually sent them.
+// Backend command history remains authoritative; this in-memory journal is not
+// presented as durable storage and never reapplies an old receipt to a new site.
+const commandReceiptsByScope = new Map();
+
+function createScopedCommandDispatch(device) {
+  const adapter = platform;
+  const profile = endpointProfile;
+  const revision = sessionRevision;
+  const scope = Object.freeze({ ...platformCacheScope(), sessionRevision: revision });
+  const pluginDeviceId = clientState.ble.connection?.deviceId;
+  const bindingKey = pluginDeviceId && appInstallId ? `${appInstallId}:${pluginDeviceId}` : null;
+  const record = (command) => {
+    const local = device?.localOnly === true || command.accessRoute === 'BLE_LOCAL';
+    const scopeKey = local ? `ble:${bindingKey}` : JSON.stringify(scope);
+    const commands = commandReceiptsByScope.get(scopeKey) ?? new Map();
+    const receipt = { ...commands.get(command.commandId), ...command, sourceContext: scope };
+    commands.set(command.commandId, receipt);
+    commandReceiptsByScope.set(scopeKey, commands);
+    if (local || sessionRevision === revision) store.upsertCommand(receipt);
+    if (local && bindingKey && isTerminalCommandStatus(command.status)) {
+      void persistLocalCommandActivity(bindingKey, receipt).catch(() => {
+        storageNotice('蓝牙命令结果已收到，但本机活动记录保存失败。', 'ble-activity');
+      });
     }
-  }
-});
+  };
+  return {
+    adapter, revision, record,
+    dispatch: createCommandDispatcher({
+      getPlatform: () => adapter, getEndpointProfile: () => profile,
+      getBleAdapter: () => ble,
+      getBleConnected: () => clientState.ble.connection?.status === 'CONNECTED',
+      isPlatformStale: () => store.getState().runtime.stale,
+      onCommand: record
+    })
+  };
+}
 
 function viewModel() {
-  return { ...store.getState(), ...clientState, endpointProfile };
+  const state = store.getState();
+  return { ...state, ...clientState, runtime: { ...state.runtime, sessionRevision }, endpointProfile };
 }
 
 function render(reason = 'explicit_render') {
@@ -286,6 +326,19 @@ function normalizeClientStateMetadata(patch = {}, metadata = {}) {
   if (has('auth')) {
     return { origin: 'local', domains: [CHANGE_DOMAIN.RUNTIME], structural: false, reason: 'client_state_auth' };
   }
+  if (has('resources')) {
+    const keys = Object.keys(patch.resources ?? {});
+    if (keys.length === 1 && keys[0] === 'weatherForecast') {
+      return { origin: 'local', domains: [CHANGE_DOMAIN.WEATHER_FORECAST], structural: false, reason: 'resource_forecast' };
+    }
+    if (keys.length === 1 && keys[0] === 'weather') {
+      return { origin: 'local', domains: [CHANGE_DOMAIN.WEATHER], structural: false, reason: 'resource_weather' };
+    }
+    return { origin: 'local', domains: [CHANGE_DOMAIN.SCREEN], structural: false, reason: 'resource_screen' };
+  }
+  if (has('commandObservation')) {
+    return { origin: 'local', domains: [CHANGE_DOMAIN.COMMANDS], structural: false, reason: 'command_observation' };
+  }
   if (has('loading')) {
     const loadingKeys = Object.keys(patch.loading ?? {});
     if (loadingKeys.length === 1 && loadingKeys[0] === 'weatherForecast') {
@@ -305,6 +358,8 @@ function setClientState(patch = {}, metadata = {}) {
     ...patch,
     context: { ...clientState.context, ...(patch.context ?? {}) },
     loading: { ...clientState.loading, ...(patch.loading ?? {}) },
+    resources: { ...clientState.resources, ...(patch.resources ?? {}) },
+    commandObservation: { ...clientState.commandObservation, ...(patch.commandObservation ?? {}) },
     ble: { ...clientState.ble, ...(patch.ble ?? {}) }
   };
   const change = normalizeClientStateMetadata(patch, metadata);
@@ -317,6 +372,35 @@ function setClientState(patch = {}, metadata = {}) {
 
 function setLoading(key, value) {
   setClientState({ loading: { [key]: value } });
+}
+
+function setResource(key, value) {
+  setClientState({ resources: { [key]: value } });
+}
+
+function storageNotice(message, id = 'storage') {
+  setClientState({ notices: [...clientState.notices.filter((item) => item.id !== id), { id, tone: 'warning', message }] });
+}
+
+function invalidateRuntimeContext({ preserveSites = false } = {}) {
+  sessionRevision += 1;
+  runtimeTasks.invalidate();
+  lastWeatherReadAt = 0;
+  lastForecastReadAt = 0;
+  lastDeviceResyncAt = 0;
+  lastPullRefreshAt = 0;
+  deviceResyncPromise = null;
+  weatherRefreshPromise = null;
+  setWeatherRefreshCooldown(0);
+  clientState = {
+    ...clientState,
+    resources: Object.fromEntries(Object.keys(clientState.resources).map((key) => [key, resourceState()])),
+    loading: { ...clientState.loading, lanDiscovery: false, lanClaim: false, weatherForecast: false, weatherLocationPhase: null },
+    sites: preserveSites ? clientState.sites : [],
+    weatherSettings: null, pendingWeatherLocation: null, error: null,
+    lanCandidates: [], notices: clientState.notices.filter((notice) => notice.id === 'startup-storage'), commandObservation: {}
+  };
+  store.clearPlatformData();
 }
 
 function weatherRefreshCooldownSeconds() {
@@ -348,22 +432,30 @@ function isBlePickerCancellation(error) {
 function platformCacheScope() {
   return {
     endpointId: endpointProfile?.id,
+    apiBaseUrl: endpointProfile?.apiBaseUrl ?? '',
+    authPartition: clientState.auth.configured ? clientState.auth.cachePartition ?? `unrestored-${sessionRevision}` : 'public',
     organizationCode: endpointProfile?.organizationCode ?? clientState.context.organizationCode,
     siteCode: clientState.context.siteCode
   };
 }
 
 function bindPlatformEvents(adapter) {
+  const revision = sessionRevision;
   for (const unsubscribe of platformUnsubscribers) unsubscribe();
   platformUnsubscribers = [
     adapter.subscribe((event) => {
+      if (adapter !== platform || revision !== sessionRevision) return;
+      if (event?.payload?.siteCode && String(event.payload.siteCode) !== String(clientState.context.siteCode)) return;
       const applied = store.applyRealtimeEvent(event);
       if (applied && event?.type === 'weather_update') {
-        void cacheRepository.putPlatformWeather(platformCacheScope(), event.payload);
+        void cacheRepository.putPlatformWeather(platformCacheScope(), event.payload).catch(() => {
+          if (revision === sessionRevision) storageNotice('实时天气已收到，但本机缓存保存失败。', 'weather-cache');
+        });
         lastWeatherReadAt = Date.now();
       }
     }),
     adapter.subscribeStatus((health) => {
+      if (adapter !== platform || revision !== sessionRevision) return;
       const justConnected = health.state === 'connected' && realtimeState !== 'connected';
       realtimeState = health.state;
       store.setConnectionHealth(health);
@@ -394,7 +486,7 @@ function tokenProvider() {
 }
 
 async function configureAuthSession(profile) {
-  authSession?.stopAutoRefresh();
+  authSession?.invalidatePendingOperations();
   const config = normalizeOidcConfig(profile);
   if (!config) {
     authSession = null;
@@ -406,93 +498,134 @@ async function configureAuthSession(profile) {
     config,
     onStateChange: (auth) => {
       if (authSession !== manager) return;
+      if (Boolean(auth.authenticated) !== Boolean(clientState.auth.authenticated)
+        || auth.cachePartition !== clientState.auth.cachePartition) invalidateRuntimeContext();
       setClientState({ auth });
-      if (!auth.authenticated) platform?.disconnect();
+      if (!auth.authenticated) {
+        platform?.disconnect();
+        store.setRuntimeContext({ stale: true });
+      }
     }
   });
   authSession = manager;
-  setClientState({ auth: manager.getState() });
+  setClientState({ auth: { ...manager.getState(), status: 'restoring' } });
   await manager.restore();
   return manager;
 }
 
 async function completeOidcRedirect(url = currentUrl()) {
   if (!authSession?.isRedirect(url)) return false;
-  const completed = await authSession.completeRedirect(url);
-  if (completed) removeOidcQueryFromBrowser(url);
-  return completed;
+  const manager = authSession;
+  setClientState({ auth: { ...clientState.auth, status: 'processing_callback', error: null } });
+  try {
+    const completed = await manager.completeRedirect(url);
+    if (completed) removeOidcQueryFromBrowser(url);
+    return authSession === manager && completed;
+  } catch (error) {
+    if (authSession === manager) setClientState({ auth: { ...clientState.auth, error: `登录校验未完成：${error?.message ?? '请重新登录。'}` } });
+    throw error;
+  }
 }
 
 async function synchronizePlatformEndpoint() {
   if (!platform) return null;
   if (authSession?.isConfigured() && !authSession.getAccessToken()) return null;
+  const adapter = platform;
+  const activation = endpointActivationRevision;
+  bindPlatformEvents(adapter);
   await hydrateCachedWeather();
+  if (platform !== adapter || activation !== endpointActivationRevision) return null;
   await loadSites();
+  if (platform !== adapter || activation !== endpointActivationRevision) return null;
   await refreshDevices();
+  if (platform !== adapter || activation !== endpointActivationRevision) return null;
   await refreshWeather({ includeSettings: false });
-  platform.connect();
+  if (platform !== adapter || activation !== endpointActivationRevision) return null;
+  adapter.connect();
   return endpointProfile;
 }
 
 async function activateEndpoint(profile) {
-  for (const unsubscribe of platformUnsubscribers) unsubscribe();
-  platformUnsubscribers = [];
-  platform?.disconnect();
-  endpointProfile = await runtimeConfigRepository.save(profile);
-  setWeatherRefreshCooldown(0);
-  await configureAuthSession(endpointProfile);
-  platformSession = createPlatformAdapter({
-    endpointProfile,
-    siteCodeProvider: () => clientState.context.siteCode,
-    accessTokenProvider: tokenProvider,
-    onUnauthorized: () => authSession?.tryRefresh() ?? Promise.resolve(false)
-  });
-  platform = platformSession.adapter;
-  realtimeState = 'idle';
-  clientState = { ...clientState, endpointProfile, lanCandidates: [] };
-  bindPlatformEvents(platform);
-  store.setRuntimeContext({
-    accessRoute: endpointProfile.accessRoute,
-    endpointId: endpointProfile.id,
-    siteCode: clientState.context.siteCode,
-    stale: true,
-    lastSyncedAt: null
-  });
-  await completeOidcRedirect();
-  await synchronizePlatformEndpoint();
-  render();
-  return endpointProfile;
+  const normalizedProfile = normalizeEndpointProfile(profile);
+  const activation = ++endpointActivationRevision;
+  setClientState({ loading: { endpointPhase: 'saving' } });
+  try {
+    invalidateRuntimeContext();
+    for (const unsubscribe of platformUnsubscribers) unsubscribe();
+    platformUnsubscribers = [];
+    platform?.disconnect();
+    let savedProfile = normalizedProfile;
+    try {
+      savedProfile = await runtimeConfigRepository.save(normalizedProfile);
+    } catch {
+      if (activation === endpointActivationRevision) storageNotice('连接设置已在本次会话生效，但本机保存失败；重启后需要重新填写。', 'endpoint-preference');
+    }
+    if (activation !== endpointActivationRevision) return null;
+    endpointProfile = savedProfile;
+    store.setDevices(store.getState().devices.filter((device) => device.localOnly));
+    store.setActiveDevice(null);
+    store.setWeather(null);
+    store.setWeatherForecast(null);
+    setClientState({ sites: [], weatherSettings: null, pendingWeatherLocation: null });
+    setWeatherRefreshCooldown(0);
+    setClientState({ loading: { endpointPhase: 'restoring_auth' } });
+    await configureAuthSession(endpointProfile);
+    if (activation !== endpointActivationRevision) return null;
+    const endpointAuth = authSession;
+    const activatedProfile = endpointProfile;
+    platformSession = createPlatformAdapter({
+      endpointProfile,
+      siteCodeProvider: () => clientState.context.siteCode,
+      accessTokenProvider: () => endpointAuth?.getAccessToken() ?? activatedProfile.accessToken ?? null,
+      onUnauthorized: () => endpointAuth?.tryRefresh() ?? Promise.resolve(false)
+    });
+    platform = platformSession.adapter;
+    realtimeState = 'idle';
+    clientState = { ...clientState, endpointProfile, lanCandidates: [] };
+    bindPlatformEvents(platform);
+    store.setRuntimeContext({
+      accessRoute: endpointProfile.accessRoute,
+      endpointId: endpointProfile.id,
+      siteCode: clientState.context.siteCode,
+      stale: true,
+      lastSyncedAt: null
+    });
+    await completeOidcRedirect();
+    if (activation !== endpointActivationRevision) return null;
+    setClientState({ loading: { endpointPhase: 'synchronizing' } });
+    await synchronizePlatformEndpoint();
+    render();
+    return endpointProfile;
+  } finally {
+    if (activation === endpointActivationRevision) setClientState({ loading: { endpointPhase: null } });
+  }
 }
 
 async function loadSites() {
   if (!platform) return [];
+  const adapter = platform;
+  const task = runtimeTasks.begin('sites');
+  setResource('sites', beginResource(clientState.resources.sites, clientState.sites.length > 0));
   try {
-    const response = await platform.listSites();
+    const response = await adapter.listSites();
+    if (!runtimeTasks.current(task)) return [];
     const sites = Array.isArray(response) ? response.filter((site) => site?.siteCode) : [];
+    setClientState({ sites, resources: { sites: resolveResource({ hasData: sites.length > 0 }) } });
     if (sites.length > 0) {
-      setClientState({ sites });
       const selected = sites.find((site) => String(site.siteCode) === String(clientState.context.siteCode)) ?? sites[0];
       if (selected && String(selected.siteCode) !== String(clientState.context.siteCode)) {
         await applySiteContext(selected, { persist: false, reload: false });
+        if (platform === adapter && String(clientState.context.siteCode) === String(selected.siteCode)) setResource('sites', resolveResource({ hasData: true }));
       }
-      return sites;
     }
-  } catch {
-    // Older local backends do not expose the versioned site endpoint yet. Keep
-    // the current demo context usable and let the operator upgrade in place.
+    return sites;
+  } catch (error) {
+    if (!runtimeTasks.current(task)) return [];
+    // Keep an older list when available, but never label the demo context as a
+    // successfully fetched site. A successful empty response stays empty.
+    setResource('sites', rejectResource(clientState.resources.sites, describeError(error), clientState.sites.length > 0));
+    return clientState.sites;
   }
-  setClientState({ sites: clientState.sites.length ? clientState.sites : [siteFromContext(clientState.context)] });
-  return clientState.sites;
-}
-
-function siteFromContext(context) {
-  return {
-    id: null,
-    organizationCode: context.organizationCode,
-    organizationName: context.organizationName,
-    siteCode: context.siteCode,
-    siteName: context.siteName
-  };
 }
 
 async function switchSite({ siteCode } = {}) {
@@ -514,6 +647,8 @@ async function applySiteContext(site, { persist = true, reload = true } = {}) {
     spacePath: '/operations/field'
   };
   clientState = { ...clientState, context };
+  invalidateRuntimeContext({ preserveSites: true });
+  const contextTask = runtimeTasks.begin('siteContext');
   if (persist) {
     try {
       await Preferences.set({ key: SELECTED_SITE_KEY, value: JSON.stringify({
@@ -521,9 +656,11 @@ async function applySiteContext(site, { persist = true, reload = true } = {}) {
         siteCode: context.siteCode
       }) });
     } catch {
-      // Site selection remains active in memory if preference storage is unavailable.
+      if (runtimeTasks.current(contextTask)) storageNotice('站点已切换，但本机未能记住此次选择；重启后可能需要重新选择。', 'site-preference');
     }
   }
+  if (!runtimeTasks.current(contextTask)) return context;
+  store.setDevices(store.getState().devices.filter((device) => device.localOnly));
   store.setActiveDevice(null);
   store.setWeather(null);
   store.setWeatherForecast(null);
@@ -535,13 +672,14 @@ async function applySiteContext(site, { persist = true, reload = true } = {}) {
   setClientState({ context, weatherSettings: null, pendingWeatherLocation: null });
   platform?.setSiteCode?.(context.siteCode);
   platform?.disconnect();
+  if (platform) bindPlatformEvents(platform);
   if (!reload) return context;
   await Promise.all([
     refreshDevices({ refreshActiveActivity: false }),
     refreshWeather({ forceRead: true, includeSettings: true }),
     loadWeatherForecast({ forceRead: true })
   ]);
-  platform?.connect();
+  if (runtimeTasks.current(contextTask)) platform?.connect();
   return context;
 }
 
@@ -582,58 +720,107 @@ async function signIn() {
   if (!authSession?.isConfigured()) {
     throw new Error('当前端点尚未配置 OIDC。请在“互联网远程”连接设置中填写 Keycloak 地址、客户端 ID 和回调地址。');
   }
-  await authSession.beginLogin();
+  const manager = authSession;
+  setClientState({ auth: { ...clientState.auth, status: 'redirecting', error: null } });
+  try { await manager.beginLogin(); }
+  catch (error) {
+    if (manager === authSession) setClientState({ auth: { ...manager.getState(), error: `登录准备失败：${error.message}` } });
+    throw error;
+  }
 }
 
 async function signOut() {
+  const scope = platformCacheScope();
+  const manager = authSession;
+  invalidateRuntimeContext();
+  setClientState({ auth: { ...clientState.auth, authenticated: false, cachePartition: null, status: 'signing_out' } });
+  // Revocation starts immediately; cache cleanup must not delay local logout.
+  const logout = manager?.logout();
+  logout?.catch(() => {});
   platform?.disconnect();
   setWeatherRefreshCooldown(0);
-  try {
-    await cacheRepository.clearPlatformScope(platformCacheScope());
-  } catch {
-    // A sign-out must still succeed when no endpoint was configured or local
-    // browser storage has already been cleared.
-  }
   store.setDevices(store.getState().devices.filter((device) => device.localOnly));
   store.setActiveDevice(null);
   store.setWeather(null);
   store.setWeatherForecast(null);
   store.setRuntimeContext({ stale: true, lastSyncedAt: null });
   setClientState({ sites: [], weatherSettings: null, pendingWeatherLocation: null, error: null });
-  await authSession?.logout();
+  try {
+    await cacheRepository.clearPlatformScope(scope);
+  } catch {
+    // A sign-out must still succeed when no endpoint was configured or local
+    // browser storage has already been cleared.
+  }
+  try { await logout; }
+  catch (error) {
+    if (manager === authSession) setClientState({ auth: { ...manager.getState(), error: '本机登录状态已退出，外部退出或安全存储清理未完成，请核对后重新登录。' } });
+    throw error;
+  }
 }
 
 async function refreshDevices({ refreshActiveActivity = true } = {}) {
   const scope = platformCacheScope();
+  const adapter = platform;
+  const task = runtimeTasks.begin('devices');
+  setResource('devices', beginResource(clientState.resources.devices, store.getState().devices.length > 0));
+  let decorated;
   try {
-    if (!platform) throw new Error('Platform endpoint is unavailable');
-    const devices = await platform.listDevices();
-    const decorated = devices.map((device) => decorateLanDevice(device));
+    if (!adapter) throw new Error('Platform endpoint is unavailable');
+    const devices = await adapter.listDevices({ siteCode: scope.siteCode });
+    if (!runtimeTasks.current(task)) return [];
+    decorated = devices.map((device) => decorateLanDevice(device));
     const merged = mergePlatformAndLocalDevices(decorated, store.getState().devices);
     store.setDevices(merged);
-    await cacheRepository.replacePlatformDevices({ ...scope, devices: decorated });
     lastDeviceResyncAt = Date.now();
     store.setRuntimeContext({ stale: false, lastSyncedAt: Date.now() });
-    setClientState({ error: null });
-
-    const active = store.selectActiveDevice();
-    if (refreshActiveActivity && active && !active.localOnly) await loadActivity(active);
-    return merged;
+    setClientState({ error: null, resources: { devices: resolveResource({ hasData: merged.length > 0 }) } });
   } catch (error) {
-    const snapshot = await cacheRepository.getPlatformSnapshot(scope);
-    const merged = mergePlatformAndLocalDevices(snapshot.devices, store.getState().devices);
-    store.setDevices(merged);
-    store.setRuntimeContext({ stale: true, lastSyncedAt: snapshot.cachedAt });
-    setClientState({ error: snapshot.devices.length ? null : describeError(error) });
+    if (!runtimeTasks.current(task)) return [];
+    let snapshot;
+    try {
+      snapshot = await cacheRepository.getPlatformSnapshot(scope);
+    } catch {
+      if (runtimeTasks.current(task)) storageNotice('设备缓存读取失败，当前仅保留内存中可用内容。', 'device-cache');
+    }
+    if (!runtimeTasks.current(task)) return [];
+    const retained = snapshot?.devices?.length
+      ? mergePlatformAndLocalDevices(snapshot.devices, store.getState().devices)
+      : store.getState().devices;
+    const merged = retained;
+    store.setDevices(retained);
+    store.setRuntimeContext({ stale: true, lastSyncedAt: snapshot?.cachedAt ?? store.getState().runtime.lastSyncedAt });
+    const resource = rejectResource(clientState.resources.devices, describeError(error), merged.length > 0);
+    setClientState({ error: merged.length ? null : describeError(error), resources: { devices: { ...resource, source: merged.length ? 'cache' : null } } });
     return merged;
   }
+  // Persistence and ancillary reads do not invalidate an accepted network list.
+  try {
+    await cacheRepository.replacePlatformDevices({ ...scope, devices: decorated });
+  } catch {
+    if (runtimeTasks.current(task)) storageNotice('设备数据已更新，但本机缓存保存失败；离线时可能无法恢复此次数据。', 'device-cache');
+  }
+  if (!runtimeTasks.current(task)) return [];
+  const active = store.selectActiveDevice();
+  if (refreshActiveActivity && active && !active.localOnly) await loadActivity(active);
+  return store.getState().devices;
 }
 
 async function loadActivity(device) {
   if (!device || device.localOnly || device.id === null || device.id === undefined || !platform) return [];
-  const activity = await platform.listActivity(device.id);
-  activity.forEach((entry) => store.addActivity(device.id, entry));
-  return activity;
+  const adapter = platform;
+  const task = runtimeTasks.begin('activity');
+  const existing = store.getState().activitiesByDeviceId[device.id] ?? [];
+  setResource('activity', { ...beginResource(clientState.resources.activity, existing.length > 0), entityId: device.id });
+  try {
+    const activity = await adapter.listActivity(device.id);
+    if (!runtimeTasks.current(task)) return [];
+    activity.forEach((entry) => store.addActivity(device.id, entry));
+    setResource('activity', { ...resolveResource({ hasData: activity.length > 0 || existing.length > 0 }), entityId: device.id });
+    return activity;
+  } catch (error) {
+    if (runtimeTasks.current(task)) setResource('activity', { ...rejectResource(clientState.resources.activity, describeError(error), existing.length > 0), entityId: device.id });
+    return existing;
+  }
 }
 
 function cacheIsRecent(cachedAt, maxAgeMs) {
@@ -642,48 +829,76 @@ function cacheIsRecent(cachedAt, maxAgeMs) {
 }
 
 async function hydrateCachedWeather() {
-  const cached = await cacheRepository.getPlatformWeather(platformCacheScope());
+  const task = runtimeTasks.begin('hydrateWeather');
+  let cached;
+  try {
+    cached = await cacheRepository.getPlatformWeather(platformCacheScope());
+  } catch {
+    if (runtimeTasks.current(task)) storageNotice('天气缓存读取失败，将尝试从后台读取。', 'weather-cache');
+    return null;
+  }
+  if (!runtimeTasks.current(task)) return null;
   if (!cached?.weather) return null;
   const age = Date.now() - Number(cached.cachedAt ?? 0);
   const weather = age > WEATHER_READ_CACHE_MS
     ? { ...cached.weather, status: cached.weather.status === 'EXPIRED' ? 'EXPIRED' : 'STALE' }
     : cached.weather;
   store.setWeather(weather);
+  setResource('weather', resolveResource({ hasData: true, source: 'cache', updatedAt: cached.cachedAt }));
   lastWeatherReadAt = Number(cached.cachedAt) || 0;
   return weather;
 }
 
 async function refreshWeatherSettings() {
   if (!platform) return null;
+  const task = runtimeTasks.begin('weatherSettings');
   const weatherSettings = await platform.getSiteWeatherSettings(clientState.context.siteCode);
+  if (!runtimeTasks.current(task)) return null;
   setClientState({ weatherSettings });
   return weatherSettings;
 }
 
 async function refreshWeather({ forceRead = false, includeSettings = false } = {}) {
   const scope = platformCacheScope();
+  const adapter = platform;
   const existingWeather = store.getState().weather;
   if (!forceRead && cacheIsRecent(lastWeatherReadAt, WEATHER_READ_CACHE_MS)) {
-    if (includeSettings && !clientState.weatherSettings) await refreshWeatherSettings();
+    if (includeSettings && !clientState.weatherSettings) await refreshWeatherSettings().catch(() => null);
     return existingWeather;
   }
+  const task = runtimeTasks.begin('weather');
+  setResource('weather', beginResource(clientState.resources.weather, Boolean(existingWeather?.current)));
   try {
-    if (!platform) throw new Error('Platform endpoint is unavailable');
-    const weather = await platform.getSiteWeather(clientState.context.siteCode);
+    if (!adapter) throw new Error('Platform endpoint is unavailable');
+    const weather = await adapter.getSiteWeather(scope.siteCode);
+    if (!runtimeTasks.current(task)) return null;
     store.setWeather(weather);
-    await cacheRepository.putPlatformWeather(scope, weather);
     lastWeatherReadAt = Date.now();
-    if (includeSettings) await refreshWeatherSettings();
+    setResource('weather', weather?.status === 'UNAVAILABLE'
+      ? rejectResource(clientState.resources.weather, '后台暂无可用天气数据。', false)
+      : resolveResource({ hasData: Boolean(weather?.current), source: ['STALE', 'EXPIRED'].includes(weather?.status) ? 'cache' : 'network' }));
+    try {
+      await cacheRepository.putPlatformWeather(scope, weather);
+    } catch {
+      if (runtimeTasks.current(task)) storageNotice('天气已读取，但本机缓存保存失败。', 'weather-cache');
+    }
+    if (runtimeTasks.current(task) && includeSettings) await refreshWeatherSettings().catch(() => null);
     return weather;
   } catch (error) {
-    const cached = await cacheRepository.getPlatformWeather(scope);
+    if (!runtimeTasks.current(task)) return null;
+    const cached = await cacheRepository.getPlatformWeather(scope).catch(() => null);
+    if (!runtimeTasks.current(task)) return null;
     if (cached?.weather) {
       const weather = { ...cached.weather, status: cached.weather.status === 'EXPIRED' ? 'EXPIRED' : 'STALE' };
       store.setWeather(weather);
+      setResource('weather', { ...rejectResource(clientState.resources.weather, describeError(error), true), source: 'cache' });
       return weather;
     }
-    const unavailable = { siteCode: clientState.context.siteCode, status: 'UNAVAILABLE', current: null };
+    const unavailable = existingWeather?.current
+      ? { ...existingWeather, status: 'STALE' }
+      : { siteCode: scope.siteCode, status: 'UNAVAILABLE', current: null };
     store.setWeather(unavailable);
+    setResource('weather', rejectResource(clientState.resources.weather, describeError(error), Boolean(existingWeather?.current)));
     return unavailable;
   }
 }
@@ -700,13 +915,7 @@ function clientTimezone() {
 }
 
 function validPendingWeatherLocation(value) {
-  return value
-    && Number.isFinite(Number(value.latitude))
-    && Number(value.latitude) >= -90
-    && Number(value.latitude) <= 90
-    && Number.isFinite(Number(value.longitude))
-    && Number(value.longitude) >= -180
-    && Number(value.longitude) <= 180;
+  try { parseWeatherCoordinates(value); return true; } catch { return false; }
 }
 
 function weatherLocationRequest(location = {}) {
@@ -731,7 +940,7 @@ async function loadPendingWeatherLocation() {
 }
 
 async function setPendingWeatherLocation(location) {
-  const value = validPendingWeatherLocation(location) ? { ...location } : null;
+  const value = validPendingWeatherLocation(location) ? { ...location, scopeKey: JSON.stringify(platformCacheScope()) } : null;
   clientState = { ...clientState, pendingWeatherLocation: value };
   render();
   try {
@@ -743,45 +952,70 @@ async function setPendingWeatherLocation(location) {
   } catch {
     // The in-memory retry remains available if local preference storage is
     // temporarily unavailable. Do not discard a successfully acquired GPS fix.
+    storageNotice('当前位置暂仅保存在内存中，本机存储恢复前请勿关闭应用。', 'pending-weather-location');
   }
   return value;
 }
 
-async function applyWeatherLocation(location, { retainOnFailure = false } = {}) {
+async function applyWeatherLocation(location, { retainOnFailure = false, task = runtimeTasks.begin('weatherLocation') } = {}) {
   if (!platform) throw new Error('平台连接不可用，无法更新天气位置。');
+  if (!runtimeTasks.current(task)) return { status: 'superseded' };
   const siteCode = clientState.context.siteCode;
+  const scope = platformCacheScope();
+  const adapter = platform;
+  setLoading('weatherLocationPhase', 'saving');
   let weather;
   try {
-    weather = await platform.updateSiteWeatherLocation(siteCode, weatherLocationRequest(location));
+    weather = await adapter.updateSiteWeatherLocation(siteCode, weatherLocationRequest(location));
   } catch (error) {
+    if (!runtimeTasks.current(task)) return { status: 'superseded' };
     if (retainOnFailure) await setPendingWeatherLocation(location);
+    if (runtimeTasks.current(task)) setLoading('weatherLocationPhase', null);
     throw new Error(`位置已获取，但无法提交到后台：${describeError(error)}`, { cause: error });
   }
+  if (!runtimeTasks.current(task)) return { status: 'superseded' };
   if (retainOnFailure) await setPendingWeatherLocation(null);
+  if (!runtimeTasks.current(task)) return { status: 'superseded' };
   store.setWeather(weather);
-  await cacheRepository.putPlatformWeather(platformCacheScope(), weather);
+  setResource('weather', resolveResource({ hasData: Boolean(weather?.current) }));
   lastWeatherReadAt = Date.now();
+  let partial = false;
   try {
-    const weatherSettings = await platform.getSiteWeatherSettings(siteCode);
+    await cacheRepository.putPlatformWeather(scope, weather);
+  } catch {
+    partial = true;
+    if (runtimeTasks.current(task)) storageNotice('位置已保存到后台，但本机天气缓存保存失败；不需要重复提交位置。', 'weather-cache');
+  }
+  if (!runtimeTasks.current(task)) return { status: 'superseded' };
+  try {
+    const weatherSettings = await adapter.getSiteWeatherSettings(siteCode);
+    if (!runtimeTasks.current(task)) return { status: 'superseded' };
     setClientState({ weatherSettings, error: null });
   } catch {
-    // The weather response already proves the location was accepted. Do not
-    // turn a supplementary settings read into a false location failure.
-    setClientState({ error: null });
+    partial = true;
   }
+  if (!runtimeTasks.current(task)) return { status: 'superseded' };
   await loadWeatherForecast({ forceRead: true });
-  return weather;
+  if (!runtimeTasks.current(task)) return { status: 'superseded' };
+  partial ||= Boolean(clientState.resources.weatherForecast.error);
+  setLoading('weatherLocationPhase', null);
+  return { ...weather, presentation: { status: partial ? 'partial' : 'updated', message: partial ? '位置已保存；缓存或附加天气信息暂不可用，不需要重复提交。' : '天气位置已保存。' } };
 }
 
 async function updateWeatherFromDeviceLocation() {
+  const task = runtimeTasks.begin('weatherLocation');
+  setLoading('weatherLocationPhase', 'locating');
   let location;
   try {
     location = await getCurrentDeviceLocation();
   } catch (error) {
+    if (!runtimeTasks.current(task)) return { status: 'superseded' };
     const message = deviceLocationErrorMessage(error);
+    setLoading('weatherLocationPhase', null);
     setClientState({ error: message });
     throw new Error(message, { cause: error });
   }
+  if (!runtimeTasks.current(task)) return { status: 'superseded' };
   return applyWeatherLocation({
     latitude: location.latitude,
     longitude: location.longitude,
@@ -790,16 +1024,11 @@ async function updateWeatherFromDeviceLocation() {
     source: 'MOBILE_GPS',
     capturedAt: location.capturedAt,
     precision: location.precision
-  }, { retainOnFailure: true });
+  }, { retainOnFailure: true, task });
 }
 
 async function updateWeatherFromManualLocation({ latitude, longitude, timezone } = {}) {
-  const parsedLatitude = Number(latitude);
-  const parsedLongitude = Number(longitude);
-  if (!Number.isFinite(parsedLatitude) || parsedLatitude < -90 || parsedLatitude > 90
-    || !Number.isFinite(parsedLongitude) || parsedLongitude < -180 || parsedLongitude > 180) {
-    throw new Error('请填写有效的纬度（-90 至 90）和经度（-180 至 180）。');
-  }
+  const { latitude: parsedLatitude, longitude: parsedLongitude } = parseWeatherCoordinates({ latitude, longitude });
   return applyWeatherLocation({
     latitude: parsedLatitude,
     longitude: parsedLongitude,
@@ -817,28 +1046,52 @@ async function retryPendingWeatherLocation() {
   return applyWeatherLocation(pending, { retainOnFailure: true });
 }
 
-async function forceRefreshWeather() {
+function forceRefreshWeather() {
+  if (weatherRefreshPromise) return weatherRefreshPromise;
+  const pending = performWeatherRefresh().finally(() => {
+    if (weatherRefreshPromise === pending) weatherRefreshPromise = null;
+  });
+  weatherRefreshPromise = pending;
+  return pending;
+}
+
+async function performWeatherRefresh() {
   if (!platform) throw new Error('平台连接不可用，无法刷新天气。');
   const localCooldown = weatherRefreshCooldownSeconds();
   if (localCooldown > 0) {
-    throw new Error(`天气刚刚已刷新，请 ${localCooldown} 秒后再试。`);
+    return { status: 'cooldown', message: `刷新请求冷却中，请 ${localCooldown} 秒后再试；当前内容不保证最新。` };
   }
+  const task = runtimeTasks.begin('weather');
+  const scope = platformCacheScope();
+  const adapter = platform;
+  setResource('weather', beginResource(clientState.resources.weather, Boolean(store.getState().weather?.current)));
+  let weather;
   try {
-    const weather = await platform.refreshSiteWeather(clientState.context.siteCode);
-    store.setWeather(weather);
-    await cacheRepository.putPlatformWeather(platformCacheScope(), weather);
-    lastWeatherReadAt = Date.now();
-    setWeatherRefreshCooldown(60);
-    await Promise.all([refreshWeatherSettings(), loadWeatherForecast({ forceRead: true })]);
-    return weather;
+    weather = await adapter.refreshSiteWeather(scope.siteCode);
   } catch (error) {
+    if (!runtimeTasks.current(task)) return { status: 'superseded' };
+    setResource('weather', rejectResource(clientState.resources.weather, describeError(error), Boolean(store.getState().weather?.current)));
     if (error?.status === 429) {
       const retryAfterSeconds = Number(error.retryAfterSeconds) || 60;
       setWeatherRefreshCooldown(retryAfterSeconds);
-      throw new Error(`天气刚刚已刷新，请 ${retryAfterSeconds} 秒后再试。`, { cause: error });
+      return { status: 'cooldown', message: `后台限制刷新频率，请 ${retryAfterSeconds} 秒后再试；当前内容不保证最新。` };
     }
     throw new Error(`天气刷新失败：${describeError(error)}`, { cause: error });
   }
+  if (!runtimeTasks.current(task)) return { status: 'superseded' };
+  store.setWeather(weather);
+  lastWeatherReadAt = Date.now();
+  setWeatherRefreshCooldown(60);
+  setResource('weather', weather?.status === 'UNAVAILABLE'
+    ? rejectResource(clientState.resources.weather, '后台暂无可用天气数据。', false)
+    : resolveResource({ hasData: Boolean(weather?.current), source: ['STALE', 'EXPIRED'].includes(weather?.status) ? 'cache' : 'network' }));
+  const auxiliary = await Promise.allSettled([
+    cacheRepository.putPlatformWeather(scope, weather), refreshWeatherSettings(), loadWeatherForecast({ forceRead: true })
+  ]);
+  if (!runtimeTasks.current(task)) return { status: 'superseded' };
+  const partial = auxiliary.some((item) => item.status === 'rejected') || Boolean(clientState.resources.weatherForecast.error);
+  if (auxiliary[0].status === 'rejected') storageNotice('天气已刷新，但本机缓存保存失败。', 'weather-cache');
+  return { ...refreshPresentation([clientState.resources.weather]), ...(partial ? { status: 'partial', message: '当前天气已返回，缓存或附加天气读取失败；不需要重复刷新。' } : {}), weather };
 }
 
 async function loadWeatherForecast({ forceRead = false } = {}) {
@@ -847,43 +1100,57 @@ async function loadWeatherForecast({ forceRead = false } = {}) {
       && store.getState().weatherForecast) {
     return store.getState().weatherForecast;
   }
+  const task = runtimeTasks.begin('weatherForecast');
+  const adapter = platform;
+  const siteCode = clientState.context.siteCode;
+  const previous = store.getState().weatherForecast;
+  setResource('weatherForecast', beginResource(clientState.resources.weatherForecast, Boolean(previous)));
   setLoading('weatherForecast', true);
   try {
-    const forecast = await platform.getSiteWeatherForecast(clientState.context.siteCode, { hours: 24, days: 7 });
+    const forecast = await adapter.getSiteWeatherForecast(siteCode, { hours: 24, days: 7 });
+    if (!runtimeTasks.current(task)) return null;
     store.setWeatherForecast(forecast);
     lastForecastReadAt = Date.now();
+    const hasData = Boolean(forecast?.hourly?.length || forecast?.daily?.length);
+    setResource('weatherForecast', forecast?.status === 'UNAVAILABLE'
+      ? rejectResource(clientState.resources.weatherForecast, '后台暂无可用预报。', hasData)
+      : resolveResource({ hasData, source: ['STALE', 'EXPIRED'].includes(forecast?.status) ? 'cache' : 'network' }));
     return forecast;
-  } catch {
+  } catch (error) {
     // Keep the previously rendered forecast. Current weather and device
     // controls remain usable even when this supplementary request fails.
-    return store.getState().weatherForecast;
+    if (!runtimeTasks.current(task)) return null;
+    setResource('weatherForecast', rejectResource(clientState.resources.weatherForecast, describeError(error), Boolean(previous)));
+    return previous;
   } finally {
-    setLoading('weatherForecast', false);
+    if (runtimeTasks.current(task)) setLoading('weatherForecast', false);
   }
 }
 
 async function resyncAfterRealtimeConnect() {
   if (Date.now() - lastDeviceResyncAt < REALTIME_RESYNC_COOLDOWN_MS) return null;
   if (deviceResyncPromise) return deviceResyncPromise;
-  deviceResyncPromise = refreshDevices({ refreshActiveActivity: true }).finally(() => {
-    deviceResyncPromise = null;
+  const pending = refreshDevices({ refreshActiveActivity: true }).finally(() => {
+    if (deviceResyncPromise === pending) deviceResyncPromise = null;
   });
+  deviceResyncPromise = pending;
   return deviceResyncPromise;
 }
 
 async function pullRefresh({ screen } = {}) {
   const now = Date.now();
   if (now - lastPullRefreshAt < PULL_REFRESH_COOLDOWN_MS) {
-    ui.notify('刚刚已刷新，已保留当前数据。', 'default');
-    return screen === 'weather' ? store.getState().weather : store.getState().devices;
+    return { status: 'cooldown', message: '刷新请求冷却中，已保留当前内容；不代表数据最新。' };
   }
   lastPullRefreshAt = now;
   if (screen === 'weather') return forceRefreshWeather();
+  const task = runtimeTasks.begin('pullRefresh');
   const [devices, weather] = await Promise.all([
     refreshDevices({ refreshActiveActivity: false }),
     refreshWeather({ forceRead: true })
   ]);
-  return { devices, weather };
+  if (!runtimeTasks.current(task)) return { status: 'superseded' };
+  return { ...refreshPresentation([clientState.resources.devices, clientState.resources.weather]), devices, weather };
 }
 
 async function loadAppInstallId(preferences = Preferences) {
@@ -902,13 +1169,14 @@ async function restoreLocalBindings() {
       deviceId: binding.pluginDeviceId,
       name: binding.displayName,
       localOnly: true,
-      status: binding.lastConnectionState === 'CONNECTED' ? 'ONLINE' : 'OFFLINE',
+      // A cached connection is not a live GATT link after a process restart.
+      status: 'OFFLINE',
       reportedState: binding.lastReportedState ?? {},
       desiredState: binding.lastReportedState ?? {},
       pendingOrganizationContext: binding.pendingOrganizationContext ?? {},
       connections: [{
         transport: 'BLE_DIRECT',
-        status: binding.lastConnectionState ?? 'DISCONNECTED',
+        status: 'DISCONNECTED',
         profileId: binding.profileId ?? null
       }]
     };
@@ -965,9 +1233,16 @@ async function handleNativeOidcRedirect(url) {
 }
 
 async function bootstrapRuntime() {
-  appInstallId = await loadAppInstallId();
-  await restoreLocalBindings();
-  clientState = { ...clientState, pendingWeatherLocation: await loadPendingWeatherLocation() };
+  try {
+    appInstallId = await loadAppInstallId();
+    await restoreLocalBindings();
+  } catch {
+    // Storage is auxiliary to an online session; do not strand the whole app
+    // at a startup spinner when IndexedDB or preferences are unavailable.
+    appInstallId ??= globalThis.crypto?.randomUUID?.() ?? `temporary-${Date.now()}`;
+    storageNotice('本机存储暂不可用：蓝牙绑定或离线数据可能无法恢复；在线功能仍可使用。', 'startup-storage');
+  }
+  const pendingWeatherLocation = await loadPendingWeatherLocation();
   try {
     const savedSite = await Preferences.get({ key: SELECTED_SITE_KEY });
     if (savedSite.value) {
@@ -982,7 +1257,10 @@ async function bootstrapRuntime() {
   } catch {
     // The built-in demo context remains the safe fallback.
   }
-  const savedProfile = await runtimeConfigRepository.load();
+  const savedProfile = await runtimeConfigRepository.load().catch(() => {
+    storageNotice('本机连接设置读取失败，已使用默认连接；可在连接设置中重新配置。', 'startup-storage');
+    return null;
+  });
   const defaults = nativeRuntime
     ? DEFAULT_NATIVE_ENDPOINT
     : resolveClientConfig();
@@ -997,8 +1275,19 @@ async function bootstrapRuntime() {
     ...defaultOidcFields({ native: nativeRuntime })
   });
   await activateEndpoint(profile);
+  // Pending locations are only restored for their original endpoint/site.
+  if (pendingWeatherLocation?.scopeKey === JSON.stringify(platformCacheScope())) {
+    setClientState({ pendingWeatherLocation });
+  }
   if (nativeRuntime && !authUrlListener) {
     authUrlListener = await App.addListener('appUrlOpen', ({ url }) => handleNativeOidcRedirect(url));
+  }
+  if (nativeRuntime && !nativeBackListener) {
+    nativeBackListener = await App.addListener('backButton', () => {
+      // Root-page exit is not inferred from canGoBack. Retain the app at its
+      // root; keyboard/system surfaces keep platform-managed behavior.
+      ui.back();
+    });
   }
   if (nativeRuntime) {
     // An Android custom-scheme callback can cold-start the app before the
@@ -1010,13 +1299,22 @@ async function bootstrapRuntime() {
   lifecycleHandle = await attachAppLifecycle({
     onBackground: async () => {
       appBackgroundedAt = Date.now();
-      await stopBleScan();
+      try {
+        await stopBleScan();
+      } catch (error) {
+        setClientState({ ble: { errorCode: error?.code ?? 'SCAN_STOP_FAILED' } });
+      }
       platform?.disconnect();
       store.setRuntimeContext({ stale: true });
     },
     onForeground: async () => {
-      ble.availability();
-      await ble.verifyConnection?.();
+      try {
+        const availability = ble.availability();
+        setClientState({ ble: { availability: availability.available, reason: availability.reason ?? null } });
+        await ble.verifyConnection?.();
+      } catch (error) {
+        setClientState({ ble: { errorCode: error?.code ?? 'CONNECTION_CHECK_FAILED' } });
+      }
       const backgroundDuration = appBackgroundedAt == null ? 0 : Date.now() - appBackgroundedAt;
       appBackgroundedAt = null;
       if (backgroundDuration >= FOREGROUND_RESYNC_AFTER_MS) {
@@ -1024,7 +1322,7 @@ async function bootstrapRuntime() {
           refreshDevices({ refreshActiveActivity: true }),
           refreshWeather({ includeSettings: false })
         ]);
-      } else {
+      } else if (clientState.resources.devices.freshness === 'fresh' && !clientState.resources.devices.error) {
         // A short interruption (for example answering a call) should not make
         // the device list jump into a blocking stale state or trigger REST
         // traffic. The WebSocket will reconnect in the background.
@@ -1033,14 +1331,18 @@ async function bootstrapRuntime() {
       platform?.connect();
     }
   });
+  setClientState({ startup: { phase: 'ready', error: null } });
 }
 
 async function requestBle() {
+  if (clientState.loading.blePicker || clientState.loading.bleConnect) return null;
+  const revision = ++bleScanRevision;
   setClientState({ error: null, ble: { errorCode: null } });
   if (nativeRuntime) {
     setLoading('blePicker', true);
     try {
       await ble.clearCandidates?.();
+      if (revision !== bleScanRevision) return null;
       setClientState({
         ble: {
           candidates: [],
@@ -1051,11 +1353,12 @@ async function requestBle() {
         }
       });
       await ble.scan((candidate, candidates) => {
-        updateBleCandidates(candidates ?? ble.getCandidates?.() ?? [candidate], candidate);
+        if (revision !== bleScanRevision) return;
+        updateBleCandidates(candidates ?? ble.getCandidates?.() ?? [candidate]);
       });
       return null;
     } catch (error) {
-      setClientState({ ble: { errorCode: error.code ?? null, scanning: false } });
+      if (revision === bleScanRevision) setClientState({ ble: { errorCode: error.code ?? null, scanning: false } });
       throw error;
     } finally {
       setLoading('blePicker', false);
@@ -1066,7 +1369,7 @@ async function requestBle() {
   setLoading('blePicker', true);
   try {
     const candidate = await picker;
-    updateBleCandidates([candidate], candidate);
+    if (revision === bleScanRevision) updateBleCandidates([candidate], candidate);
     return candidate;
   } catch (error) {
     if (isBlePickerCancellation(error)) return null;
@@ -1078,7 +1381,7 @@ async function requestBle() {
 }
 
 function bleCandidateId(candidate = {}) {
-  const value = candidate.deviceId ?? candidate.id ?? candidate.externalId ?? candidate.address;
+  const value = candidate?.deviceId ?? candidate?.id ?? candidate?.externalId ?? candidate?.address;
   return value === null || value === undefined ? '' : String(value);
 }
 
@@ -1129,36 +1432,48 @@ function selectBleCandidate({ candidateId } = {}) {
 }
 
 async function stopBleScan() {
+  bleScanRevision += 1;
   try {
     await ble.stopScan?.();
-  } finally {
-    setClientState({ ble: { scanning: false } });
+    setClientState({ ble: { scanning: false, errorCode: null } });
+  } catch (error) {
+    setClientState({ ble: { scanning: true, errorCode: error.code ?? 'SCAN_STOP_FAILED' } });
+    throw error;
   }
 }
 
 async function connectBle() {
+  if (clientState.loading.bleConnect || clientState.loading.bleDisconnect || clientState.loading.bleForget) return null;
   if (!clientState.ble.candidate) throw new Error('请先选择蓝牙设备。');
+  const candidate = clientState.ble.candidate;
+  const sourceContext = { ...clientState.context };
+  const intent = { candidate, context: sourceContext };
+  bleConnectionIntent = intent;
   setLoading('bleConnect', true);
   try {
-    await stopBleScan().catch(() => {});
-    const connection = await ble.connect(clientState.ble.candidate);
+    await stopBleScan();
+    const connection = await ble.connect(candidate);
     const normalized = {
       ...connection,
-      deviceId: connection.deviceId ?? connection.id ?? clientState.ble.candidate.deviceId ?? clientState.ble.candidate.id,
+      deviceId: connection.deviceId ?? connection.id ?? candidate.deviceId ?? candidate.id,
       capabilities: ble.getCapabilities()
     };
-    const device = createLocalBleDevice(clientState.ble.candidate, normalized, clientState.context);
+    const device = createLocalBleDevice(candidate, normalized, sourceContext);
     store.upsertDevice(device);
     store.setActiveConnection(normalized);
-    store.setActiveDevice(device.id);
     setClientState({ ble: { connection: normalized, errorCode: null, scanning: false }, error: null });
-    await persistBleBinding(device, normalized);
-    ui.notify('蓝牙设备已连接。', 'success');
-    return normalized;
+    let presentation = { status: 'updated', message: '蓝牙设备已连接。' };
+    try { await persistBleBinding(device, normalized); }
+    catch {
+      storageNotice('蓝牙设备已连接，但本机绑定保存失败；重启后可能需要重新选择。', 'ble-binding');
+      presentation = { status: 'partial', message: '连接已建立，本机绑定尚未保存。' };
+    }
+    return { ...normalized, presentation };
   } catch (error) {
     setClientState({ ble: { errorCode: error.code ?? null } });
     throw error;
   } finally {
+    if (bleConnectionIntent === intent) bleConnectionIntent = null;
     setLoading('bleConnect', false);
   }
 }
@@ -1185,7 +1500,7 @@ async function disconnectBle({ deviceId } = {}) {
           : item
       ));
       const updated = store.patchDevice(activeDeviceId, { status: 'OFFLINE', connections });
-      if (updated) await persistBleBinding(updated, disconnected);
+      if (updated) await persistBleBinding(updated, disconnected).catch(() => storageNotice('蓝牙已断开，但本机绑定状态保存失败。', 'ble-binding'));
     }
     setClientState({ ble: { connection: disconnected, scanning: false }, error: null });
     return disconnected;
@@ -1231,24 +1546,41 @@ async function forgetBle({ deviceId } = {}) {
 
 async function discoverLan({ siteCode } = {}) {
   const scopedSiteCode = siteCode || clientState.context.siteCode;
+  const task = runtimeTasks.begin('lanDiscovery');
+  const adapter = platform;
+  setResource('lanDiscovery', beginResource(clientState.resources.lanDiscovery, clientState.lanCandidates.length > 0));
   setLoading('lanDiscovery', true);
   setClientState({ error: null });
   try {
-    const candidates = await platform.discoverLan({ siteCode: scopedSiteCode });
-    setClientState({ lanCandidates: candidates });
+    const candidates = await adapter.discoverLan({ siteCode: scopedSiteCode });
+    if (!runtimeTasks.current(task)) return [];
+    setClientState({ lanCandidates: candidates, resources: { lanDiscovery: resolveResource({ hasData: candidates.length > 0 }) } });
     return candidates;
+  } catch (error) {
+    if (!runtimeTasks.current(task)) return [];
+    setResource('lanDiscovery', rejectResource(clientState.resources.lanDiscovery, describeError(error), clientState.lanCandidates.length > 0));
+    throw error;
   } finally {
-    setLoading('lanDiscovery', false);
+    if (runtimeTasks.current(task)) setLoading('lanDiscovery', false);
   }
 }
 
 async function claimLan({ candidateId, displayName, siteCode, spacePath }) {
   const candidate = clientState.lanCandidates.find((item) => String(item.candidateId) === String(candidateId));
   if (!candidate) throw new Error('该候选设备已不存在，请重新发现。');
+  const task = runtimeTasks.begin('lanClaim');
+  const adapter = platform;
   setLoading('lanClaim', true);
   try {
-    const device = await platform.claimLan(candidate, { displayName, siteCode, spacePath });
+    const device = await adapter.claimLan(candidate, { displayName, siteCode, spacePath });
     const decorated = decorateLanDevice(device);
+    if (!runtimeTasks.current(task)) return { ...decorated, status: 'superseded' };
+    if (siteCode && String(siteCode) !== String(clientState.context.siteCode)) {
+      setClientState({ lanCandidates: clientState.lanCandidates.filter((item) => item.candidateId !== candidate.candidateId) });
+      const message = '设备已认领到指定站点，请切换到该站点查看。';
+      ui.notify(message, 'success');
+      return { ...decorated, presentation: { status: 'updated', message } };
+    }
     store.upsertDevice(decorated);
     store.setActiveDevice(decorated.id);
     setClientState({
@@ -1256,10 +1588,13 @@ async function claimLan({ candidateId, displayName, siteCode, spacePath }) {
       error: null
     });
     await loadActivity(decorated);
-    ui.notify('局域网设备已认领。', 'success');
-    return decorated;
+    if (!runtimeTasks.current(task)) return { ...decorated, status: 'superseded' };
+    const partial = Boolean(clientState.resources.activity.error);
+    const message = partial ? '设备已认领，活动记录暂不可用；不需要重复认领。' : '局域网设备已认领。';
+    ui.notify(message, partial ? 'default' : 'success');
+    return { ...decorated, presentation: { status: partial ? 'partial' : 'updated', message } };
   } finally {
-    setLoading('lanClaim', false);
+    if (runtimeTasks.current(task)) setLoading('lanClaim', false);
   }
 }
 
@@ -1280,10 +1615,10 @@ async function openDevice({ deviceId }) {
 async function sendCommand({ deviceId, type, parameters, desiredState }) {
   const device = store.selectDevice(deviceId);
   if (!device) throw new Error('未找到待控制设备。');
-  const routedPlatform = platform;
-  const command = await dispatchCommand({ device, type, parameters, desiredState });
+  const context = createScopedCommandDispatch(device);
+  const command = await context.dispatch({ device, type, parameters, desiredState });
   if (command.accessRoute !== 'BLE_LOCAL' && !isTerminalCommandStatus(command.status)) {
-    void pollCommand(command.commandId, routedPlatform);
+    void pollCommand(command.commandId, context.adapter, 24, 500, context);
   }
   return command;
 }
@@ -1299,18 +1634,27 @@ async function retryCommand({ commandId, deviceId }) {
   });
 }
 
-async function pollCommand(commandId, adapter, attempts = 24, delayMs = 500) {
+async function pollCommand(commandId, adapter, attempts = 24, delayMs = 500, context = null) {
   if (!adapter) return null;
+  const task = runtimeTasks.begin(`command:${commandId}`);
+  const ownsPresentation = () => runtimeTasks.current(task) && (!context || context.revision === sessionRevision);
+  if (ownsPresentation()) setClientState({ commandObservation: { [commandId]: { phase: 'waiting', message: null } } });
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     await wait(delayMs);
     try {
       const command = await adapter.getCommand(commandId);
-      store.upsertCommand(command);
-      if (isTerminalCommandStatus(command.status)) return command;
+      if (context) context.record(command);
+      else if (ownsPresentation()) store.upsertCommand(command);
+      if (isTerminalCommandStatus(command.status)) {
+        if (ownsPresentation()) setClientState({ commandObservation: { [commandId]: { phase: 'complete', message: null } } });
+        return command;
+      }
     } catch {
+      if (ownsPresentation()) setClientState({ commandObservation: { [commandId]: { phase: 'error', message: '回执暂不可读取，已停止本次查询；结果未知，不会自动重发命令。' } } });
       return null;
     }
   }
+  if (ownsPresentation()) setClientState({ commandObservation: { [commandId]: { phase: 'exhausted', message: '本次回执查询已结束，结果仍待核实；不会自动重发命令。' } } });
   return null;
 }
 
@@ -1345,10 +1689,13 @@ window.addEventListener('beforeunload', () => {
   for (const unsubscribe of platformUnsubscribers) unsubscribe();
   unsubscribeBle();
   void lifecycleHandle?.remove?.();
+  void authUrlListener?.remove?.();
+  void nativeBackListener?.remove?.();
+  authSession?.stopAutoRefresh();
   platform?.disconnect();
   void ble.disconnect?.();
 });
 
 void bootstrapRuntime().catch((error) => {
-  setClientState({ error: describeError(error) });
+  setClientState({ startup: { phase: 'error', error: describeError(error) }, error: describeError(error) });
 });

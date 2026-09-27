@@ -108,14 +108,27 @@ test('OIDC callback exchanges PKCE code, rotates session storage, and refreshes 
     const state = new URL(authUrl).searchParams.get('state');
     await manager.completeRedirect(`com.iot.manager.client://oauth/callback?code=code-1&state=${encodeURIComponent(state)}`);
     assert.equal(manager.getAccessToken(), 'access-initial');
+    const partition = manager.session.cachePartition;
+    assert.equal(typeof partition, 'string');
     assert.match(requests[1].init.body, /grant_type=authorization_code/);
     assert.match(requests[1].init.body, /code_verifier=/);
     await manager.refresh();
     assert.equal(manager.getAccessToken(), 'access-rotated');
+    assert.equal(manager.session.cachePartition, partition);
+    assert.equal(manager.session.issuerUrl, manager.config.issuerUrl);
     assert.equal((await store.getJson(OIDC_STORAGE_KEYS.SESSION_KEY)).refreshToken, 'refresh-rotated');
   } finally {
     manager.stopAutoRefresh();
   }
+});
+
+test('restoring another issuer or an unbound legacy session requires fresh authentication', async () => {
+  const { manager, store } = oidcManager({ fetchImpl: async () => { throw new Error('must not use the wrong refresh token'); } });
+  await store.setJson(OIDC_STORAGE_KEYS.SESSION_KEY, { accessToken: 'old', refreshToken: 'old-refresh', expiresAt: Date.now() + 3600000, issuerUrl: 'https://other.invalid', clientId: manager.config.clientId });
+  await manager.restore();
+  assert.equal(manager.getAccessToken(), null);
+  assert.equal(await store.getJson(OIDC_STORAGE_KEYS.SESSION_KEY), null);
+  manager.stopAutoRefresh();
 });
 
 test('OIDC callback rejects a state mismatch without leaving a usable session', async () => {
@@ -134,4 +147,33 @@ test('OIDC callback rejects a state mismatch without leaving a usable session', 
   } finally {
     manager.stopAutoRefresh();
   }
+});
+
+test('local logout revokes access before a slow identity-provider discovery finishes', async () => {
+  let finishDiscovery;
+  const { manager, store } = oidcManager({ fetchImpl: () => new Promise(resolve => { finishDiscovery = resolve; }) });
+  await manager.saveSession({ access_token: 'active', expires_in: 300 });
+  const pending = manager.logout({ navigate: false });
+  assert.equal(manager.getAccessToken(), null);
+  while (!finishDiscovery) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(await store.getJson(OIDC_STORAGE_KEYS.SESSION_KEY), null);
+  finishDiscovery(new Response(JSON.stringify(discoveryResponse()), { status: 200 }));
+  await pending;
+  manager.stopAutoRefresh();
+});
+
+test('a refresh response arriving after logout cannot recreate the old session', async () => {
+  let finishToken;
+  const { manager, store } = oidcManager({ fetchImpl: () => new Promise(resolve => { finishToken = resolve; }) });
+  manager.discovery = discoveryResponse();
+  await manager.saveSession({ access_token: 'old', refresh_token: 'refresh', expires_in: 300 });
+  try {
+    const pending = manager.refresh();
+    while (!finishToken) await new Promise(resolve => setImmediate(resolve));
+    await manager.logout({ navigate: false });
+    finishToken(new Response(JSON.stringify({ access_token: 'late', expires_in: 300 }), { status: 200 }));
+    assert.equal(await pending, null);
+    assert.equal(manager.getAccessToken(), null);
+    assert.equal(await store.getJson(OIDC_STORAGE_KEYS.SESSION_KEY), null);
+  } finally { manager.stopAutoRefresh(); }
 });

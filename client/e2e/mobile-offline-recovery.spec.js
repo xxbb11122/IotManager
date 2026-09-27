@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 async function pullToRefresh(page, pointerId) {
   const app = page.locator('#app');
   await page.evaluate(() => window.scrollTo(0, 0));
-  await app.dispatchEvent('pointerdown', { pointerId, pointerType: 'touch', clientY: 8 });
+  await app.dispatchEvent('pointerdown', { pointerId, pointerType: 'touch', isPrimary: true, clientY: 8 });
   await app.dispatchEvent('pointermove', { pointerId, pointerType: 'touch', clientY: 180 });
   await expect(page.locator('.pull-refresh')).toContainText('松开即可刷新');
   await app.dispatchEvent('pointerup', { pointerId, pointerType: 'touch', clientY: 180 });

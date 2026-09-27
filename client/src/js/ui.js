@@ -45,6 +45,12 @@ import {
   resolveDeviceCapabilities
 } from './device-capabilities.js';
 import { browserWeatherTimezone } from './platform/weather-timezone.js';
+import { commandMotionKind, navigationMotionKind } from './motion.js';
+import { createTaskRegistry } from './task-state.js';
+import { createNavigationState, navigationRouteKey } from './navigation-state.js';
+import { createMotionPolicy } from './motion-policy.js';
+import { createPullRefreshState } from './pull-refresh.js';
+import { reconcileElement } from './dom-reconcile.js';
 
 const icons = {
   Activity,
@@ -109,6 +115,10 @@ export function deviceScreenState(device = {}, runtime = {}) {
   const transport = normalizeTransport(connection.transport ?? device.transport);
   const profileId = capabilities.profileId ?? connection.profileId ?? connection.profile ?? device.profileId ?? null;
   const unknownBleProfile = transport === 'BLE_DIRECT' && (capabilities.known === false || !profileId);
+
+  if (transport === 'BLE_DIRECT' && ['DISCONNECTED', 'DISCONNECTING', 'FAILED', 'ERROR'].includes(String(connection.status).toUpperCase())) {
+    return { showControls: false, controls: controlCapabilities, capabilities, unknownBleProfile, notice: '蓝牙连接已断开，请重新连接并确认设备状态后再控制。' };
+  }
 
   if (runtime.stale === true && runtime.accessRoute !== 'BLE_LOCAL') {
     return {
@@ -206,6 +216,36 @@ class ClientUi {
     this.root = root;
     this.handlers = { ...handlers };
     this.model = normalizeViewModel({});
+    this.renderedScreen = null;
+    this.navigationHint = null;
+    this.screenScrollPositions = new Map();
+    this.pendingFocusIntent = null;
+    this.rangeInteraction = null;
+    this.deferredControlPatch = false;
+    this.commandPresentation = new Map();
+    this.activityPresentation = new Map();
+    this.lastBleCandidateId = null;
+    this.lastWeatherStamp = null;
+    this.weatherRevealStamp = null;
+    this.revealClaimForm = false;
+    this.revealEndpointTest = false;
+    this.fieldErrors = {};
+    this.claimDrafts = new Map();
+    this.toastTimer = null;
+    this.toastExitTimer = null;
+    this.lastToast = null;
+    this.exitTimers = new Map();
+    this.tasks = createTaskRegistry();
+    this.busyOwners = new Map();
+    this.pullGesture = createPullRefreshState();
+    this.viewRevision = 0;
+    this.destroyed = false;
+    this.navigation = createNavigationState({ screen: 'devices', scopeKey: this.contextKey() });
+    this.historyOwner = `iot-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    this.historyIndex = 0;
+    this.renderedRouteKey = null;
+    this.navigationRestore = null;
+    this.motionPolicy = createMotionPolicy();
     this.local = {
       screen: 'devices',
       selectedCandidateId: null,
@@ -243,14 +283,129 @@ class ClientUi {
     this.onPointerDown = this.onPointerDown.bind(this);
     this.onPointerMove = this.onPointerMove.bind(this);
     this.onPointerUp = this.onPointerUp.bind(this);
+    this.onAnimationEnd = this.onAnimationEnd.bind(this);
+    this.onVisibilityChange = this.onVisibilityChange.bind(this);
+    this.onPopState = this.onPopState.bind(this);
+    this.onFocusIn = () => { this.pendingFocusIntent = null; };
+    this.onScroll = () => {
+      if (window.scrollY > 0 && this.pullGesture.snapshot().pointerId != null) this.resetPullRefresh();
+      const main = this.root.querySelector('[data-region="screen"]');
+      if (main) main.dataset.pullEligible = String(this.supportsPullRefresh() && window.scrollY <= 0);
+    };
     this.root.addEventListener('click', this.onClick);
     this.root.addEventListener('input', this.onInput);
     this.root.addEventListener('change', this.onChange);
     this.root.addEventListener('pointerdown', this.onPointerDown, { passive: true });
     this.root.addEventListener('pointermove', this.onPointerMove, { passive: false });
-    this.root.addEventListener('pointerup', this.onPointerUp);
-    this.root.addEventListener('pointercancel', this.onPointerUp);
+    document.addEventListener('pointerup', this.onPointerUp);
+    document.addEventListener('pointercancel', this.onPointerUp);
+    this.root.addEventListener('animationend', this.onAnimationEnd);
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
+    document.addEventListener('focusin', this.onFocusIn);
+    window.addEventListener('popstate', this.onPopState);
+    window.addEventListener('scroll', this.onScroll, { passive: true });
+    this.motionPolicy.subscribe((policy) => this.applyMotionPolicy(policy));
     this.render(this.model);
+    this.writeHistory(false);
+  }
+
+  contextKey() {
+    return JSON.stringify([
+      this.model.context.organizationCode, this.model.context.siteCode,
+      this.model.endpointProfile.id, this.model.endpointProfile.apiBaseUrl,
+      this.model.runtime.sessionRevision ?? 0, this.model.auth.authenticated === true
+    ]);
+  }
+
+  viewKey() {
+    return `${navigationRouteKey(this.navigation.current)}:${this.viewRevision}`;
+  }
+
+  saveNavigationPosition() {
+    const focus = this.captureRenderState();
+    this.navigation.savePosition({ scrollY: focus.scrollY, focus });
+  }
+
+  writeHistory(push) {
+    if (this.destroyed) return;
+    const state = { ...window.history.state, __iotMotion: {
+      owner: this.historyOwner, index: this.historyIndex, navigation: this.navigation.snapshot()
+    } };
+    // Do not put form values, tokens or new routing parameters into the URL.
+    window.history[push ? 'pushState' : 'replaceState'](state, '');
+  }
+
+  navigate(screen, { kind = 'push', entityId = null } = {}) {
+    this.saveNavigationPosition();
+    this.writeHistory(false);
+    const result = this.navigation.navigate({ screen, entityId, scopeKey: this.contextKey() }, { kind });
+    if (!result.changed) return false;
+    this.applyNavigation(result);
+    if (result.kind !== 'context-replace') this.historyIndex += 1;
+    else this.historyIndex = 0;
+    this.writeHistory(result.kind !== 'context-replace');
+    return true;
+  }
+
+  applyNavigation(result) {
+    for (const [timer, node] of this.exitTimers) { window.clearTimeout(timer); node.remove(); }
+    this.exitTimers.clear();
+    this.viewRevision += 1;
+    this.local.screen = result.route.screen;
+    if (result.route.screen === 'detail') this.model = { ...this.model, activeDeviceId: result.route.entityId };
+    this.pendingFocusIntent = null;
+    this.navigationRestore = result.position;
+    this.navigationHint = ({ push: 'forward', replace: 'context', 'context-replace': 'context' })[result.kind] ?? result.kind;
+    this.resetPullRefresh();
+    this.local.transientError = null;
+  }
+
+  back(fallback = null) {
+    const entry = window.history.state?.__iotMotion;
+    if (entry?.owner === this.historyOwner && this.historyIndex > 0 && entry.navigation.current.scopeKey === this.contextKey()) {
+      this.saveNavigationPosition();
+      this.writeHistory(false);
+      window.history.back();
+      return true;
+    }
+    this.saveNavigationPosition();
+    const result = this.navigation.back(fallback ? { screen: fallback, scopeKey: this.contextKey() } : null);
+    if (!result.changed) return false;
+    this.applyNavigation(result);
+    this.writeHistory(false);
+    this.render(this.model);
+    return true;
+  }
+
+  onPopState(event) {
+    const entry = event.state?.__iotMotion;
+    if (entry?.owner !== this.historyOwner) return;
+    this.saveNavigationPosition();
+    const result = this.navigation.restore(entry.navigation);
+    if (!result) { this.historyIndex = 0; this.writeHistory(false); return; }
+    this.historyIndex = entry.index;
+    this.applyNavigation(result);
+    if (result.route.screen === 'detail') this.invoke('openDevice', { deviceId: result.route.entityId }, { render: false });
+    this.render(this.model);
+  }
+
+  setMotionDegraded(value) { this.motionPolicy.setDegraded(value); }
+
+  applyMotionPolicy(policy = this.motionPolicy.snapshot()) {
+    const wasAnimated = this.lastMotionAnimated;
+    const wasHidden = this.lastMotionHidden;
+    this.lastMotionAnimated = policy.animate;
+    this.lastMotionHidden = policy.hidden;
+    this.root.dataset.motion = policy.animate ? 'full' : 'reduced';
+    if (!policy.animate) {
+      for (const animation of this.root.getAnimations?.({ subtree: true }) ?? []) animation.cancel();
+      this.root.querySelector('[data-region="screen"]')?.classList.remove('screen-region--motion-peer', 'screen-region--motion-forward', 'screen-region--motion-back', 'screen-region--motion-context');
+      this.weatherRevealStamp = null;
+      this.root.querySelectorAll('.motion-exit').forEach(node => node.remove());
+      // A preference/visibility change cancels an unfinished gesture. An
+      // ordinary data patch in reduced mode must not disable pulling itself.
+      if (wasAnimated !== policy.animate || wasHidden !== policy.hidden) this.resetPullRefresh();
+    }
   }
 
   bindEvents(handlers = {}) {
@@ -262,11 +417,136 @@ class ClientUi {
   }
 
   renderFull(viewModel = {}) {
+    if (this.destroyed) return;
     this.model = normalizeViewModel(viewModel);
+    this.syncContext();
     this.reconcileLocalState();
+    const previousScreen = this.renderedScreen;
+    const nextScreen = this.local.screen;
+    const motionContext = JSON.stringify([this.model.context.organizationCode, this.model.context.siteCode,
+      this.model.endpointProfile.id, this.model.endpointProfile.apiBaseUrl,
+      this.model.auth.authenticated === true, this.model.auth.cachePartition]);
+    const previousMotionContext = this.renderedMotionContext;
     const restoreState = this.captureRenderState();
-    this.root.replaceChildren(this.buildShell());
-    this.restoreRenderState(restoreState);
+    const routeKey = navigationRouteKey({ screen: nextScreen, entityId: nextScreen === 'detail' ? this.model.activeDeviceId : null, scopeKey: this.contextKey() });
+    const routeChanged = this.renderedRouteKey !== routeKey;
+    if (routeKey !== navigationRouteKey(this.navigation.current)) {
+      const result = this.navigation.navigate({ screen: nextScreen, entityId: nextScreen === 'detail' ? this.model.activeDeviceId : null, scopeKey: this.contextKey() }, { kind: 'replace' });
+      this.navigationHint ??= result.kind === 'replace' ? 'context' : null;
+    }
+    if (previousScreen && previousScreen !== nextScreen) {
+      this.pendingFocusIntent = null;
+    } else if (restoreState.focusId
+      || (restoreState.focusAction && restoreState.focusScope)
+      || (restoreState.focusField && restoreState.focusFieldScope)) {
+      this.pendingFocusIntent = {
+        ...restoreState,
+        busyAction: restoreState.focusAction && this.local.busyActions.has(restoreState.focusAction)
+          ? restoreState.focusAction
+          : null
+      };
+    }
+    let focusState = restoreState.focusId
+      || (restoreState.focusAction && restoreState.focusScope)
+      || (restoreState.focusField && restoreState.focusFieldScope)
+      ? restoreState
+      : this.pendingFocusIntent ?? restoreState;
+    if (previousScreen && previousScreen !== nextScreen) {
+      this.screenScrollPositions.set(previousScreen, restoreState.scrollY);
+      restoreState.scrollY = this.screenScrollPositions.get(nextScreen) ?? 0;
+    }
+    if (routeChanged) {
+      this.pendingFocusIntent = null;
+      const saved = this.navigationRestore;
+      focusState = { ...(saved?.focus ?? {}), scrollY: saved?.scrollY ?? 0 };
+      this.navigationRestore = null;
+    }
+    const shell = this.root.querySelector(':scope > .app-shell');
+    if (!shell) {
+      this.root.replaceChildren(this.buildShell());
+    } else {
+      const header = shell.querySelector('[data-region="header"]');
+      if (header) reconcileElement(header, this.buildHeader());
+      const main = shell.querySelector('[data-region="screen"]');
+      main?.querySelector('.pull-refresh')?.replaceWith(this.buildPullRefreshIndicator());
+      const content = main?.querySelector('[data-region="screen-content"]');
+      if (content && !routeChanged) reconcileElement(content, this.buildCurrentScreen());
+      else content?.replaceWith(this.buildCurrentScreen());
+    }
+    this.renderedScreen = nextScreen;
+    this.renderedRouteKey = routeKey;
+    this.renderedMotionContext = motionContext;
+    this.onScroll();
+    this.applyMotionPolicy();
+    this.syncNavigationSelection();
+    if (previousScreen && previousScreen !== nextScreen) {
+      const announcement = this.root.querySelector('[data-region="navigation-announcement"]');
+      if (announcement) announcement.textContent = screenAnnouncement(nextScreen);
+    }
+    const focusRestored = this.restoreRenderState(focusState);
+    if (routeChanged && previousScreen && !focusRestored && document.activeElement === document.body) {
+      const heading = this.root.querySelector('[data-region="screen-content"] h2');
+      heading?.setAttribute('tabindex', '-1');
+      heading?.focus({ preventScroll: true });
+    }
+    if (this.pendingFocusIntent) {
+      const busyAction = this.pendingFocusIntent.busyAction;
+      const commandStillPending = this.pendingFocusIntent.waitForCommand
+        && this.isCommandPending(this.pendingFocusIntent.deviceId);
+      if (focusRestored || (this.pendingFocusIntent.waitForCommand
+        ? !commandStillPending
+        : !busyAction || !this.local.busyActions.has(busyAction))) {
+        this.pendingFocusIntent = null;
+      }
+    }
+    // Invalidating tasks clears old authority immediately. A private revision
+    // change alone is not a second user-visible context transition.
+    if (routeChanged && !(this.navigationHint === 'context' && previousScreen === nextScreen
+      && previousMotionContext === motionContext)) this.playNavigationMotion(previousScreen, nextScreen, this.navigationHint);
+    this.navigationHint = null;
+  }
+
+  playNavigationMotion(from, to, hint = null) {
+    const main = this.root.querySelector('[data-region="screen"]');
+    if (!main) return;
+    main.classList.remove('screen-region--motion-peer', 'screen-region--motion-forward', 'screen-region--motion-back', 'screen-region--motion-context');
+    if (!this.motionPolicy.snapshot().animate) return;
+    // Restoring the startup endpoint/site is hydration, not user navigation.
+    if (hint === 'context' && this.model.startup.phase === 'loading') return;
+    const kind = navigationMotionKind(from, to, hint);
+    if (!kind) return;
+    // Restart only for another real navigation; a same-screen redraw keeps the main node intact.
+    void main.offsetWidth;
+    main.classList.add(`screen-region--motion-${kind}`);
+  }
+
+  onAnimationEnd(event) {
+    if (event.target === this.root.querySelector('[data-region="screen"]')) {
+      event.target.classList.remove('screen-region--motion-peer', 'screen-region--motion-forward', 'screen-region--motion-back', 'screen-region--motion-context');
+      return;
+    }
+    if (event.target.matches?.('[data-region="weather-data"]')) {
+      event.target.classList.remove('motion-reveal');
+      this.weatherRevealStamp = null;
+    }
+  }
+
+  onVisibilityChange() {
+    const shell = this.root.querySelector('.app-shell');
+    shell?.classList.toggle('app-shell--hidden', document.hidden);
+    if (document.hidden) {
+      this.resetPullRefresh();
+      this.root.querySelector('[data-region="screen"]')?.classList.remove(
+        'screen-region--motion-peer', 'screen-region--motion-forward', 'screen-region--motion-back'
+      );
+    }
+  }
+
+  syncNavigationSelection() {
+    for (const button of this.root.querySelectorAll('[data-action="navigate"][data-screen]')) {
+      const activeClass = button.classList.contains('nav-button') ? 'nav-button--active' : 'desktop-nav-button--active';
+      button.classList.toggle(activeClass, button.dataset.screen === this.local.screen);
+    }
   }
 
   captureRenderState() {
@@ -275,38 +555,111 @@ class ClientUi {
     const supportsSelection = focusable
       && typeof focusable.selectionStart === 'number'
       && typeof focusable.selectionEnd === 'number';
+    const action = focusable?.closest('[data-action]');
+    const focusScope = action?.closest('.header-actions')
+      ? 'header'
+      : action?.closest('[data-region="screen-content"]') ? 'screen' : null;
     return {
       scrollY: window.scrollY,
+      scrollOffsets: [...this.root.querySelectorAll('[data-scroll-key]')].map(node => [node.dataset.scrollKey, node.scrollLeft, node.scrollTop]),
+      readingAnchor: window.scrollY > 0 ? [...this.root.querySelectorAll('[data-activity-key], [data-device-ref]')]
+        .filter(node => node.getBoundingClientRect().top >= 0)
+        .map(node => ({ key: node.dataset.activityKey ?? node.dataset.deviceRef, attribute: node.hasAttribute('data-activity-key') ? 'data-activity-key' : 'data-device-ref', top: node.getBoundingClientRect().top }))[0] : null,
       focusId: focusable?.id ?? null,
+      focusAction: action?.dataset.action ?? null,
+      focusScope,
+      focusActionData: action ? { ...action.dataset } : null,
+      focusField: focusable?.dataset.field ?? null,
+      focusFieldScope: focusable?.closest('[data-region="screen-content"]') ? 'screen' : null,
+      focusFieldData: focusable?.dataset.field ? { ...focusable.dataset } : null,
       selectionStart: supportsSelection ? focusable.selectionStart : null,
       selectionEnd: supportsSelection ? focusable.selectionEnd : null
     };
   }
 
   restoreRenderState(state = {}) {
-    if (Number(state.scrollY) > 0) window.scrollTo(0, Number(state.scrollY));
-    if (!state.focusId) return;
-    const target = document.getElementById(state.focusId);
-    if (!(target instanceof HTMLElement) || !this.root.contains(target)) return;
+    if (Number.isFinite(Number(state.scrollY))) window.scrollTo(0, Number(state.scrollY));
+    for (const [key, left, top] of state.scrollOffsets ?? []) {
+      const node = [...this.root.querySelectorAll('[data-scroll-key]')].find(item => item.dataset.scrollKey === key);
+      if (node) { node.scrollLeft = left; node.scrollTop = top; }
+    }
+    if (state.readingAnchor) {
+      const anchor = [...this.root.querySelectorAll(`[${state.readingAnchor.attribute}]`)].find(node => node.getAttribute(state.readingAnchor.attribute) === state.readingAnchor.key);
+      if (anchor) window.scrollBy(0, anchor.getBoundingClientRect().top - state.readingAnchor.top);
+    }
+    let target = state.focusId ? document.getElementById(state.focusId) : null;
+    if (!(target instanceof HTMLElement) && state.focusAction && state.focusScope) {
+      const scope = state.focusScope === 'header' ? '.header-actions' : '[data-region="screen-content"]';
+      const data = { ...state.focusActionData };
+      // Toggle payloads invert after an ACK; they are not part of the control's identity.
+      if (state.focusAction === 'command-capability-toggle') delete data.valueJson;
+      if (state.focusAction === 'command-power') delete data.nextValue;
+      target = [...this.root.querySelectorAll(`${scope} [data-action]`)].find((node) => (
+        node.dataset.action === state.focusAction
+        && Object.entries(data).every(([key, value]) => node.dataset[key] === value)
+      )) ?? null;
+    }
+    if (!(target instanceof HTMLElement) && state.focusField && state.focusFieldScope) {
+      const scope = '[data-region="screen-content"]';
+      const data = state.focusFieldData ?? {};
+      target = [...this.root.querySelectorAll(`${scope} [data-field]`)].find((node) => (
+        node.dataset.field === state.focusField
+        && Object.entries(data).every(([key, value]) => node.dataset[key] === value)
+      )) ?? null;
+    }
+    if (!(target instanceof HTMLElement) || !this.root.contains(target) || target.matches(':disabled')) return false;
     target.focus({ preventScroll: true });
+    if (document.activeElement !== target) return false;
     if (typeof target.setSelectionRange === 'function'
       && Number.isInteger(state.selectionStart)
       && Number.isInteger(state.selectionEnd)) {
       target.setSelectionRange(state.selectionStart, state.selectionEnd);
     }
+    return true;
   }
 
   updateModel(viewModel = {}) {
     this.model = normalizeViewModel(viewModel);
+    this.syncContext();
     this.reconcileLocalState();
+    const feedback = this.root.querySelector('[data-region="global-feedback"]');
+    if (feedback) reconcileElement(feedback, this.buildFeedback());
     return this.model;
+  }
+
+  syncContext() {
+    if (this.navigation.current.scopeKey === this.contextKey()) return;
+    for (const [timer, node] of this.exitTimers) { window.clearTimeout(timer); node.remove(); }
+    this.exitTimers.clear();
+    this.viewRevision += 1;
+    this.navigation.navigate({ screen: this.local.screen === 'detail' ? 'devices' : this.local.screen, scopeKey: this.contextKey() }, { kind: 'context-replace' });
+    this.local.screen = this.navigation.current.screen;
+    this.local.commandValues = {};
+    this.local.selectedCandidateId = null;
+    this.local.transientError = null;
+    this.local.weatherLocationDraft = { latitude: '', longitude: '', timezone: browserWeatherTimezone() };
+    this.local.busyActions.clear();
+    this.busyOwners.clear();
+    this.fieldErrors = {};
+    this.claimDrafts.clear();
+    this.commandPresentation.clear();
+    this.activityPresentation.clear();
+    this.pendingFocusIntent = null;
+    this.lastWeatherStamp = null;
+    this.weatherRevealStamp = null;
+    this.navigationRestore = { scrollY: 0 };
+    this.navigationHint = 'context';
+    this.historyIndex = 0;
+    this.writeHistory(false);
+    this.root.querySelector('.toast-region')?.replaceChildren();
+    this.resetPullRefresh();
   }
 
   patchRuntime(viewModel = {}) {
     this.updateModel(viewModel);
     const header = this.root.querySelector('[data-region="header"]');
     if (!header) return false;
-    header.replaceWith(this.buildHeader());
+    reconcileElement(header, this.buildHeader());
     if (this.local.screen === 'devices') {
       const context = this.root.querySelector('[data-region="device-context"]');
       if (!context) return false;
@@ -318,11 +671,13 @@ class ClientUi {
       const connection = this.root.querySelector('[data-region="device-connection"]');
       if (!device || !connection) return false;
       connection.replaceWith(this.buildConnectionSurface(device, getPrimaryConnection(device, this.model.activeConnection)));
+      this.patchDeviceControls(device, { deferForRange: true });
     }
     return true;
   }
 
   patchWeather(viewModel = {}) {
+    const restoreState = this.captureRenderState();
     this.updateModel(viewModel);
     const headerWeather = this.root.querySelector('[data-region="weather-header"]');
     if (headerWeather) headerWeather.replaceWith(this.buildWeatherHeaderSummary());
@@ -336,15 +691,18 @@ class ClientUi {
     const weatherData = this.root.querySelector('[data-region="weather-data"]');
     if (!weatherData) return false;
     weatherData.replaceWith(this.buildWeatherData());
+    this.restoreRenderState(restoreState);
     return true;
   }
 
   patchWeatherForecast(viewModel = {}) {
+    const restoreState = this.captureRenderState();
     this.updateModel(viewModel);
     if (this.local.screen !== 'weather') return true;
     const weatherData = this.root.querySelector('[data-region="weather-data"]');
     if (!weatherData) return false;
     weatherData.replaceWith(this.buildWeatherData());
+    this.restoreRenderState(restoreState);
     return true;
   }
 
@@ -371,7 +729,17 @@ class ClientUi {
     if (!cooldown || !refreshAction) return false;
     const seconds = weatherCooldownSeconds(retryAt, now);
     cooldown.replaceWith(this.buildWeatherCooldownRegion(seconds));
-    refreshAction.replaceWith(this.buildWeatherRefreshButton(seconds));
+    this.patchWeatherRefreshAction(seconds);
+    return true;
+  }
+
+  patchWeatherRefreshAction(seconds = weatherCooldownSeconds(this.model.weatherRefreshRetryAt)) {
+    const current = this.root.querySelector('[data-region="weather-refresh-action"]');
+    if (!current) return false;
+    const focused = document.activeElement === current;
+    const replacement = this.buildWeatherRefreshButton(seconds);
+    current.replaceWith(replacement);
+    if (focused) replacement.focus({ preventScroll: true });
     return true;
   }
 
@@ -390,6 +758,59 @@ class ClientUi {
     const command = this.root.querySelector('[data-region="device-command"]');
     if (!command) return false;
     command.replaceWith(this.buildCommandSurface(device));
+    const state = this.root.querySelector('[data-region="device-state"]');
+    if (state) state.replaceWith(this.buildStateSurface(device));
+    this.patchDeviceControls(device);
+    return true;
+  }
+
+  patchDeviceControls(device, { deferForRange = false } = {}) {
+    const controls = this.root.querySelector('[data-region="device-controls"]');
+    if (!controls) return false;
+    const screenState = deviceScreenState(device, this.model.runtime);
+    const commandPending = this.isCommandPending(deviceKey(device));
+    // Keep a live drag intact, but apply pending-command and read-only states immediately.
+    if (deferForRange && screenState.showControls && !commandPending
+      && this.rangeInteraction?.target.isConnected && controls.contains(this.rangeInteraction.target)) {
+      this.deferredControlPatch = true;
+      return true;
+    }
+    const restoreState = this.captureRenderState();
+    const hasCapturedFocus = restoreState.focusId
+      || (restoreState.focusAction && restoreState.focusScope)
+      || (restoreState.focusField && restoreState.focusFieldScope);
+    const focusInsideControls = document.activeElement instanceof HTMLElement
+      && controls.contains(document.activeElement);
+    if (focusInsideControls && commandPending) {
+      this.pendingFocusIntent = {
+        ...restoreState,
+        busyAction: null,
+        waitForCommand: true,
+        deviceId: deviceKey(device)
+      };
+    } else if (hasCapturedFocus) {
+      this.pendingFocusIntent = {
+        ...restoreState,
+        busyAction: restoreState.focusAction && this.local.busyActions.has(restoreState.focusAction)
+          ? restoreState.focusAction
+          : null,
+        waitForCommand: false
+      };
+    }
+    const focusState = hasCapturedFocus ? restoreState : this.pendingFocusIntent ?? restoreState;
+    this.rangeInteraction = null;
+    this.deferredControlPatch = false;
+    controls.replaceWith(this.buildControlsSurface(device, screenState));
+    const focusRestored = this.restoreRenderState(focusState);
+    if (this.pendingFocusIntent) {
+      const pendingFocus = this.pendingFocusIntent;
+      const commandStillPending = pendingFocus.waitForCommand && this.isCommandPending(pendingFocus.deviceId);
+      if (focusRestored || (pendingFocus.waitForCommand
+        ? !commandStillPending
+        : !pendingFocus.busyAction || !this.local.busyActions.has(pendingFocus.busyAction))) {
+        this.pendingFocusIntent = null;
+      }
+    }
     return true;
   }
 
@@ -418,12 +839,14 @@ class ClientUi {
   patchScreenContent() {
     const screen = this.root.querySelector('[data-region="screen-content"]');
     if (!screen) return false;
-    if (document.activeElement instanceof HTMLElement && screen.contains(document.activeElement)) return true;
-    screen.replaceWith(this.buildCurrentScreen());
+    const restoreState = this.captureRenderState();
+    reconcileElement(screen, this.buildCurrentScreen());
+    this.restoreRenderState(restoreState);
     return true;
   }
 
   patchDeviceList(deviceRefs = []) {
+    const restoreState = this.captureRenderState();
     const list = this.root.querySelector('[data-region="device-list"]');
     const count = this.root.querySelector('[data-region="device-list-count"]');
     const online = this.root.querySelector('[data-region="device-online-count"]');
@@ -436,7 +859,11 @@ class ClientUi {
     if (refs.size > 0 && devices.length > 0) {
       for (const device of devices) {
         const existing = findDeviceElement(list, device);
-        if (existing) existing.replaceWith(this.buildDeviceRow(device));
+        if (existing) {
+          const replacement = this.buildDeviceRow(device);
+          if (existing.dataset.online !== replacement.dataset.online) replacement.classList.add('device-row--status-changed');
+          reconcileElement(existing, replacement);
+        }
       }
     }
 
@@ -447,12 +874,15 @@ class ClientUi {
     const hasSameEntities = renderedRefs.length === desiredRefs.length
       && renderedRefs.every((reference) => desiredRefs.includes(reference));
     if (!hasSameEntities) {
-      list.replaceChildren(...(this.model.devices.length
+      const updated = list.cloneNode(false);
+      updated.replaceChildren(...(this.model.devices.length
         ? this.model.devices.map((device) => this.buildDeviceRow(device))
         : [element('div', 'empty-inline', { text: '还没有设备。' })]));
+      reconcileElement(list, updated);
     }
     count.textContent = `已认领设备 (${this.model.devices.length})`;
     online.replaceWith(this.buildDeviceOnlineCount(this.model.devices));
+    this.restoreRenderState(restoreState);
     return true;
   }
 
@@ -468,21 +898,29 @@ class ClientUi {
     connectionRegion.replaceWith(this.buildConnectionSurface(device, connection));
     stateRegion.replaceWith(this.buildStateSurface(device));
 
-    const controls = this.root.querySelector('[data-region="device-controls"]');
-    if (controls && !(document.activeElement instanceof HTMLElement && controls.contains(document.activeElement))) {
-      controls.replaceWith(this.buildControlsSurface(device, deviceScreenState(device, this.model.runtime)));
-    }
+    this.patchDeviceControls(device, { deferForRange: true });
     return true;
   }
 
   destroy() {
+    this.destroyed = true;
+    this.motionPolicy.destroy();
+    document.removeEventListener('focusin', this.onFocusIn);
+    window.removeEventListener('popstate', this.onPopState);
+    window.removeEventListener('scroll', this.onScroll);
+    window.clearTimeout(this.toastTimer);
+    window.clearTimeout(this.toastExitTimer);
+    for (const [timer, node] of this.exitTimers) { window.clearTimeout(timer); node.remove(); }
+    this.exitTimers.clear();
     this.root.removeEventListener('click', this.onClick);
     this.root.removeEventListener('input', this.onInput);
     this.root.removeEventListener('change', this.onChange);
     this.root.removeEventListener('pointerdown', this.onPointerDown);
     this.root.removeEventListener('pointermove', this.onPointerMove);
-    this.root.removeEventListener('pointerup', this.onPointerUp);
-    this.root.removeEventListener('pointercancel', this.onPointerUp);
+    document.removeEventListener('pointerup', this.onPointerUp);
+    document.removeEventListener('pointercancel', this.onPointerUp);
+    this.root.removeEventListener('animationend', this.onAnimationEnd);
+    document.removeEventListener('visibilitychange', this.onVisibilityChange);
     if (activeUi === this) activeUi = null;
   }
 
@@ -490,40 +928,80 @@ class ClientUi {
     if (!message) return;
     const region = this.root.querySelector('.toast-region');
     if (!region) return;
+    const key = `${tone}:${message}`;
+    if (this.lastToast === key && region.firstElementChild) return;
+    this.lastToast = key;
+    window.clearTimeout(this.toastTimer);
+    window.clearTimeout(this.toastExitTimer);
 
     const notification = element('div', `toast toast--${tone}`, { role: 'status' });
     notification.append(icon(tone === 'danger' ? 'CircleAlert' : tone === 'success' ? 'CircleCheck' : 'Info', 18));
     notification.append(textNode(message));
     region.replaceChildren(notification);
 
-    window.setTimeout(() => {
-      if (notification.parentNode === region) region.replaceChildren();
+    this.toastTimer = window.setTimeout(() => {
+      if (notification.parentNode !== region) return;
+      const remove = () => {
+        if (notification.parentNode === region) region.replaceChildren();
+        if (this.lastToast === key) this.lastToast = null;
+      };
+      if (!this.motionPolicy.snapshot().animate) return remove();
+      notification.classList.add('motion-exit');
+      this.toastExitTimer = window.setTimeout(remove, 120);
     }, 3500);
+  }
+
+  exitGhost(region) {
+    if (!region || !this.motionPolicy.snapshot().animate) return;
+    const box = region.getBoundingClientRect();
+    const ghost = region.cloneNode(true);
+    ghost.classList.add('motion-exit');
+    ghost.inert = true;
+    ghost.setAttribute('aria-hidden', 'true');
+    for (const node of [ghost, ...ghost.querySelectorAll('*')]) {
+      node.removeAttribute('id');
+      node.removeAttribute('role');
+      node.removeAttribute('aria-live');
+      // Visual copies must never participate in field/action/keyed queries.
+      for (const attribute of [...node.attributes]) {
+        if (attribute.name.startsWith('data-')) node.removeAttribute(attribute.name);
+      }
+    }
+    Object.assign(ghost.style, { position: 'fixed', top: `${box.top}px`, left: `${box.left}px`, width: `${box.width}px`, height: `${box.height}px`, margin: '0', pointerEvents: 'none', zIndex: '20' });
+    this.root.append(ghost);
+    const timer = window.setTimeout(() => { ghost.remove(); this.exitTimers.delete(timer); }, 120);
+    this.exitTimers.set(timer, ghost);
   }
 
   reconcileLocalState() {
     const active = this.getActiveDevice();
     if (this.local.screen === 'detail' && !active) this.local.screen = 'devices';
     if (this.local.selectedCandidateId && !this.getSelectedCandidate()) {
+      this.claimDrafts.set(this.local.selectedCandidateId, { ...this.local.claim });
+      this.viewRevision += 1;
       this.local.selectedCandidateId = null;
+      if (this.local.screen === 'lan') this.local.transientError = '该候选已不在本次发现列表中；这不代表设备物理离线。请重新发现后核对。';
     }
     if (!this.local.claim.siteCode) this.local.claim.siteCode = this.model.context.siteCode;
     if (!this.local.claim.spacePath) this.local.claim.spacePath = this.model.context.spacePath;
   }
 
   buildShell() {
-    const shell = element('div', 'app-shell', { data: { region: 'shell' } });
+    const shell = element('div', `app-shell${document.hidden ? ' app-shell--hidden' : ''}`, { data: { region: 'shell' } });
     shell.append(this.buildHeader());
 
     const workspace = element('div', 'workspace');
     workspace.append(this.buildDesktopNav());
-    const main = element('main', 'screen-region', { id: 'client-screen', ariaLive: 'polite', data: { region: 'screen' } });
+    const main = element('main', 'screen-region', { id: 'client-screen', data: { region: 'screen' } });
     main.append(this.buildPullRefreshIndicator());
     main.append(this.buildCurrentScreen());
     workspace.append(main);
     shell.append(workspace);
     shell.append(this.buildMobileNav());
     shell.append(element('div', 'toast-region', { ariaLive: 'polite', ariaAtomic: 'true' }));
+    const navigationAnnouncement = element('div', 'visually-hidden', { ariaLive: 'polite', ariaAtomic: 'true', data: { region: 'navigation-announcement' } });
+    navigationAnnouncement.setAttribute('role', 'status');
+    shell.append(navigationAnnouncement);
     return shell;
   }
 
@@ -531,7 +1009,7 @@ class ClientUi {
     const pull = this.local.pull;
     const visible = pull.distance > 0 || pull.refreshing;
     const label = pull.refreshing ? '正在刷新…' : pull.armed ? '松开即可刷新' : '下拉刷新';
-    const indicator = element('div', `pull-refresh${visible ? ' pull-refresh--visible' : ''}${pull.armed ? ' pull-refresh--armed' : ''}`, {
+    const indicator = element('div', `pull-refresh${visible ? ' pull-refresh--visible' : ''}${pull.armed ? ' pull-refresh--armed' : ''}${pull.refreshing ? ' pull-refresh--refreshing' : ''}`, {
       ariaLive: 'polite', ariaHidden: visible ? 'false' : 'true'
     });
     indicator.style.setProperty('--pull-distance', `${Math.min(72, pull.distance)}px`);
@@ -561,14 +1039,17 @@ class ClientUi {
     actions.append(this.buildWeatherHeaderSummary());
     actions.append(actionButton('连接设置', 'open-connection-settings', {
       className: 'button button--quiet button--small',
-      iconName: 'Link'
+      iconName: 'Link',
+      ariaLabel: '连接设置'
     }));
     const auth = authenticationState(this.model.auth);
     if (auth.configured) {
-      actions.append(actionButton(auth.authenticated ? '退出登录' : '登录', auth.authenticated ? 'sign-out' : 'sign-in', {
+      const authBusy = this.isBusy('sign-in') || this.isBusy('sign-out')
+        || ['restoring', 'processing_callback', 'redirecting', 'signing_out'].includes(auth.status);
+      actions.append(actionButton(authBusy ? '处理中…' : auth.authenticated ? '退出登录' : '登录', auth.authenticated ? 'sign-out' : 'sign-in', {
         className: 'button button--quiet button--small',
         iconName: auth.authenticated ? 'LockKeyhole' : 'ShieldAlert',
-        ariaLabel: auth.authenticated ? '退出当前账号' : '使用身份提供方登录'
+        ariaLabel: auth.authenticated ? '退出当前账号' : '使用身份提供方登录', disabled: authBusy
       }));
     }
     const health = connectionHealth(this.model.connectionHealth);
@@ -626,16 +1107,15 @@ class ClientUi {
     const button = actionButton(label, 'navigate', {
       className: `${className}${this.local.screen === screen ? ` ${className}--active` : ''}`,
       iconName,
-      data: { screen },
+      data: { screen, motion: 'peer' },
       ariaLabel: label
     });
     return button;
   }
 
   buildCurrentScreen() {
-    const screen = element('section', 'screen', { data: { region: 'screen-content' } });
-    const issue = this.model.error ?? this.local.transientError;
-    if (issue) screen.append(this.buildNotice(issue, 'danger', 'dismiss-error'));
+    const screen = element('section', 'screen', { data: { region: 'screen-content', screen: this.local.screen } });
+    screen.append(this.buildFeedback());
 
     switch (this.local.screen) {
       case 'add':
@@ -670,6 +1150,21 @@ class ClientUi {
     return screen;
   }
 
+  buildFeedback() {
+    const feedback = element('div', 'global-feedback', { data: { region: 'global-feedback' } });
+    const issue = this.model.error ?? this.local.transientError;
+    if (issue) feedback.append(this.buildNotice(issue, 'danger', 'dismiss-error'));
+    if (this.model.auth.error && this.model.auth.error !== issue) feedback.append(this.buildNotice(this.model.auth.error, 'danger', null, '登录状态'));
+    const authPhase = { restoring: '正在恢复登录状态，平台控制暂不可用。', processing_callback: '正在校验登录回调，请稍候。', redirecting: '正在准备身份提供方登录页面。', signing_out: '本机已停止平台控制，正在完成退出。' }[this.model.auth.status];
+    if (authPhase) feedback.append(this.buildNotice(authPhase, 'info', null, '登录状态'));
+    const endpointPhase = { saving: '正在保存连接配置。', restoring_auth: '新端点已激活，正在恢复授权状态。', synchronizing: '正在同步新端点的站点、设备和天气；收到最新状态前保持只读。' }[this.model.loading.endpointPhase];
+    if (endpointPhase) feedback.append(this.buildNotice(endpointPhase, 'info', null, '连接切换'));
+    for (const notice of this.model.notices) feedback.append(this.buildNotice(notice.message, notice.tone ?? 'warning', null, '操作提示'));
+    if (this.model.startup.phase === 'loading') feedback.append(this.buildNotice('正在恢复配置与会话，可先浏览界面。', 'info', null, '准备中'));
+    if (this.model.startup.phase === 'error') feedback.append(this.buildNotice(this.model.startup.error || '初始化未完成，请检查连接设置。', 'danger', null, '启动失败'));
+    return feedback;
+  }
+
   buildDeviceListScreen() {
     const fragment = document.createDocumentFragment();
     fragment.append(screenHeading('我的设备', '查看当前站点已认领的设备。', actionButton('添加设备', 'open-add-device', {
@@ -677,6 +1172,9 @@ class ClientUi {
       iconName: 'Plus'
     })));
     fragment.append(this.buildContextRow());
+    fragment.append(actionButton(this.isBusy('pull-refresh') ? '刷新中…' : '刷新设备与天气', 'pull-refresh', {
+      className: 'button button--secondary', iconName: 'RefreshCw', disabled: this.isBusy('pull-refresh')
+    }));
 
     if (this.model.runtime.stale && this.model.runtime.accessRoute !== 'BLE_LOCAL') {
       const lastSync = this.model.runtime.lastSyncedAt ? `，最后同步 ${formatDate(this.model.runtime.lastSyncedAt)}` : '';
@@ -690,14 +1188,17 @@ class ClientUi {
 
     const devices = this.model.devices;
     const surface = element('section', 'surface', { ariaLabel: '设备列表', data: { region: 'device-list-surface' } });
+    const resource = this.model.resources.devices ?? {};
+    if (resource.phase === 'loading' || resource.refreshing) surface.append(this.buildResourceMessage('正在同步设备…', true));
+    if (resource.error) surface.append(this.buildNotice(resource.error, 'warning', null, devices.length ? '保留已有设备' : '设备读取失败'));
     if (devices.length === 0) {
       const list = element('div', 'device-list', { data: { region: 'device-list' } });
       const empty = element('div', 'empty-state');
       const iconWrap = element('div', 'empty-state__icon', { ariaHidden: 'true' });
       iconWrap.append(icon('Boxes', 27));
       empty.append(iconWrap);
-      empty.append(element('h3', '', { text: '还没有设备' }));
-      empty.append(element('p', '', { text: '可先连接附近的蓝牙设备，或通过局域网模拟发现认领设备。' }));
+      empty.append(element('h3', '', { text: resource.phase === 'loading' ? '正在读取设备' : resource.error ? '设备暂不可用' : '还没有设备' }));
+      empty.append(element('p', '', { text: resource.phase === 'loading' ? '读取完成前不将其视为空列表。' : resource.error ? '可使用刷新按钮重试，或检查连接设置。' : '可先连接附近的蓝牙设备，或通过局域网模拟发现认领设备。' }));
       empty.append(actionButton('添加设备', 'open-add-device', {
         className: 'button button--primary',
         iconName: 'Plus'
@@ -719,6 +1220,13 @@ class ClientUi {
     }
     fragment.append(surface);
     return fragment;
+  }
+
+  buildResourceMessage(message, busy = false) {
+    const row = element('p', 'resource-message', { role: 'status' });
+    if (busy) row.append(element('span', 'spinner', { ariaHidden: 'true' }));
+    row.append(textNode(message));
+    return row;
   }
 
   buildContextRow() {
@@ -758,8 +1266,11 @@ class ClientUi {
     fragment.append(screenHeading('选择站点', '只显示当前账号有权限访问的站点。', backButton('devices')));
     const sites = this.model.sites;
     const surface = element('section', 'surface surface--padded', { ariaLabel: '可访问站点' });
+    const resource = this.model.resources.sites ?? {};
+    if (resource.error) surface.append(this.buildNotice(resource.error, 'warning', null, '站点读取失败'));
+    if (resource.refreshing && sites.length) surface.append(this.buildResourceMessage('正在更新站点…', true));
     if (!sites.length) {
-      surface.append(element('div', 'loading-row', { text: '正在同步站点列表…' }));
+      surface.append(this.buildResourceMessage(resource.phase === 'loading' ? '正在同步站点列表…' : resource.error ? '无法读取站点，请检查连接与账号权限。' : '当前账号没有可访问的站点。', resource.phase === 'loading'));
       fragment.append(surface);
       return fragment;
     }
@@ -808,13 +1319,23 @@ class ClientUi {
     const weather = this.model.weather;
     const current = plainObject(weather?.current);
     const forecast = plainObject(this.model.weatherForecast);
+    const resource = this.model.resources.weather ?? {};
+    const stamp = String(weather?.fetchedAt ?? weather?.updatedAt ?? '');
+    const motionAllowed = !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (this.lastWeatherStamp && stamp && stamp !== this.lastWeatherStamp) {
+      this.weatherRevealStamp = motionAllowed ? stamp : null;
+    }
+    if (motionAllowed && stamp && this.weatherRevealStamp === stamp) content.classList.add('motion-reveal');
+    if (stamp) this.lastWeatherStamp = stamp;
 
     if (weather?.refreshError) {
       content.append(this.buildNotice(weather.refreshError, 'warning', null, '天气同步状态'));
     }
+    if (resource.error && resource.error !== weather?.refreshError) content.append(this.buildNotice(resource.error, 'warning', null, '天气读取失败'));
+    if (resource.refreshing) content.append(this.buildResourceMessage('正在刷新天气，保留当前数据…', true));
 
     if (Object.keys(current).length === 0) {
-      content.append(this.buildNotice(weatherUnavailableMessage(weather), ['UNAVAILABLE', 'PENDING'].includes(weather?.status) ? 'info' : 'warning', null, '站点天气'));
+      content.append(this.buildNotice(resource.phase === 'error' ? '暂时无法取得天气数据，请检查连接后重试。' : weatherUnavailableMessage(weather), ['UNAVAILABLE', 'PENDING'].includes(weather?.status) ? 'info' : 'warning', null, '站点天气'));
       return content;
     }
 
@@ -904,7 +1425,7 @@ class ClientUi {
     surface.append(this.buildWeatherCooldownRegion(refreshCooldownSeconds));
 
     const actions = element('div', 'weather-location__actions');
-    actions.append(actionButton(this.isBusy('weather-device-location') ? '正在定位…' : '使用我的位置', 'update-weather-location', {
+    actions.append(actionButton(this.isBusy('weather-device-location') ? this.model.loading.weatherLocationPhase === 'saving' ? '正在保存位置…' : '正在定位…' : '使用我的位置', 'update-weather-location', {
       className: 'button button--primary', iconName: 'MapPin',
       disabled: this.isBusy('weather-device-location') || this.isBusy('weather-manual-location')
     }));
@@ -944,30 +1465,37 @@ class ClientUi {
   }
 
   buildWeatherRefreshButton(seconds = weatherCooldownSeconds(this.model.weatherRefreshRetryAt)) {
-    return actionButton(
+    const unavailable = seconds > 0 || this.isBusy('refresh-weather')
+      || this.isBusy('weather-device-location') || this.isBusy('weather-manual-location');
+    const button = actionButton(
       this.isBusy('refresh-weather') ? '刷新中…' : seconds > 0 ? `${seconds} 秒后可刷新` : '刷新天气',
       'refresh-weather', {
         className: 'button button--secondary',
         iconName: 'RefreshCw',
-        data: { region: 'weather-refresh-action' },
-        disabled: seconds > 0 || this.isBusy('refresh-weather')
-          || this.isBusy('weather-device-location') || this.isBusy('weather-manual-location')
+        data: { region: 'weather-refresh-action' }
       }
     );
+    // Keep this timed action reachable by keyboard throughout its refresh cooldown.
+    button.setAttribute('aria-disabled', String(unavailable));
+    return button;
   }
 
   buildWeatherForecastSurface(title, points, daily) {
     const surface = element('section', 'surface surface--padded weather-forecast');
     surface.append(surfaceHeading(title, daily ? '最高/最低温与降水概率。' : '温度、天气与降水概率。'));
-    if (this.model.loading.weatherForecast) {
+    const resource = this.model.resources.weatherForecast ?? {};
+    if (resource.error) surface.append(this.buildNotice(resource.error, 'warning', null, points.length ? '保留上次预报' : '预报暂不可用'));
+    if (resource.updatedAt) surface.append(element('p', 'field__hint', { text: `预报读取于 ${formatDate(resource.updatedAt)}` }));
+    if (this.model.loading.weatherForecast || resource.phase === 'loading' || resource.refreshing) {
       surface.append(element('p', 'empty-inline', { text: '正在加载预报…' }));
-      return surface;
+      if (!points.length) return surface;
     }
     if (!points.length) {
       surface.append(element('p', 'empty-inline', { text: '预报数据将在下一次天气刷新后可用。' }));
       return surface;
     }
     const list = element('div', daily ? 'weather-daily-list' : 'weather-hourly-list');
+    list.dataset.scrollKey = daily ? 'daily' : 'hourly';
     points.forEach((point) => {
       const item = element('article', daily ? 'weather-daily-item' : 'weather-hourly-item');
       item.append(element('span', 'weather-forecast__time', { text: weatherForecastTime(point.forecastAt, daily) }));
@@ -992,7 +1520,7 @@ class ClientUi {
     const online = deviceOnline(device, this.model.connectionHealth);
     const row = actionButton('', 'open-device', {
       className: 'device-row',
-      data: { deviceId: id, deviceRef: id },
+      data: { deviceId: id, deviceRef: id, online: String(online) },
       ariaLabel: `打开设备 ${deviceName(device)}`
     });
     const deviceIcon = element('div', `device-icon${online ? '' : ' device-icon--offline'}`, { ariaHidden: 'true' });
@@ -1073,16 +1601,25 @@ class ClientUi {
     const surface = element('section', 'surface surface--padded');
     surface.append(surfaceHeading('设备选择', bleSelectionDescription(this.model.ble.native)));
     const candidate = ble.candidate ?? ble.device ?? this.model.activeConnection?.candidate ?? null;
-    const connection = ble.connection ?? this.model.activeConnection ?? {};
+    const knownConnection = ble.connection ?? this.model.activeConnection ?? {};
+    const connection = candidate && bleCandidateReference(candidate) === bleCandidateReference(knownConnection)
+      ? knownConnection : {};
+    const connectionBusy = this.isBusy('connect-ble') || this.isBusy('disconnect-ble') || this.isBusy('forget-ble')
+      || this.model.loading.bleConnect || this.model.loading.bleDisconnect || this.model.loading.bleForget;
 
     if (ble.native && arrayOf(ble.candidates).length) {
       surface.append(this.buildBleCandidateList(ble.candidates, ble.selectedCandidateId ?? bleCandidateReference(candidate)));
     }
 
     if (candidate) {
-      surface.append(this.buildBleCandidate(candidate, connection));
+      const summary = this.buildBleCandidate(candidate, connection);
+      const candidateId = bleCandidateReference(candidate);
+      if (this.lastBleCandidateId !== candidateId) summary.classList.add('motion-reveal');
+      this.lastBleCandidateId = candidateId;
+      surface.append(summary);
       const profileId = connection.profileId ?? candidate.profileId ?? null;
-      if (!profileId) {
+      const connected = normalizeConnectionStatus(connection.status) === 'CONNECTED';
+      if (connected && !profileId) {
         surface.append(this.buildNotice(
           '已识别为未知 GATT Profile。可以保留连接与查看通用信息，但不会显示未经定义的控制项。',
           'warning',
@@ -1090,7 +1627,6 @@ class ClientUi {
           '未知设备 Profile'
         ));
       }
-      const connected = normalizeConnectionStatus(connection.status) === 'CONNECTED';
       if (connected) {
         surface.append(actionButton('断开连接', 'disconnect-ble', {
           className: 'button button--secondary button--full',
@@ -1099,12 +1635,14 @@ class ClientUi {
           disabled: this.isBusy('disconnect-ble')
         }));
       }
-      surface.append(actionButton(connected ? '已连接' : '连接此设备', 'connect-ble', {
+      surface.append(actionButton(connected ? '已连接' : this.isBusy('connect-ble') ? '正在连接并识别能力…' : '连接此设备', 'connect-ble', {
         className: 'button button--primary button--full',
         iconName: connected ? 'CircleCheck' : 'Link',
-        disabled: connected || availability === false || this.isBusy('connect-ble')
+        disabled: connected || availability === false || connectionBusy
       }));
+      if (!ble.scanning && !connected) surface.append(actionButton(ble.native ? '重新扫描' : '重新选择设备', 'request-ble', { className: 'button button--secondary button--full', disabled: this.isBusy('request-ble') || this.model.loading.blePicker || connectionBusy }));
     } else {
+      this.lastBleCandidateId = null;
       const prompt = element('div', 'empty-inline', {
         text: this.model.ble.native
           ? '尚未发现蓝牙设备。扫描结果会显示在此处。'
@@ -1115,11 +1653,14 @@ class ClientUi {
       surface.append(actionButton(this.isBusy('request-ble') ? '正在扫描…' : requestLabel, 'request-ble', {
         className: 'button button--primary button--full',
         iconName: 'BluetoothSearching',
-        disabled: availability === false || this.isBusy('request-ble')
+        disabled: availability === false || this.isBusy('request-ble') || this.model.loading.blePicker || ble.scanning || connectionBusy
       }));
     }
     if (ble.native && ble.scanning) {
-      surface.append(actionButton('停止扫描', 'stop-ble-scan', {
+      surface.append(this.buildResourceMessage(ble.errorCode === 'SCAN_STOP_FAILED'
+        ? '未确认扫描已停止，请重试停止；暂不接收旧扫描结果。'
+        : '正在扫描，已发现的设备保持可见。', ble.errorCode !== 'SCAN_STOP_FAILED'));
+      surface.append(actionButton(this.isBusy('stop-ble-scan') ? '正在停止…' : '停止扫描', 'stop-ble-scan', {
         className: 'button button--secondary button--full',
         iconName: 'X',
         disabled: this.isBusy('stop-ble-scan')
@@ -1163,7 +1704,9 @@ class ClientUi {
         className: `candidate-row${selected ? ' candidate-row--selected' : ''}`,
         data: { candidateId },
         ariaLabel: `选择 ${deviceName(candidate)}`,
-        title: candidateId
+        title: candidateId,
+        disabled: this.isBusy('connect-ble') || this.isBusy('disconnect-ble') || this.isBusy('forget-ble')
+          || this.model.loading.bleConnect || this.model.loading.bleDisconnect || this.model.loading.bleForget
       });
       const iconWrap = element('div', 'device-icon', { ariaHidden: 'true' });
       iconWrap.append(icon('Bluetooth', 20));
@@ -1190,7 +1733,8 @@ class ClientUi {
       iconName: this.isBusy('discover-lan') || isLoading(this.model, 'lanDiscovery') ? 'LoaderCircle' : 'Radar',
       disabled: this.isBusy('discover-lan') || isLoading(this.model, 'lanDiscovery')
     });
-    fragment.append(screenHeading('局域网模拟发现', '当前站点的可认领候选设备。', discover));
+    fragment.append(screenHeading('局域网模拟发现', '当前站点的可认领候选设备。', backButton('add')));
+    fragment.append(discover);
     fragment.append(this.buildContextRow());
 
     const candidates = this.model.lanCandidates;
@@ -1204,6 +1748,8 @@ class ClientUi {
     titleRow.append(titleGroup);
     surface.append(titleRow);
 
+    const resource = this.model.resources.lanDiscovery ?? {};
+    if (resource.error) surface.append(this.buildNotice(resource.error, 'warning', null, '发现未完成，保留已有候选'));
     if (isLoading(this.model, 'lanDiscovery') || this.isBusy('discover-lan')) {
       const loading = element('div', 'surface--padded');
       const row = element('div', 'loading-row');
@@ -1211,7 +1757,8 @@ class ClientUi {
       row.append(textNode('正在从模拟服务获取候选设备…'));
       loading.append(row);
       surface.append(loading);
-    } else if (!candidates.length) {
+    }
+    if (!candidates.length && !isLoading(this.model, 'lanDiscovery') && !this.isBusy('discover-lan')) {
       const empty = element('div', 'empty-state');
       const iconWrap = element('div', 'empty-state__icon', { ariaHidden: 'true' });
       iconWrap.append(icon('Radar', 27));
@@ -1223,7 +1770,7 @@ class ClientUi {
         iconName: 'Radar'
       }));
       surface.append(empty);
-    } else {
+    } else if (candidates.length) {
       const list = element('div', 'candidate-list');
       candidates.forEach((candidate) => list.append(this.buildCandidateRow(candidate)));
       surface.append(list);
@@ -1257,7 +1804,8 @@ class ClientUi {
   }
 
   buildClaimForm(candidate) {
-    const surface = element('section', 'surface surface--padded');
+    const surface = element('section', `surface surface--padded${this.revealClaimForm ? ' motion-reveal' : ''}`, { data: { region: 'claim-form' } });
+    this.revealClaimForm = false;
     surface.append(surfaceHeading('认领设备', '确认设备名称与所属空间后完成注册。'));
     surface.append(this.buildBleCandidate(candidate, { deviceId: candidateKey(candidate) }));
 
@@ -1270,7 +1818,7 @@ class ClientUi {
     actions.append(actionButton(this.isBusy('claim-lan') ? '认领中…' : '确认认领', 'claim-lan', {
       className: 'button button--primary',
       iconName: 'BadgeCheck',
-      disabled: this.isBusy('claim-lan') || !this.local.claim.displayName.trim(),
+      disabled: this.isBusy('claim-lan'),
       data: { candidateId: candidateKey(candidate) }
     }));
     form.append(actions);
@@ -1291,6 +1839,11 @@ class ClientUi {
     });
     wrapper.append(input);
     wrapper.append(element('p', 'field__hint', { id: `${id}-hint`, text: hint }));
+    if (this.fieldErrors[field]) {
+      input.setAttribute('aria-invalid', 'true');
+      input.setAttribute('aria-describedby', `${id}-hint ${id}-error`);
+      wrapper.append(element('p', 'field__error', { id: `${id}-error`, role: 'alert', text: this.fieldErrors[field] }));
+    }
     return wrapper;
   }
 
@@ -1311,9 +1864,16 @@ class ClientUi {
     if (this.local.endpointDraft.accessRoute === 'SITE_API') {
       surface.append(this.buildNotice('请先在电脑 IDEA 中启动后端，并确保手机与电脑连接同一 Wi-Fi；保存前必须先通过“测试连接”。', 'info', null, '真机连接要求'));
     } else {
-      surface.append(this.textField('OIDC Issuer URL', 'endpoint-oidc-issuer-url', this.local.endpointDraft.oidcIssuerUrl ?? '', '例如：https://iot.example.com/auth/realms/iot-manager', 'endpointOidcIssuerUrl'));
-      surface.append(this.textField('OIDC Client ID', 'endpoint-oidc-client-id', this.local.endpointDraft.oidcClientId ?? '', 'Keycloak 中创建的 public client，例如 iot-mobile。', 'endpointOidcClientId'));
-      surface.append(this.textField('OIDC 回调地址', 'endpoint-oidc-redirect-uri', this.local.endpointDraft.oidcRedirectUri ?? '', 'Android 固定为：com.iot.manager.client://oauth/callback', 'endpointOidcRedirectUri'));
+      const fields = [
+        this.textField('OIDC Issuer URL', 'endpoint-oidc-issuer-url', this.local.endpointDraft.oidcIssuerUrl ?? '', '例如：https://iot.example.com/auth/realms/iot-manager', 'endpointOidcIssuerUrl'),
+        this.textField('OIDC Client ID', 'endpoint-oidc-client-id', this.local.endpointDraft.oidcClientId ?? '', 'Keycloak 中创建的 public client，例如 iot-mobile。', 'endpointOidcClientId'),
+        this.textField('OIDC 回调地址', 'endpoint-oidc-redirect-uri', this.local.endpointDraft.oidcRedirectUri ?? '', 'Android 固定为：com.iot.manager.client://oauth/callback', 'endpointOidcRedirectUri')
+      ];
+      for (const field of fields) {
+        if (this.revealOidcFields) field.classList.add('motion-reveal');
+        surface.append(field);
+      }
+      this.revealOidcFields = false;
       surface.append(this.buildNotice('远程生产连接使用 Authorization Code + PKCE 登录。此处只保存公开的 Issuer、Client ID 与回调地址，不会保存 Access Token 或 Refresh Token。', 'info', null, '安全登录'));
     }
     surface.append(actionButton(this.isBusy('test-endpoint') ? '测试中…' : '测试连接', 'test-endpoint', {
@@ -1321,12 +1881,16 @@ class ClientUi {
       disabled: this.isBusy('test-endpoint') || this.isBusy('switch-endpoint')
     }));
     if (this.local.endpointTest) {
-      surface.append(this.buildNotice(
+      const result = this.buildNotice(
         this.local.endpointTest.message,
-        this.local.endpointTest.ok ? 'success' : 'danger',
+        this.local.endpointTest.partial ? 'warning' : this.local.endpointTest.ok ? 'success' : 'danger',
         null,
-        this.local.endpointTest.ok ? '连接正常' : '连接失败'
-      ));
+        this.local.endpointTest.partial ? '部分连接可用' : this.local.endpointTest.ok ? '连接正常' : '连接失败'
+      );
+      result.dataset.region = 'endpoint-test-result';
+      if (this.revealEndpointTest) result.classList.add('motion-reveal');
+      this.revealEndpointTest = false;
+      surface.append(result);
     }
     surface.append(actionButton(this.isBusy('switch-endpoint') ? '切换中…' : '保存并切换', 'save-endpoint', {
       className: 'button button--primary',
@@ -1491,38 +2055,44 @@ class ClientUi {
     }
 
     const latestCommand = this.latestCommand(device);
-    const pending = latestCommand && ['PENDING', 'SENT'].includes(normalizeCommandStatus(latestCommand.status));
+    const commandStatus = latestCommand ? normalizeCommandStatus(latestCommand.status) : null;
+    const pending = ['PENDING', 'SENT'].includes(commandStatus);
+    if (pending) surface.classList.add('device-controls--pending');
     const controls = element('div', 'control-list');
     screenState.controls.forEach((capability) => {
-      controls.append(this.buildCapabilityControl(device, capability, pending));
+      controls.append(this.buildCapabilityControl(device, capability, commandStatus));
     });
     surface.append(controls);
     if (pending) {
       const note = element('div', 'capability-note');
-      note.append(element('span', 'spinner', { ariaHidden: 'true' }));
-      note.append(textNode('等待设备命令回执，当前控件暂时保持只读。'));
+      const observationStopped = ['exhausted', 'error'].includes(this.model.commandObservation[commandKey(latestCommand)]?.phase);
+      if (!observationStopped) note.append(element('span', 'spinner', { ariaHidden: 'true' }));
+      note.append(textNode(observationStopped ? '回执查询已结束，结果仍待核实；保留只读，不自动重发。' : commandStatus === 'PENDING'
+        ? '命令待发送；目标状态尚未确认，当前控件暂时保持只读。'
+        : '命令已发送，等待设备回执；当前控件暂时保持只读。'));
       surface.append(note);
     }
     return surface;
   }
 
-  buildCapabilityControl(device, capability, disabled) {
-    if (capability.controlType === 'toggle') return this.buildToggleControl(device, capability, disabled);
-    if (capability.controlType === 'range') return this.buildRangeControl(device, capability, disabled);
-    if (capability.controlType === 'select') return this.buildSelectControl(device, capability, disabled);
-    return this.buildActionControl(device, capability, disabled);
+  buildCapabilityControl(device, capability, commandStatus) {
+    const pending = ['PENDING', 'SENT'].includes(commandStatus);
+    if (capability.controlType === 'toggle') return this.buildToggleControl(device, capability, pending);
+    if (capability.controlType === 'range') return this.buildRangeControl(device, capability, pending);
+    if (capability.controlType === 'select') return this.buildSelectControl(device, capability, pending);
+    return this.buildActionControl(device, capability, pending);
   }
 
   buildToggleControl(device, capability, disabled) {
-    const current = Boolean(capabilityValue(capability, device.desiredState, device.reportedState ?? device.state));
+    const current = Boolean(capabilityValue(capability, disabled ? device.desiredState : null, device.reportedState ?? device.state));
     const row = element('div', 'control-row');
     const heading = element('div', 'control-row__heading');
     const copy = element('div');
     copy.append(element('h4', '', { text: String(capability.label) }));
-    copy.append(element('p', '', { text: current ? '目标：开启' : '目标：关闭' }));
+    copy.append(element('p', '', { text: `${current ? '目标：开启' : '目标：关闭'}${disabled ? '（待确认）' : ''}` }));
     heading.append(copy);
     heading.append(actionButton('', 'command-capability-toggle', {
-      className: `switch-button${current ? ' switch-button--on' : ''}`,
+      className: `switch-button${current ? ' switch-button--on' : ''}${disabled ? ' switch-button--pending' : ''}`,
       data: capabilityActionData(device, capability, !current),
       ariaLabel: `${current ? '关闭' : '开启'} ${capability.label}`,
       disabled
@@ -1536,8 +2106,8 @@ class ClientUi {
     const max = Number.isFinite(capability.max) ? capability.max : 100;
     const step = Number.isFinite(capability.step) && capability.step > 0 ? capability.step : 1;
     const key = `capability:${capability.id}:${deviceKey(device)}`;
-    const current = capabilityValue(capability, device.desiredState, device.reportedState ?? device.state);
-    const value = clampRangeValue(this.local.commandValues[key] ?? current, min, max, step);
+    const current = capabilityValue(capability, disabled ? device.desiredState : null, device.reportedState ?? device.state);
+    const value = clampRangeValue(disabled ? this.local.commandValues[key] ?? current : current, min, max, step);
     const row = element('div', 'control-row');
     const heading = element('div', 'control-row__heading');
     const copy = element('div');
@@ -1556,19 +2126,19 @@ class ClientUi {
       data: { ...capabilityActionData(device, capability), field: 'capability-range', rangeKey: key },
       ariaLabel: `${capability.label} ${formatRangeValue(value)}`
     }));
-    rangeRow.append(element('output', 'range-value', { text: formatRangeValue(value) }));
+    rangeRow.append(element('output', `range-value${disabled ? ' range-value--pending' : ''}`, { text: formatRangeValue(value) }));
     row.append(rangeRow);
     return row;
   }
 
   buildSelectControl(device, capability, disabled) {
     const options = arrayOf(capability.options);
-    const current = String(capabilityValue(capability, device.desiredState, device.reportedState ?? device.state) ?? '');
+    const current = String(capabilityValue(capability, disabled ? device.desiredState : null, device.reportedState ?? device.state) ?? '');
     const row = element('div', 'control-row');
     const heading = element('div', 'control-row__heading');
     const copy = element('div');
     copy.append(element('h4', '', { text: String(capability.label) }));
-    copy.append(element('p', '', { text: options.length ? '请选择设备提供的选项。' : '设备未提供可选项。' }));
+    copy.append(element('p', '', { text: disabled ? '目标模式待设备确认。' : options.length ? '请选择设备提供的选项。' : '设备未提供可选项。' }));
     heading.append(copy);
     row.append(heading);
     if (!options.length) return row;
@@ -1576,7 +2146,7 @@ class ClientUi {
     options.slice(0, 12).forEach((option) => {
       const value = String(option.value);
       grid.append(actionButton(String(option.label), 'command-capability-select', {
-        className: `mode-button${value === current ? ' mode-button--selected' : ''}`,
+        className: `mode-button${value === current ? ' mode-button--selected' : ''}${disabled && value === current ? ' mode-button--pending' : ''}`,
         data: capabilityActionData(device, capability, option.value),
         disabled,
         ariaLabel: `设置 ${capability.label} 为 ${option.label}`
@@ -1606,15 +2176,15 @@ class ClientUi {
   buildPowerControl(device, capability, disabled) {
     const reported = plainObject(device.reportedState ?? device.state);
     const desired = plainObject(device.desiredState);
-    const current = Boolean(desired.power ?? reported.power ?? false);
+    const current = Boolean(disabled ? desired.power ?? reported.power ?? false : reported.power ?? false);
     const row = element('div', 'control-row');
     const heading = element('div', 'control-row__heading');
     const copy = element('div');
     copy.append(element('h4', '', { text: capability.label ?? '电源' }));
-    copy.append(element('p', '', { text: current ? '目标：开启' : '目标：关闭' }));
+    copy.append(element('p', '', { text: `${current ? '目标：开启' : '目标：关闭'}${disabled ? '（待确认）' : ''}` }));
     heading.append(copy);
     heading.append(actionButton('', 'command-power', {
-      className: `switch-button${current ? ' switch-button--on' : ''}`,
+      className: `switch-button${current ? ' switch-button--on' : ''}${disabled ? ' switch-button--pending' : ''}`,
       data: { deviceId: deviceKey(device), commandType: capability.commandType ?? 'set_power', nextValue: String(!current) },
       ariaLabel: current ? '关闭电源' : '开启电源',
       disabled
@@ -1627,7 +2197,9 @@ class ClientUi {
     const reported = plainObject(device.reportedState ?? device.state);
     const desired = plainObject(device.desiredState);
     const stored = this.local.commandValues[`level:${deviceKey(device)}`];
-    const value = clampNumber(stored ?? desired.level ?? desired.brightness ?? reported.level ?? reported.brightness ?? 0, 0, 100);
+    const value = clampNumber(disabled
+      ? stored ?? desired.level ?? desired.brightness ?? reported.level ?? reported.brightness ?? 0
+      : reported.level ?? reported.brightness ?? 0, 0, 100);
     const row = element('div', 'control-row');
     const heading = element('div', 'control-row__heading');
     const copy = element('div');
@@ -1646,7 +2218,7 @@ class ClientUi {
       data: { deviceId: deviceKey(device), commandType: capability.commandType ?? 'set_level', field: 'level' },
       ariaLabel: `${capability.label ?? '强度'} ${value}%`
     }));
-    rangeRow.append(element('output', 'range-value', { text: `${value}%` }));
+    rangeRow.append(element('output', `range-value${disabled ? ' range-value--pending' : ''}`, { text: `${value}%` }));
     row.append(rangeRow);
     return row;
   }
@@ -1655,12 +2227,12 @@ class ClientUi {
     const options = arrayOf(capability.options ?? capability.values ?? device.modeOptions);
     const reported = plainObject(device.reportedState ?? device.state);
     const desired = plainObject(device.desiredState);
-    const current = String(desired.mode ?? reported.mode ?? '');
+    const current = String(disabled ? desired.mode ?? reported.mode ?? '' : reported.mode ?? '');
     const row = element('div', 'control-row');
     const heading = element('div', 'control-row__heading');
     const copy = element('div');
     copy.append(element('h4', '', { text: capability.label ?? '模式' }));
-    copy.append(element('p', '', { text: options.length ? '选择一个设备提供的运行模式。' : '设备没有提供可选模式。' }));
+    copy.append(element('p', '', { text: disabled ? '目标模式待设备确认。' : options.length ? '选择一个设备提供的运行模式。' : '设备没有提供可选模式。' }));
     heading.append(copy);
     row.append(heading);
     if (!options.length) return row;
@@ -1670,7 +2242,7 @@ class ClientUi {
       const value = String(option?.value ?? option?.id ?? option);
       const label = String(option?.label ?? option?.name ?? option);
       grid.append(actionButton(label, 'command-mode', {
-        className: `mode-button${value === current ? ' mode-button--selected' : ''}`,
+        className: `mode-button${value === current ? ' mode-button--selected' : ''}${disabled && value === current ? ' mode-button--pending' : ''}`,
         data: { deviceId: deviceKey(device), commandType: capability.commandType ?? 'set_mode', value },
         disabled,
         ariaLabel: `设置模式为 ${label}`
@@ -1689,17 +2261,40 @@ class ClientUi {
       return surface;
     }
 
-    const card = element('div', 'command-card');
+    const status = normalizeCommandStatus(command.status);
+    const observation = this.model.commandObservation[commandKey(command)];
+    const observationStopped = ['exhausted', 'error'].includes(observation?.phase) && ['PENDING', 'SENT'].includes(status);
+    const presentationKey = `${this.model.context.siteCode}:${deviceKey(device)}`;
+    const currentPresentation = { id: commandKey(command), status };
+    const motion = commandMotionKind(this.commandPresentation.get(presentationKey), currentPresentation);
+    this.commandPresentation.set(presentationKey, currentPresentation);
+    const card = element('div', `command-card command-card--${status.toLowerCase()}${motion ? ` command-card--${motion}` : ''}`);
     const row = element('div', 'command-card__row');
     const copy = element('div');
     copy.append(element('h4', 'command-card__title', { text: commandLabel(command) }));
     copy.append(element('p', 'command-card__meta', { text: commandTimestamp(command) }));
     row.append(copy);
-    row.append(statusChip(commandStatusLabel(command.status), commandTone(command.status), ['PENDING', 'SENT'].includes(normalizeCommandStatus(command.status))));
+    const resultChip = statusChip(
+      commandStatusLabel(status),
+      commandTone(status),
+      ['PENDING', 'SENT'].includes(status) && !observationStopped,
+      ({ ACKNOWLEDGED: 'CircleCheck', FAILED: 'CircleAlert', UNCONFIRMED: 'TriangleAlert' })[status]
+    );
+    resultChip.setAttribute('role', 'status');
+    row.append(resultChip);
     card.append(row);
+    if (observationStopped) card.append(this.buildNotice(observation.message || '暂时无法获取回执，请核对设备状态；不会自动重发命令。', 'warning', null, '回执查询已结束'));
     const reason = command.failureReason ?? command.error ?? command.message;
-    if (reason && normalizeCommandStatus(command.status) === 'FAILED') {
-      card.append(element('p', 'command-card__error', { text: String(reason) }));
+    if (status === 'PENDING') {
+      card.append(element('p', 'command-card__help', { text: '目标状态已提交，等待发送；设备当前状态仍以已上报值为准。' }));
+    } else if (status === 'SENT') {
+      card.append(element('p', 'command-card__help', { text: '命令已发送，等待设备回执；尚不能视为执行成功。' }));
+    } else if (status === 'UNCONFIRMED') {
+      card.append(element('p', 'command-card__help command-card__help--warning', {
+        text: '结果未确认，请先核对设备当前状态；不会自动重发命令。'
+      }));
+    } else if (status === 'FAILED') {
+      card.append(element('p', 'command-card__error', { text: String(reason || '命令未完成，请检查连接后重试。') }));
       card.append(actionButton('重试命令', 'retry-command', {
         className: 'button button--small button--danger',
         iconName: 'RotateCcw',
@@ -1722,14 +2317,31 @@ class ClientUi {
     heading.append(openAll);
     surface.append(heading);
     const activities = this.activitiesForDevice(device).slice(0, limit);
+    const timeline = this.buildActivityTimeline(activities, `device:${deviceKey(device)}`, 'timeline');
     if (!activities.length) {
       surface.append(element('p', 'empty-inline', { text: '暂无活动记录。' }));
       return surface;
     }
-    const timeline = element('div', 'timeline');
-    activities.forEach((activity) => timeline.append(activityTimelineItem(activity)));
     surface.append(timeline);
     return surface;
+  }
+
+  buildActivityTimeline(activities, scope, className = 'timeline') {
+    const timeline = element('div', className);
+    const previous = this.activityPresentation.get(scope);
+    const known = new Set(previous ?? []);
+    const current = arrayOf(activities);
+    current.forEach((activity, index) => {
+      const key = activityMotionKey(activity);
+      const item = activityTimelineItem(activity);
+      item.dataset.activityKey = key;
+      if (index === 0 && previous && !known.has(key)) item.classList.add('motion-reveal');
+      timeline.append(item);
+      known.add(key);
+    });
+    while (known.size > 60) known.delete(known.values().next().value);
+    this.activityPresentation.set(scope, known);
+    return timeline;
   }
 
   buildMetadataSurface(metadata) {
@@ -1751,17 +2363,19 @@ class ClientUi {
     fragment.append(screenHeading('现场动态', '来自本地连接与模拟平台的最新活动。'));
     const surface = element('section', 'surface surface--padded');
     const activities = allActivities(this.model);
+    const resource = this.model.resources.activity ?? {};
+    if (resource.phase === 'loading' || resource.refreshing) surface.append(this.buildResourceMessage('正在读取动态…', true));
+    if (resource.error) surface.append(this.buildNotice(resource.error, 'warning', null, '动态读取失败'));
+    const list = this.buildActivityTimeline(activities.slice(0, 30), `all:${this.model.context.siteCode}`, 'activity-list');
     if (!activities.length) {
       const empty = element('div', 'empty-state');
       const iconWrap = element('div', 'empty-state__icon', { ariaHidden: 'true' });
       iconWrap.append(icon('Activity', 27));
       empty.append(iconWrap);
-      empty.append(element('h3', '', { text: '暂无现场动态' }));
+      empty.append(element('h3', '', { text: resource.phase === 'loading' ? '正在读取动态' : resource.error ? '动态暂不可用' : '暂无现场动态' }));
       empty.append(element('p', '', { text: '连接设备、认领局域网候选设备或发送命令后，活动会显示在这里。' }));
       surface.append(empty);
     } else {
-      const list = element('div', 'activity-list');
-      activities.slice(0, 30).forEach((activity) => list.append(activityTimelineItem(activity)));
       surface.append(list);
     }
     fragment.append(surface);
@@ -1794,7 +2408,8 @@ class ClientUi {
 
   getSelectedCandidate() {
     if (!this.local.selectedCandidateId) return null;
-    return this.model.lanCandidates.find((candidate) => sameKey(candidateKey(candidate), this.local.selectedCandidateId)) ?? null;
+    return this.model.lanCandidates.find((candidate) => sameKey(candidateKey(candidate), this.local.selectedCandidateId))
+      ?? (this.isBusy('claim-lan') && sameKey(candidateKey(this.selectedCandidateSnapshot), this.local.selectedCandidateId) ? this.selectedCandidateSnapshot : null);
   }
 
   activitiesForDevice(device) {
@@ -1821,22 +2436,32 @@ class ClientUi {
     return this.local.busyActions.has(action);
   }
 
+  isCommandPending(deviceId) {
+    const device = this.getActiveDevice();
+    if (!device || (deviceId != null && deviceKey(device) !== String(deviceId))) return false;
+    const command = this.latestCommand(device);
+    if (!command) return false;
+    const status = normalizeCommandStatus(command.status);
+    return status === 'PENDING' || status === 'SENT';
+  }
+
   onClick(event) {
     const target = event.target instanceof Element ? event.target.closest('[data-action]') : null;
-    if (!target || !this.root.contains(target) || target.disabled) return;
+    if (!target || !this.root.contains(target) || target.disabled || target.getAttribute('aria-disabled') === 'true') return;
     const action = target.dataset.action;
     if (!action) return;
     event.preventDefault();
 
     switch (action) {
       case 'navigate':
-        this.local.screen = target.dataset.screen ?? 'devices';
-        this.invoke('setTab', { screen: this.local.screen });
+        if (target.dataset.motion === 'back') { this.back(target.dataset.screen ?? 'devices'); break; }
+        this.navigate(target.dataset.screen ?? 'devices', { kind: target.dataset.motion === 'peer' ? 'peer' : 'push' });
+        this.invoke('setTab', { screen: this.local.screen }, { render: false });
         this.render(this.model);
         break;
       case 'open-add-device':
-        this.local.screen = 'add';
-        this.invoke('openAddDevice');
+        this.navigate('add', { kind: 'peer' });
+        this.invoke('openAddDevice', {}, { render: false });
         this.render(this.model);
         break;
       case 'choose-add-path':
@@ -1858,8 +2483,12 @@ class ClientUi {
         this.selectCandidate(target.dataset.candidateId);
         break;
       case 'cancel-claim':
+        this.exitGhost(this.root.querySelector('[data-region="claim-form"]'));
+        this.claimDrafts.set(this.local.selectedCandidateId, { ...this.local.claim });
+        this.viewRevision += 1;
         this.local.selectedCandidateId = null;
         this.render(this.model);
+        this.root.querySelector('[data-action="discover-lan"]')?.focus({ preventScroll: true });
         break;
       case 'claim-lan':
         this.claimCandidate(target.dataset.candidateId);
@@ -1868,18 +2497,28 @@ class ClientUi {
         this.openDevice(target.dataset.deviceId);
         break;
       case 'open-weather':
-        this.local.screen = 'weather';
-        this.invoke('openWeather', {}, { busy: 'open-weather' });
+        this.navigate('weather');
+        this.invoke('openWeather', {}, {
+          busy: 'open-weather',
+          render: false,
+          onRejected: (error) => {
+            this.local.transientError = null;
+            this.notify(errorMessage(error), 'danger');
+          }
+        });
         this.render(this.model);
         break;
       case 'open-site-switcher':
-        this.local.screen = 'sites';
+        this.navigate('sites');
         this.render(this.model);
         break;
       case 'select-site':
         this.invoke('switchSite', { siteCode: target.dataset.siteCode }, {
           busy: 'switch-site',
-          onResolved: () => { this.local.screen = 'devices'; }
+          onResolved: () => {
+            this.screenScrollPositions.delete('devices');
+            this.navigate('devices', { kind: 'replace' });
+          }
         });
         break;
       case 'update-weather-location':
@@ -1889,10 +2528,24 @@ class ClientUi {
         this.invoke('retryPendingWeatherLocation', {}, { busy: 'weather-pending-location' });
         break;
       case 'save-manual-weather-location':
+        if (!this.validateWeatherDraft()) break;
         this.invoke('updateWeatherFromManualLocation', { ...this.local.weatherLocationDraft }, { busy: 'weather-manual-location' });
         break;
       case 'refresh-weather':
-        this.invoke('refreshWeather', {}, { busy: 'refresh-weather' });
+        this.invoke('refreshWeather', {}, {
+          busy: 'refresh-weather',
+          render: false,
+          onRejected: (error) => {
+            this.local.transientError = null;
+            this.notify(errorMessage(error), 'danger');
+          },
+          onSettled: () => {
+            this.patchWeatherRefreshAction();
+          }
+        });
+        break;
+      case 'pull-refresh':
+        this.performPullRefresh();
         break;
       case 'command-power':
         this.sendCommand(target.dataset.deviceId, target.dataset.commandType, { on: target.dataset.nextValue === 'true' }, 'command-power');
@@ -1912,7 +2565,7 @@ class ClientUi {
         this.invoke('forgetBle', { deviceId: target.dataset.deviceId }, {
           busy: 'forget-ble',
           onResolved: () => {
-            this.local.screen = 'devices';
+            this.navigate('devices', { kind: 'replace' });
           }
         });
         break;
@@ -1939,14 +2592,21 @@ class ClientUi {
           oidcScope: this.model.endpointProfile?.oidcScope ?? ''
         };
         this.local.endpointTest = null;
-        this.local.screen = 'connections';
+        this.navigate('connections');
         this.render(this.model);
         break;
       case 'choose-endpoint-route':
+        if (this.local.endpointDraft.accessRoute === target.dataset.route) break;
+        if (target.dataset.route === 'SITE_API' && document.activeElement?.dataset.field?.startsWith('endpointOidc')) target.focus({ preventScroll: true });
+        this.revealOidcFields = target.dataset.route === 'CLOUD_API';
+        this.viewRevision += 1;
+        this.local.endpointTest = null;
         this.local.endpointDraft.accessRoute = target.dataset.route;
         this.render(this.model);
         break;
       case 'test-endpoint':
+        if (!this.validateEndpointDraft(false)) break;
+        this.local.endpointTest = null;
         this.invoke('testEndpoint', {
           accessRoute: this.local.endpointDraft.accessRoute,
           apiBaseUrl: this.local.endpointDraft.apiBaseUrl,
@@ -1955,10 +2615,12 @@ class ClientUi {
           busy: 'test-endpoint',
           onResolved: (result) => {
             this.local.endpointTest = result;
+            this.revealEndpointTest = true;
           }
         });
         break;
       case 'save-endpoint':
+        if (!this.validateEndpointDraft(true)) break;
         this.invoke('switchEndpoint', {
           id: this.local.endpointDraft.accessRoute === 'SITE_API' ? 'site' : 'cloud',
           accessRoute: this.local.endpointDraft.accessRoute,
@@ -1984,8 +2646,14 @@ class ClientUi {
         this.invoke('openBluetoothSettings');
         break;
       case 'dismiss-error':
+        this.exitGhost(target.closest('.notice'));
         this.local.transientError = null;
         this.invoke('dismissError');
+        {
+          const heading = this.root.querySelector('[data-region="screen-content"] h2');
+          heading?.setAttribute('tabindex', '-1');
+          heading?.focus({ preventScroll: true });
+        }
         this.render({ ...this.model, error: null });
         break;
       default:
@@ -1997,6 +2665,17 @@ class ClientUi {
     const target = event.target;
     if (!(target instanceof HTMLInputElement) || !this.root.contains(target)) return;
     const field = target.dataset.field;
+    if (field?.startsWith('endpoint')) {
+      this.viewRevision += 1;
+      this.local.endpointTest = null;
+      this.root.querySelector('[data-region="endpoint-test-result"]')?.remove();
+    }
+    if (this.fieldErrors[field]) {
+      delete this.fieldErrors[field];
+      target.removeAttribute('aria-invalid');
+      document.getElementById(`${target.id}-error`)?.remove();
+      target.setAttribute('aria-describedby', `${target.id}-hint`);
+    }
     if (field === 'displayName' || field === 'siteCode' || field === 'spacePath') {
       this.local.claim[field] = target.value;
       return;
@@ -2044,71 +2723,74 @@ class ClientUi {
   }
 
   onPointerDown(event) {
-    if (!this.supportsPullRefresh() || this.local.pull.refreshing || window.scrollY > 0 || event.pointerType === 'mouse') return;
-    this.local.pull = {
-      pointerId: event.pointerId,
-      startY: event.clientY,
-      distance: 0,
-      armed: false,
-      refreshing: false
-    };
+    if (event.target instanceof HTMLInputElement && event.target.classList.contains('range-input') && !event.target.disabled) {
+      this.rangeInteraction = { pointerId: event.pointerId, target: event.target };
+      return;
+    }
+    const excluded = event.target.closest?.('input, textarea, select, button, a, [contenteditable], .weather-hourly-list, .weather-daily-list');
+    this.pullGesture.start({
+      pointerId: event.pointerId, pointerType: event.pointerType, isPrimary: event.isPrimary,
+      x: event.clientX, y: event.clientY, atTop: window.scrollY <= 0,
+      eligible: this.supportsPullRefresh() && !this.isBusy('pull-refresh') && !excluded && !window.getSelection()?.toString()
+    });
+    this.syncPullState();
   }
 
   onPointerMove(event) {
-    const pull = this.local.pull;
-    if (pull.pointerId !== event.pointerId || pull.refreshing) return;
-    const distance = Math.max(0, event.clientY - pull.startY);
-    if (distance === 0) return;
-    if (window.scrollY > 0) {
-      this.resetPullRefresh();
-      return;
-    }
-    event.preventDefault();
-    pull.distance = Math.min(100, distance * 0.5);
-    pull.armed = pull.distance >= 72;
-    this.updatePullRefreshIndicator();
+    const pull = this.pullGesture.move({ pointerId: event.pointerId, x: event.clientX, y: event.clientY, atTop: window.scrollY <= 0 });
+    if (pull.pointerId === event.pointerId && pull.distance > 0 && event.cancelable) event.preventDefault();
+    this.syncPullState();
   }
 
   onPointerUp(event) {
-    const pull = this.local.pull;
-    if (pull.pointerId !== event.pointerId) return;
-    const shouldRefresh = pull.armed && !pull.refreshing;
-    pull.pointerId = null;
-    if (!shouldRefresh) {
-      this.resetPullRefresh();
-      return;
+    if (this.rangeInteraction?.pointerId === event.pointerId) {
+      this.rangeInteraction = null;
+      if (this.deferredControlPatch || event.type === 'pointercancel') {
+        this.deferredControlPatch = false;
+        // Let the range's native change event submit its final value before rebuilding.
+        window.setTimeout(() => {
+          const device = this.local.screen === 'detail' ? this.getActiveDevice() : null;
+          if (activeUi === this && device && this.root.isConnected && !this.rangeInteraction) this.patchDeviceControls(device);
+        }, 0);
+      }
     }
-    pull.refreshing = true;
-    pull.distance = 72;
-    pull.armed = false;
-    this.updatePullRefreshIndicator();
+    const pull = this.pullGesture.release({ pointerId: event.pointerId, cancelled: event.type === 'pointercancel' || !this.supportsPullRefresh() || window.scrollY > 0 });
+    this.syncPullState();
+    if (pull.refresh) this.performPullRefresh(pull.requestId);
+  }
+
+  performPullRefresh(requestId = null) {
+    if (this.isBusy('pull-refresh')) return;
     this.invoke('pullRefresh', { screen: this.local.screen }, {
       busy: 'pull-refresh',
-      onResolved: () => this.notify('已刷新最新数据。', 'success'),
-      onRejected: (error) => { this.local.transientError = errorMessage(error); }
-    });
-    // invoke deliberately returns immediately for Promise handlers. Reset once
-    // the UI finishes its current async refresh state.
-    const waitForCompletion = () => {
-      const busy = this.isBusy('pull-refresh');
-      if (busy) {
-        window.setTimeout(waitForCompletion, 80);
-        return;
+      onResolved: (result) => {
+        if (result?.status === 'superseded') return;
+        const success = result?.status === 'updated';
+        this.notify(result?.message ?? (success ? '已完成数据刷新。' : result?.status === 'cooldown' ? '刷新冷却中，保留当前数据。' : '刷新已结束，请以各区域显示的同步状态为准。'), success ? 'success' : 'default');
+      },
+      onFinished: () => {
+        if (requestId != null) this.pullGesture.settle(requestId);
+        if (!this.destroyed) this.syncPullState();
       }
-      this.resetPullRefresh();
-    };
-    window.setTimeout(waitForCompletion, 80);
+    });
+  }
+
+  syncPullState() {
+    const state = this.pullGesture.snapshot();
+    const visible = this.supportsPullRefresh() && !document.hidden;
+    this.local.pull = { ...state, distance: visible ? state.distance : 0, refreshing: visible && state.phase === 'refreshing' };
+    this.updatePullRefreshIndicator();
   }
 
   updatePullRefreshIndicator() {
     const indicator = this.root.querySelector('.pull-refresh');
     if (!indicator) {
-      this.render(this.model);
       return;
     }
     const pull = this.local.pull;
     indicator.classList.toggle('pull-refresh--visible', pull.distance > 0 || pull.refreshing);
     indicator.classList.toggle('pull-refresh--armed', pull.armed);
+    indicator.classList.toggle('pull-refresh--refreshing', pull.refreshing);
     indicator.style.setProperty('--pull-distance', `${Math.min(72, pull.distance)}px`);
     indicator.setAttribute('aria-hidden', pull.distance > 0 || pull.refreshing ? 'false' : 'true');
     const label = indicator.querySelector('span');
@@ -2116,30 +2798,27 @@ class ClientUi {
   }
 
   resetPullRefresh() {
-    this.local.pull = {
-      pointerId: null,
-      startY: 0,
-      distance: 0,
-      armed: false,
-      refreshing: false
-    };
-    this.updatePullRefreshIndicator();
+    this.pullGesture.cancel();
+    this.syncPullState();
   }
 
   choosePath(path) {
-    this.local.screen = path === 'ble' ? 'ble' : 'lan';
-    this.invoke('chooseAddPath', { path });
+    this.navigate(path === 'ble' ? 'ble' : 'lan');
+    this.invoke('chooseAddPath', { path }, { render: false });
     this.render(this.model);
   }
 
   selectCandidate(candidateId) {
     const candidate = this.model.lanCandidates.find((item) => sameKey(candidateKey(item), candidateId));
     if (!candidate) return;
+    if (this.local.selectedCandidateId === candidateId) return;
+    if (this.local.selectedCandidateId) this.claimDrafts.set(this.local.selectedCandidateId, { ...this.local.claim });
+    this.viewRevision += 1;
     this.local.selectedCandidateId = candidateId;
-    this.local.claim.displayName = candidateName(candidate);
-    this.local.claim.siteCode = this.model.context.siteCode;
-    this.local.claim.spacePath = this.model.context.spacePath;
-    this.invoke('selectLanCandidate', { candidate });
+    this.selectedCandidateSnapshot = candidate;
+    this.local.claim = this.claimDrafts.get(candidateId) ?? { displayName: candidateName(candidate), siteCode: this.model.context.siteCode, spacePath: this.model.context.spacePath };
+    this.revealClaimForm = true;
+    this.invoke('selectLanCandidate', { candidate }, { render: false });
     this.render(this.model);
   }
 
@@ -2151,6 +2830,7 @@ class ClientUi {
       spacePath: this.local.claim.spacePath.trim()
     };
     if (!payload.displayName) {
+      this.fieldErrors.displayName = '请填写设备显示名称。';
       this.local.transientError = '请填写设备显示名称后再认领。';
       this.render(this.model);
       return;
@@ -2159,14 +2839,14 @@ class ClientUi {
       busy: 'claim-lan',
       onResolved: () => {
         this.local.selectedCandidateId = null;
-        this.local.screen = 'devices';
+        this.navigate('devices', { kind: 'replace' });
       }
     });
   }
 
   openDevice(deviceId) {
-    this.local.screen = 'detail';
-    this.invoke('openDevice', { deviceId });
+    this.navigate('detail', { entityId: deviceId, kind: this.local.screen === 'detail' ? 'replace' : 'push' });
+    this.invoke('openDevice', { deviceId }, { render: false });
     this.render({ ...this.model, activeDeviceId: deviceId });
   }
 
@@ -2186,11 +2866,88 @@ class ClientUi {
     this.sendCommand(target.dataset.deviceId, target.dataset.commandType, parameters, busy, desiredState);
   }
 
+  validateWeatherDraft() {
+    const draft = this.local.weatherLocationDraft;
+    this.fieldErrors = {};
+    if (!validCoordinate(draft.latitude, -90, 90)) this.fieldErrors.weatherLatitude = '请输入 −90 至 90 的有效纬度，不能为空。';
+    if (!validCoordinate(draft.longitude, -180, 180)) this.fieldErrors.weatherLongitude = '请输入 −180 至 180 的有效经度，不能为空。';
+    try { new Intl.DateTimeFormat('zh-CN', { timeZone: draft.timezone.trim() }).format(); }
+    catch { this.fieldErrors.weatherTimezone = '请输入有效时区，例如 Asia/Shanghai。'; }
+    const first = Object.keys(this.fieldErrors)[0];
+    if (!first) return true;
+    this.render(this.model);
+    this.root.querySelector(`[data-field="${first}"]`)?.focus({ preventScroll: true });
+    return false;
+  }
+
+  validateEndpointDraft(includeOidc) {
+    const draft = this.local.endpointDraft;
+    this.fieldErrors = {};
+    const checkUrl = (field, value, protocols, message, { relative = false, secure = false, custom = false } = {}) => {
+      try {
+        const text = String(value ?? '').trim();
+        if (!text) throw new Error();
+        const parsed = relative && text.startsWith('/') && !text.startsWith('//')
+          ? new URL(text, window.location.origin) : new URL(text);
+        const customScheme = custom && !['http:', 'https:'].includes(parsed.protocol);
+        if ((!customScheme && !protocols.includes(parsed.protocol)) || parsed.username || parsed.password) throw new Error();
+        if (secure && !customScheme && parsed.protocol !== 'https:'
+          && !(parsed.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname))) throw new Error();
+      } catch { this.fieldErrors[field] = message; }
+    };
+    checkUrl('endpointApiUrl', draft.apiBaseUrl, ['http:', 'https:'], '请输入有效的 HTTP/HTTPS API 地址或同源路径，不含账号密码。', { relative: true });
+    checkUrl('endpointWsUrl', draft.wsUrl, ['ws:', 'wss:', 'http:', 'https:'], '请输入有效的 WS/WSS 地址（也可由 HTTP/HTTPS 转换）。');
+    // Preserve the existing all-empty local/development compatibility mode.
+    // Once any OIDC detail is entered, require the complete public config.
+    if (includeOidc && draft.accessRoute === 'CLOUD_API'
+      && [draft.oidcIssuerUrl, draft.oidcClientId, draft.oidcRedirectUri].some(value => value?.trim())) {
+      checkUrl('endpointOidcIssuerUrl', draft.oidcIssuerUrl, ['https:', 'http:'], '请输入 HTTPS Issuer 地址；仅 localhost 允许 HTTP。', { secure: true });
+      if (!draft.oidcClientId?.trim()) this.fieldErrors.endpointOidcClientId = '请输入公开客户端 Client ID。';
+      checkUrl('endpointOidcRedirectUri', draft.oidcRedirectUri, ['https:', 'http:'], '请输入安全回调地址；Android 使用 com.iot.manager.client://oauth/callback。', { secure: true, custom: true });
+    }
+    const first = Object.keys(this.fieldErrors)[0];
+    if (!first) return true;
+    this.render(this.model);
+    this.root.querySelector(`[data-field="${first}"]`)?.focus({ preventScroll: true });
+    return false;
+  }
+
   invoke(name, payload = {}, options = {}) {
     const handler = this.handlers[name];
-    if (typeof handler !== 'function') return undefined;
+    if (typeof handler !== 'function' || this.destroyed) { options.onFinished?.(); return undefined; }
     const busy = options.busy;
+    const taskKey = `${busy ?? name}:${payload.deviceId ?? ''}`;
+    const { task, started } = this.tasks.begin(taskKey, { scopeKey: this.contextKey(), viewKey: this.viewKey() });
+    if (!started) return undefined;
+    const ownsView = () => !this.destroyed && this.tasks.isCurrent(task, { scopeKey: this.contextKey(), viewKey: this.viewKey() });
+    const resolved = (value) => {
+      if (ownsView()) {
+        if (value?.presentation && name !== 'claimLan') {
+          this.notify(value.presentation.message, value.presentation.status === 'updated' ? 'success' : 'warning');
+        }
+        options.onResolved?.(value);
+      }
+      return value;
+    };
+    const rejected = (error) => {
+      if (ownsView()) { this.local.transientError = errorMessage(error); options.onRejected?.(error); }
+      // Errors are presented here; callers do not receive an unhandled rejection.
+      return undefined;
+    };
+    const finished = () => {
+      const currentView = ownsView();
+      const currentScope = !this.destroyed && task.scopeKey === this.contextKey();
+      this.tasks.finish(task);
+      if (busy && this.busyOwners.get(busy) === task) {
+        this.busyOwners.delete(busy);
+        this.local.busyActions.delete(busy);
+      }
+      if (currentView) options.onSettled?.();
+      options.onFinished?.();
+      if (currentScope && options.render !== false) this.render(this.model);
+    };
     if (busy) {
+      this.busyOwners.set(busy, task);
       this.local.busyActions.add(busy);
       this.render(this.model);
     }
@@ -2198,26 +2955,15 @@ class ClientUi {
       // This call is intentionally synchronous so Web Bluetooth retains its user gesture.
       const result = handler(payload, { screen: this.local.screen, viewModel: this.model });
       if (result && typeof result.then === 'function') {
-        result
-          .then((value) => options.onResolved?.(value))
-          .catch((error) => {
-            this.local.transientError = errorMessage(error);
-            options.onRejected?.(error);
-          })
-          .finally(() => {
-            if (busy) this.local.busyActions.delete(busy);
-            this.render(this.model);
-          });
+        return Promise.resolve(result).then(resolved).catch(rejected).finally(finished);
       } else {
-        options.onResolved?.(result);
-        if (busy) this.local.busyActions.delete(busy);
-        this.render(this.model);
+        resolved(result);
+        finished();
       }
       return result;
     } catch (error) {
-      if (busy) this.local.busyActions.delete(busy);
-      this.local.transientError = errorMessage(error);
-      this.render(this.model);
+      rejected(error);
+      finished();
       return undefined;
     }
   }
@@ -2258,6 +3004,11 @@ function normalizeViewModel(viewModel) {
     lanCandidates: arrayOf(source.lanCandidates ?? discovery.candidates ?? discovery.lanCandidates),
     ble: plainObject(source.ble ?? source.bleState ?? {}),
     loading: plainObject(source.loading ?? source.loadingState ?? {}),
+    resources: plainObject(source.resources),
+    startup: plainObject(source.startup),
+    notices: arrayOf(source.notices),
+    commandObservation: plainObject(source.commandObservation),
+    weatherRefreshRetryAt: source.weatherRefreshRetryAt ?? null,
     error: source.error ?? source.lastError ?? null
   };
 }
@@ -2390,6 +3141,7 @@ function weatherDescription(weather) {
 }
 
 function validCoordinate(value, minimum, maximum) {
+  if (value == null || String(value).trim() === '') return false;
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric >= minimum && numeric <= maximum;
 }
@@ -2423,9 +3175,10 @@ function weatherForecastTime(value, daily) {
     : new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(date);
 }
 
-function statusChip(label, tone = 'info', spinning = false) {
+function statusChip(label, tone = 'info', spinning = false, iconName = null) {
   const chip = element('span', `status-chip status-chip--${tone}`);
   if (spinning) chip.append(element('span', 'spinner', { ariaHidden: 'true' }));
+  else if (iconName) chip.append(icon(iconName, 14));
   else chip.append(element('span', 'status-dot', { ariaHidden: 'true' }));
   chip.append(textNode(label));
   return chip;
@@ -2454,7 +3207,7 @@ function backButton(screen) {
   return actionButton('', 'navigate', {
     className: 'icon-button',
     iconName: 'ArrowLeft',
-    data: { screen },
+    data: { screen, motion: 'back' },
     ariaLabel: '返回'
   });
 }
@@ -2576,6 +3329,15 @@ function bleCandidateReference(candidate = {}) {
 
 function commandKey(command = {}) {
   return String(command.commandId ?? command.id ?? '');
+}
+
+function activityMotionKey(activity = {}) {
+  return String(activity.eventId ?? activity.activityId ?? activity.id ?? [
+    activity.eventType ?? activity.type ?? '',
+    activity.timestamp ?? activity.createdAt ?? activity.time ?? '',
+    activity.deviceId ?? activity.devicePublicId ?? '',
+    activity.commandId ?? ''
+  ].join('|'));
 }
 
 function deviceName(device = {}) {
@@ -2725,8 +3487,15 @@ function normalizeCommandStatus(value) {
   return raw || 'PENDING';
 }
 
+function screenAnnouncement(screen) {
+  return ({
+    devices: '设备列表', activity: '现场动态', add: '添加设备', ble: '蓝牙直连', lan: '局域网模拟发现',
+    detail: '设备详情', connections: '连接设置', sites: '选择站点', weather: '园区天气'
+  })[screen] ?? '设备运营';
+}
+
 function commandStatusLabel(value) {
-  return ({ PENDING: '待发送', SENT: '已发送', UNCONFIRMED: '已发送，设备未提供确认', ACKNOWLEDGED: '已确认', FAILED: '失败' })[normalizeCommandStatus(value)] ?? '待发送';
+  return ({ PENDING: '待发送', SENT: '等待回执', UNCONFIRMED: '结果未确认', ACKNOWLEDGED: '已确认', FAILED: '失败' })[normalizeCommandStatus(value)] ?? '待发送';
 }
 
 function commandTone(value) {

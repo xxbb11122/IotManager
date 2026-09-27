@@ -30,6 +30,16 @@ test('stale platform state disables controls without hiding capabilities', () =>
   assert.match(screen.notice, /缓存|同步/);
 });
 
+test('a disconnected known BLE profile is immediately read-only', () => {
+  const screen = deviceScreenState({
+    connection: { transport: 'BLE_DIRECT', profileId: 'relay-v1', status: 'DISCONNECTED' },
+    capabilities: [{ id: 'power', writable: true }]
+  }, { accessRoute: 'BLE_LOCAL', stale: false });
+  assert.equal(screen.showControls, false);
+  assert.equal(screen.controls.length, 1);
+  assert.match(screen.notice, /断开/);
+});
+
 test('DeviceView Profile capabilities can expose controls beyond the legacy demo set', () => {
   const screen = deviceScreenState({
     connections: [{ transport: 'LAN_AGENT', profileId: 'hvac-v2' }],

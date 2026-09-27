@@ -112,13 +112,15 @@ function base64UrlToBytes(value) {
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
-function sanitizeTokenSet(response, previous, now) {
+function sanitizeTokenSet(response, previous, now, cryptoRef) {
   const accessToken = text(response?.access_token);
   if (!accessToken) throw new OidcError('Token endpoint did not return an access token', { code: 'INVALID_TOKEN_RESPONSE' });
   const refreshToken = text(response?.refresh_token) || text(previous?.refreshToken) || null;
   const refreshExpiresIn = Number(response?.refresh_expires_in);
   return Object.freeze({
     accessToken,
+    // Opaque non-credential namespace, stable across refresh but new on login.
+    cachePartition: previous?.cachePartition ?? secureRandom(24, cryptoRef),
     refreshToken,
     idToken: text(response?.id_token) || text(previous?.idToken) || null,
     tokenType: text(response?.token_type) || 'Bearer',
@@ -150,6 +152,7 @@ function authState(configured, session, error = null) {
     authenticated,
     status: configured ? (authenticated ? 'authenticated' : 'signed_out') : 'not_configured',
     expiresAt: authenticated ? Number(session.expiresAt) : null,
+    cachePartition: authenticated ? session.cachePartition ?? null : null,
     error: error ? String(error.message ?? error) : null
   });
 }
@@ -182,6 +185,7 @@ export class OidcSessionManager {
     this.session = null;
     this.refreshPromise = null;
     this.refreshTimer = null;
+    this.sessionGeneration = 0;
   }
 
   isConfigured() {
@@ -203,7 +207,16 @@ export class OidcSessionManager {
 
   async restore() {
     if (!this.config) return this.getState();
-    this.session = await this.tokenStore.getJson(SESSION_KEY);
+    const generation = this.sessionGeneration;
+    const stored = await this.tokenStore.getJson(SESSION_KEY);
+    if (generation !== this.sessionGeneration) return this.getState();
+    this.session = stored;
+    if (this.session && (this.session.issuerUrl !== this.config.issuerUrl || this.session.clientId !== this.config.clientId
+      || typeof this.session.cachePartition !== 'string' || !this.session.cachePartition)) {
+      await this.clear({ emit: false });
+      this.emit(new OidcError('Stored session belongs to a different or unverified identity configuration; sign in again', { code: 'SESSION_CONTEXT_CHANGED' }));
+      return this.getState();
+    }
     if (!this.session?.accessToken) {
       this.session = null;
       this.emit();
@@ -279,6 +292,7 @@ export class OidcSessionManager {
 
   async completeRedirect(url) {
     if (!this.isRedirect(url)) return false;
+    const generation = this.sessionGeneration;
     const callback = new URL(url, this.config.redirectUri);
     const providerError = text(callback.searchParams.get('error'));
     if (providerError) {
@@ -291,6 +305,7 @@ export class OidcSessionManager {
     const code = text(callback.searchParams.get('code'));
     const state = text(callback.searchParams.get('state'));
     const transaction = await this.tokenStore.getJson(TRANSACTION_KEY);
+    if (generation !== this.sessionGeneration) return false;
     if (!code || !transaction || state !== transaction.state || transaction.redirectUri !== this.config.redirectUri) {
       await this.tokenStore.remove(TRANSACTION_KEY);
       const error = new OidcError('Sign-in callback could not be validated', { code: 'INVALID_CALLBACK' });
@@ -305,11 +320,14 @@ export class OidcSessionManager {
         client_id: this.config.clientId,
         code_verifier: transaction.codeVerifier
       });
-      await this.saveSession(response);
+      if (generation !== this.sessionGeneration) return false;
+      await this.saveSession(response, { newAuthorization: true });
+      if (generation !== this.sessionGeneration) return false;
       await this.tokenStore.remove(TRANSACTION_KEY);
       this.emit();
       return true;
     } catch (error) {
+      if (generation !== this.sessionGeneration) return false;
       await this.tokenStore.remove(TRANSACTION_KEY);
       this.emit(error);
       throw error;
@@ -332,31 +350,37 @@ export class OidcSessionManager {
     if (!refreshToken || (this.session?.refreshExpiresAt && Number(this.session.refreshExpiresAt) <= this.now())) {
       throw new OidcError('The sign-in session has expired', { code: 'REFRESH_EXPIRED' });
     }
-    this.refreshPromise = (async () => {
+    const generation = this.sessionGeneration;
+    const pending = (async () => {
       try {
         const response = await this.requestToken({
           grant_type: 'refresh_token',
           refresh_token: refreshToken,
           client_id: this.config.clientId
         });
+        if (generation !== this.sessionGeneration) return null;
         await this.saveSession(response);
+        if (generation !== this.sessionGeneration) return null;
         this.emit();
         return this.getAccessToken();
       } catch (error) {
+        if (generation !== this.sessionGeneration) return null;
         await this.clear({ emit: false });
         this.emit(error);
         throw error;
       } finally {
-        this.refreshPromise = null;
+        if (this.refreshPromise === pending) this.refreshPromise = null;
       }
     })();
-    return this.refreshPromise;
+    this.refreshPromise = pending;
+    return pending;
   }
 
   async logout({ navigate = true } = {}) {
     const previous = this.session;
-    const discovery = this.config ? await this.loadDiscovery().catch(() => null) : null;
+    // Local authority is revoked before any potentially slow provider request.
     await this.clear();
+    const discovery = this.config ? await this.loadDiscovery().catch(() => null) : null;
     const endSessionEndpoint = text(discovery?.end_session_endpoint);
     if (navigate && endSessionEndpoint) {
       const url = new URL(endSessionEndpoint);
@@ -372,13 +396,20 @@ export class OidcSessionManager {
   }
 
   async clear({ emit = true } = {}) {
-    this.stopAutoRefresh();
+    this.invalidatePendingOperations();
     this.session = null;
-    await Promise.all([
-      this.tokenStore.remove(SESSION_KEY),
-      this.tokenStore.remove(TRANSACTION_KEY)
-    ]);
-    if (emit) this.emit();
+    try {
+      await Promise.all([
+        this.tokenStore.remove(SESSION_KEY),
+        this.tokenStore.remove(TRANSACTION_KEY)
+      ]);
+    } finally { if (emit) this.emit(); }
+  }
+
+  invalidatePendingOperations() {
+    this.sessionGeneration += 1;
+    this.refreshPromise = null;
+    this.stopAutoRefresh();
   }
 
   stopAutoRefresh() {
@@ -445,8 +476,11 @@ export class OidcSessionManager {
     return payload;
   }
 
-  async saveSession(tokenResponse) {
-    const session = sanitizeTokenSet(tokenResponse, this.session, this.now());
+  async saveSession(tokenResponse, { newAuthorization = false } = {}) {
+    const session = Object.freeze({
+      ...sanitizeTokenSet(tokenResponse, newAuthorization ? null : this.session, this.now(), this.cryptoRef),
+      issuerUrl: this.config.issuerUrl, clientId: this.config.clientId
+    });
     this.session = session;
     await this.tokenStore.setJson(SESSION_KEY, session);
     this.scheduleRefresh();

@@ -97,34 +97,52 @@ test('mobile client exposes devices, activity, add, and connection settings with
   });
   await page.goto('/');
   await expect(page.locator('.weather-header-summary')).toBeVisible();
+  await page.evaluate(() => {
+    window.__pageMotionStarts = [];
+    window.__localMotionStarts = [];
+    document.getElementById('app').addEventListener('animationstart', (event) => {
+      if (event.target.matches('[data-region="screen"]')) window.__pageMotionStarts.push(event.animationName);
+      if (event.target.matches('.weather-data, .timeline-item')) window.__localMotionStarts.push(event.animationName);
+    });
+  });
   await expect.poll(() => deviceReadCount).toBeGreaterThan(0);
   const deviceReadsBeforePull = deviceReadCount;
-  await page.locator('#app').dispatchEvent('pointerdown', { pointerId: 77, pointerType: 'touch', clientY: 8 });
+  await page.locator('#app').dispatchEvent('pointerdown', { pointerId: 77, pointerType: 'touch', isPrimary: true, clientY: 8 });
   await page.locator('#app').dispatchEvent('pointermove', { pointerId: 77, pointerType: 'touch', clientY: 180 });
   await expect(page.locator('.pull-refresh')).toContainText('松开即可刷新');
   await page.locator('#app').dispatchEvent('pointerup', { pointerId: 77, pointerType: 'touch', clientY: 180 });
   await expect.poll(() => deviceReadCount).toBeGreaterThan(deviceReadsBeforePull);
   await page.locator('.weather-header-summary').click();
+  await expect.poll(() => page.evaluate(() => window.__pageMotionStarts.length)).toBe(1);
+  await expect(page.locator('[data-region="navigation-announcement"]')).toHaveText('园区天气');
   await expect(page.locator('.weather-location')).toBeVisible();
   await expect(page.locator('[data-action="update-weather-location"]')).toBeVisible();
   await expect(page.locator('#weather-latitude')).toBeVisible();
   await page.getByRole('button', { name: '刷新天气' }).click();
   await expect(page.locator('[data-region="weather-cooldown"]')).toContainText('天气刷新冷却中');
+  await expect.poll(() => page.evaluate(() => window.__localMotionStarts.includes('motion-reveal-in'))).toBe(true);
   await expect(page.getByRole('button', { name: /秒后可刷新/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /秒后可刷新/ })).toBeDisabled();
   await page.evaluate(() => { window.__iotShellBeforeCooldownTick = document.querySelector('.app-shell'); });
   await page.waitForTimeout(1_100);
   expect(await page.evaluate(() => window.__iotShellBeforeCooldownTick === document.querySelector('.app-shell'))).toBe(true);
+  await expect(page.locator('[data-action="refresh-weather"]')).toBeFocused();
+  expect(await page.evaluate(() => window.__pageMotionStarts)).toEqual(['screen-forward-in']);
   await page.getByRole('button', { name: '返回' }).click();
+  await expect.poll(() => page.evaluate(() => window.__pageMotionStarts.length)).toBe(2);
   await expect(page.getByRole('navigation', { name: '主导航' }).first()).toBeVisible();
   await expect(page.getByText('我的设备')).toBeVisible();
   await expect(page.getByRole('button', { name: /添加/ }).first()).toBeVisible();
   await page.getByRole('button', { name: '连接设置' }).click();
+  await expect.poll(() => page.evaluate(() => window.__pageMotionStarts.length)).toBe(3);
   await expect(page.getByRole('heading', { name: '连接设置' })).toBeVisible();
   await expect(page.getByRole('button', { name: '现场 LAN' })).toBeVisible();
   await expect(page.getByRole('button', { name: '互联网远程' })).toBeVisible();
   await page.getByRole('button', { name: '测试连接' }).click();
   await expect(page.getByText(/连接成功/)).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.activeElement?.dataset?.action)).toBe('test-endpoint');
   await expect(page.getByText(/当前没有设备/)).toBeVisible();
+  expect(await page.evaluate(() => window.__pageMotionStarts.length)).toBe(3);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
   expect(overflow).toBe(false);
   expect(runtimeErrors).toEqual([]);
@@ -136,15 +154,18 @@ test('mobile client exposes devices, activity, add, and connection settings with
   const compactHeader = await page.evaluate(() => {
     const title = document.querySelector('.app-brand h1')?.getBoundingClientRect();
     const connection = [...document.querySelectorAll('button')].find((button) => button.textContent.includes('连接设置'))?.getBoundingClientRect();
+    const weather = document.querySelector('.weather-header-summary')?.getBoundingClientRect();
     return {
       overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
       titleHeight: title?.height ?? 0,
-      connectionHeight: connection?.height ?? 0
+      connectionHeight: connection?.height ?? 0,
+      weatherHeight: weather?.height ?? 0
     };
   });
   expect(compactHeader.overflow).toBe(false);
   expect(compactHeader.titleHeight).toBeLessThanOrEqual(20);
-  expect(compactHeader.connectionHeight).toBeLessThanOrEqual(32);
+  expect(compactHeader.connectionHeight).toBeGreaterThanOrEqual(48);
+  expect(compactHeader.weatherHeight).toBeGreaterThanOrEqual(48);
 
   await page.setViewportSize({ width: 1280, height: 800 });
   await expect(page.getByRole('navigation', { name: '主导航' }).first()).toBeVisible();
@@ -152,4 +173,19 @@ test('mobile client exposes devices, activity, add, and connection settings with
   expect(desktopOverflow).toBe(false);
   await page.waitForTimeout(200);
   await page.screenshot({ path: testInfo.outputPath('desktop-connections.png'), fullPage: true });
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.getByRole('button', { name: '返回' }).click();
+  const reducedMotion = await page.evaluate(() => {
+    const spinner = document.createElement('span');
+    spinner.className = 'spinner';
+    document.body.append(spinner);
+    const result = {
+      page: getComputedStyle(document.querySelector('[data-region="screen"]')).animationName,
+      spinner: getComputedStyle(spinner).animationName
+    };
+    spinner.remove();
+    return result;
+  });
+  expect(reducedMotion).toEqual({ page: 'none', spinner: 'none' });
 });

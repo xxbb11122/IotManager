@@ -2,12 +2,16 @@ import { openDB } from 'idb';
 
 function scopeKey({ endpointId, organizationCode }) {
   if (!endpointId || !organizationCode) throw new TypeError('Platform cache requires endpoint and organization');
-  return `${endpointId}:${organizationCode}`;
+  return JSON.stringify([String(endpointId), String(organizationCode)]);
+}
+
+function partitionKey(scope) {
+  return JSON.stringify([scopeKey(scope), scope.apiBaseUrl ?? '', scope.authPartition ?? 'public', scope.siteCode ?? null]);
 }
 
 function weatherScopeKey(scope) {
   if (!scope?.siteCode) throw new TypeError('Weather cache requires site code');
-  return `${scopeKey(scope)}:${scope.siteCode}`;
+  return partitionKey(scope);
 }
 
 export class CacheRepository {
@@ -36,11 +40,14 @@ export class CacheRepository {
 
   async replacePlatformDevices(scope, devices = scope.devices ?? []) {
     const key = scopeKey(scope);
+    const partition = partitionKey(scope);
     const cachedAt = Date.now();
     const db = await this.db();
     const tx = db.transaction('platformDevices', 'readwrite');
-    for (const stored of await tx.store.index('scopeKey').getAll(key)) await tx.store.delete(stored.key);
-    for (const device of devices) await tx.store.put({ key: `${key}:${device.id}`, scopeKey: key, device, cachedAt });
+    for (const stored of await tx.store.index('scopeKey').getAll(key)) {
+      if (stored.partition === partition) await tx.store.delete(stored.key);
+    }
+    for (const device of devices) await tx.store.put({ key: JSON.stringify([partition, device.id]), scopeKey: key, partition, device, cachedAt });
     await tx.done;
   }
 
@@ -50,7 +57,8 @@ export class CacheRepository {
 
   async getPlatformSnapshot(scope) {
     const db = await this.db();
-    const records = await db.getAllFromIndex('platformDevices', 'scopeKey', scopeKey(scope));
+    const records = (await db.getAllFromIndex('platformDevices', 'scopeKey', scopeKey(scope)))
+      .filter(item => item.partition === partitionKey(scope));
     return {
       devices: records.map((item) => item.device),
       cachedAt: records.reduce((latest, item) => Math.max(latest, item.cachedAt ?? 0), 0) || null
@@ -71,7 +79,7 @@ export class CacheRepository {
 
   async putPlatformWeather(scope, weather) {
     const key = weatherScopeKey(scope);
-    const value = { key, weather, cachedAt: Date.now() };
+    const value = { key, scopeKey: scopeKey(scope), weather, cachedAt: Date.now() };
     await (await this.db()).put('platformWeather', value);
     return value;
   }
@@ -94,8 +102,8 @@ export class CacheRepository {
       await devices.delete(deviceKey);
     }
     const weather = tx.objectStore('platformWeather');
-    for (const weatherKey of await weather.getAllKeys()) {
-      if (String(weatherKey).startsWith(`${key}:`)) await weather.delete(weatherKey);
+    for (const entry of await weather.getAll()) {
+      if (entry.scopeKey === key) await weather.delete(entry.key);
     }
     await tx.done;
   }
