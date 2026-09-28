@@ -219,8 +219,10 @@ run_client_playwright_tests() {
   report="$(mktemp "${TMPDIR:-/tmp}/iot-manager-playwright-tests.XXXXXX")"
   local -a playwright_args=(playwright test --reporter=json)
   if [ "$strict_mode" = true ]; then
-    # Runtime-auth is executed separately by runtime-e2e.yml with a real stack.
-    playwright_args+=(e2e/mobile-client.spec.js)
+    # Real-stack auth/load/rollback have separate runtime gates. UI stability is mandatory here.
+    playwright_args+=(e2e/mobile-client.spec.js e2e/mobile-offline-recovery.spec.js
+      e2e/motion-states.spec.js e2e/motion-interruptions.spec.js e2e/motion-render-integrity.spec.js
+      e2e/motion-preview.spec.js e2e/motion-preview-visuals.spec.js e2e/refresh-stability.spec.js)
   fi
   if ! npx "${playwright_args[@]}" > "$report"; then
     cat "$report" >&2 || true

@@ -289,8 +289,10 @@ function Invoke-ClientPlaywrightTests {
     $report = [System.IO.Path]::GetTempFileName()
     $arguments = @('playwright', 'test', '--reporter=json')
     if ($script:strictMode) {
-        # Runtime-auth is executed separately by runtime-e2e.yml with a real stack.
-        $arguments += 'e2e/mobile-client.spec.js'
+        # Real-stack auth/load/rollback have separate runtime gates. UI stability is mandatory here.
+        $arguments += @('e2e/mobile-client.spec.js', 'e2e/mobile-offline-recovery.spec.js',
+            'e2e/motion-states.spec.js', 'e2e/motion-interruptions.spec.js', 'e2e/motion-render-integrity.spec.js',
+            'e2e/motion-preview.spec.js', 'e2e/motion-preview-visuals.spec.js', 'e2e/refresh-stability.spec.js')
     }
 
     $previousErrorActionPreference = $ErrorActionPreference

@@ -20,6 +20,8 @@ import { browserWeatherTimezone } from './js/platform/weather-timezone.js';
 import { CHANGE_DOMAIN, store } from './js/store.js';
 import { createRenderCoordinator } from './js/render-coordinator.js';
 import { createRenderMetrics } from './js/render-metrics.js';
+import { valueEqual } from './js/value-equality.js';
+import { createSnapshotRefreshGate } from './js/snapshot-refresh-gate.js';
 import { createClientUi } from './js/ui.js';
 import { createWeatherRefreshCooldown } from './js/weather-refresh-cooldown.js';
 import { resourceState, beginResource, resolveResource, rejectResource, createRuntimeTaskRegistry, parseWeatherCoordinates, refreshPresentation } from './js/runtime-resource-state.js';
@@ -87,11 +89,9 @@ let ble = nativeRuntime ? new NativeBleAdapter() : new BleAdapter();
 let platformUnsubscribers = [];
 let lifecycleHandle = null;
 let appInstallId = null;
-let deviceResyncPromise = null;
 let weatherRefreshPromise = null;
 let lastWeatherReadAt = 0;
 let lastForecastReadAt = 0;
-let lastDeviceResyncAt = 0;
 let lastPullRefreshAt = 0;
 let appBackgroundedAt = null;
 let realtimeState = 'idle';
@@ -134,6 +134,8 @@ let clientState = {
   error: null
 };
 
+const renderMetrics = createRenderMetrics();
+const deviceSnapshotGate = createSnapshotRefreshGate({ cooldownMs: REALTIME_RESYNC_COOLDOWN_MS, metrics: renderMetrics });
 const ui = createClientUi(document.getElementById('app'), {
   setTab: () => {},
   openAddDevice: () => setClientState({ error: null }),
@@ -173,18 +175,16 @@ const ui = createClientUi(document.getElementById('app'), {
   openBleAppSettings: () => ble.openAppSettings?.(),
   openBluetoothSettings: () => ble.openBluetoothSettings?.(),
   dismissError: () => setClientState({ error: null })
-});
-
-const renderMetrics = createRenderMetrics();
+}, { metrics: renderMetrics });
 const renderCoordinator = createRenderCoordinator({
   fullRender: (snapshot) => ui.renderFull(snapshot),
   patchDevices: (references, snapshot) => ui.patchDevices(references, snapshot),
-  patchWeather: (snapshot) => ui.patchWeather(snapshot),
+  patchWeather: (snapshot, options) => ui.patchWeather(snapshot, options),
   patchForecast: (snapshot) => ui.patchWeatherForecast(snapshot),
   patchWeatherSettings: (snapshot) => ui.patchWeatherSettings(snapshot),
-  patchRuntime: (snapshot) => ui.patchRuntime(snapshot),
+  patchRuntime: (snapshot, options) => ui.patchRuntime(snapshot, options),
   patchScreen: (snapshot) => ui.patchScreen(snapshot),
-  patchCommands: (references, snapshot) => ui.patchCommands(references, snapshot),
+  patchCommands: (references, snapshot, options) => ui.patchCommands(references, snapshot, options),
   patchActivity: (references, snapshot) => ui.patchActivity(references, snapshot),
   patchAlerts: (references, snapshot) => ui.patchAlerts(references, snapshot),
   scheduler: window,
@@ -353,7 +353,7 @@ function normalizeClientStateMetadata(patch = {}, metadata = {}) {
 }
 
 function setClientState(patch = {}, metadata = {}) {
-  clientState = {
+  const next = {
     ...clientState,
     ...patch,
     context: { ...clientState.context, ...(patch.context ?? {}) },
@@ -362,6 +362,11 @@ function setClientState(patch = {}, metadata = {}) {
     commandObservation: { ...clientState.commandObservation, ...(patch.commandObservation ?? {}) },
     ble: { ...clientState.ble, ...(patch.ble ?? {}) }
   };
+  if (valueEqual(clientState, next)) {
+    renderMetrics.increment('localStateSuppressedCount');
+    return;
+  }
+  clientState = next;
   const change = normalizeClientStateMetadata(patch, metadata);
   if (!PARTIAL_RENDER_ENABLED) {
     render('partial_render_disabled');
@@ -387,9 +392,8 @@ function invalidateRuntimeContext({ preserveSites = false } = {}) {
   runtimeTasks.invalidate();
   lastWeatherReadAt = 0;
   lastForecastReadAt = 0;
-  lastDeviceResyncAt = 0;
+  deviceSnapshotGate.reset();
   lastPullRefreshAt = 0;
-  deviceResyncPromise = null;
   weatherRefreshPromise = null;
   setWeatherRefreshCooldown(0);
   clientState = {
@@ -667,7 +671,7 @@ async function applySiteContext(site, { persist = true, reload = true } = {}) {
   store.setRuntimeContext({ siteCode: context.siteCode, stale: true, lastSyncedAt: null });
   lastWeatherReadAt = 0;
   lastForecastReadAt = 0;
-  lastDeviceResyncAt = 0;
+  deviceSnapshotGate.reset();
   setWeatherRefreshCooldown(0);
   setClientState({ context, weatherSettings: null, pendingWeatherLocation: null });
   platform?.setSiteCode?.(context.siteCode);
@@ -758,7 +762,12 @@ async function signOut() {
   }
 }
 
-async function refreshDevices({ refreshActiveActivity = true } = {}) {
+function refreshDevices({ refreshActiveActivity = true, automatic = false } = {}) {
+  const scopeKey = JSON.stringify([platformCacheScope(), sessionRevision]);
+  return deviceSnapshotGate.run(scopeKey, () => readDeviceSnapshot({ refreshActiveActivity }), { automatic });
+}
+
+async function readDeviceSnapshot({ refreshActiveActivity = true } = {}) {
   const scope = platformCacheScope();
   const adapter = platform;
   const task = runtimeTasks.begin('devices');
@@ -771,7 +780,6 @@ async function refreshDevices({ refreshActiveActivity = true } = {}) {
     decorated = devices.map((device) => decorateLanDevice(device));
     const merged = mergePlatformAndLocalDevices(decorated, store.getState().devices);
     store.setDevices(merged);
-    lastDeviceResyncAt = Date.now();
     store.setRuntimeContext({ stale: false, lastSyncedAt: Date.now() });
     setClientState({ error: null, resources: { devices: resolveResource({ hasData: merged.length > 0 }) } });
   } catch (error) {
@@ -1128,13 +1136,7 @@ async function loadWeatherForecast({ forceRead = false } = {}) {
 }
 
 async function resyncAfterRealtimeConnect() {
-  if (Date.now() - lastDeviceResyncAt < REALTIME_RESYNC_COOLDOWN_MS) return null;
-  if (deviceResyncPromise) return deviceResyncPromise;
-  const pending = refreshDevices({ refreshActiveActivity: true }).finally(() => {
-    if (deviceResyncPromise === pending) deviceResyncPromise = null;
-  });
-  deviceResyncPromise = pending;
-  return deviceResyncPromise;
+  return refreshDevices({ refreshActiveActivity: true, automatic: true });
 }
 
 async function pullRefresh({ screen } = {}) {
@@ -1319,7 +1321,7 @@ async function bootstrapRuntime() {
       appBackgroundedAt = null;
       if (backgroundDuration >= FOREGROUND_RESYNC_AFTER_MS) {
         await Promise.all([
-          refreshDevices({ refreshActiveActivity: true }),
+          refreshDevices({ refreshActiveActivity: true, automatic: true }),
           refreshWeather({ includeSettings: false })
         ]);
       } else if (clientState.resources.devices.freshness === 'fresh' && !clientState.resources.devices.error) {
@@ -1679,7 +1681,7 @@ function handleDocumentVisibility() {
 renderCoordinator.setVisibility(document.visibilityState !== 'hidden');
 document.addEventListener('visibilitychange', handleDocumentVisibility);
 if (import.meta.env.DEV) {
-  globalThis.__iotUiMetrics = () => renderMetrics.snapshot();
+  globalThis.__iotUiMetrics = () => ({ ...renderMetrics.snapshot(), store: store.diagnostics() });
 }
 
 window.addEventListener('beforeunload', () => {

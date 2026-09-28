@@ -7,6 +7,8 @@ import { createCommandDispatcher } from '../src/js/platform/command-dispatcher.j
 import { isTerminalCommandStatus } from '../src/js/command-state.js';
 import { createLocalBleDevice, decorateLanDevice, mergePlatformAndLocalDevices } from '../src/js/client-flow.js';
 import * as resources from '../src/js/runtime-resource-state.js';
+import { valueEqual } from '../src/js/value-equality.js';
+import { createSnapshotRefreshGate } from '../src/js/snapshot-refresh-gate.js';
 
 // Execute the actual main.js function bodies with inert platform boundaries.
 // No network, BLE, geolocation, DOM implementation or application bootstrap runs.
@@ -26,7 +28,7 @@ function fixture(adapter = {}, cacheOverrides = {}) {
   const noOp = () => {};
   const ui = new Proxy({ notify: (...args) => notifications.push(args) }, { get: (target, key) => target[key] ?? noOp });
   const context = vm.createContext({
-    ...resources, store, CHANGE_DOMAIN, createCommandDispatcher, isTerminalCommandStatus,
+    ...resources, store, CHANGE_DOMAIN, createCommandDispatcher, isTerminalCommandStatus, valueEqual, createSnapshotRefreshGate,
     createLocalBleDevice, decorateLanDevice, mergePlatformAndLocalDevices,
     testEnv: { DEV: false }, Capacitor: { isNativePlatform: () => false },
     RuntimeConfigRepository: class {}, CacheRepository: class { constructor() { return cache; } },
@@ -74,14 +76,18 @@ test('runtime devices distinguish first failure/empty/cache and preserve network
   assert.match(partial.run('clientState.notices[0].message'), /缓存保存失败/);
 });
 
-test('late device results cannot replace newer task or switched-context data', async () => {
+test('device reads share one request and late results cannot replace switched-context data', async () => {
   const pending = deferred();
   let calls = 0;
   const f = fixture({ listDevices: () => ++calls === 1 ? pending.promise : Promise.resolve([{ id: 2 }]) });
   const old = f.run('refreshDevices()');
-  await f.run('refreshDevices()');
+  const joined = f.run('refreshDevices()');
+  assert.equal(joined, old);
+  assert.equal(calls, 1);
   pending.resolve([{ id: 1 }]);
-  await old;
+  await Promise.all([old, joined]);
+  assert.equal(f.store.getState().devices[0].id, 1);
+  await f.run('refreshDevices()');
   assert.equal(f.store.getState().devices[0].id, 2);
   const other = deferred();
   const g = fixture({ listDevices: () => other.promise });
@@ -90,6 +96,21 @@ test('late device results cannot replace newer task or switched-context data', a
   other.resolve([{ id: 3 }]);
   await request;
   assert.equal(g.store.getState().devices.length, 0);
+});
+
+test('initial REST failure and repeated WS reconnects share the attempt cooldown without marking data fresh', async () => {
+  let reads = 0;
+  const f = fixture({ listDevices: async () => { reads++; throw new Error('offline'); } });
+  await f.run('refreshDevices()');
+  for (let i = 0; i < 5; i++) await f.run('resyncAfterRealtimeConnect()');
+  assert.equal(reads, 1);
+  assert.equal(f.store.getState().runtime.stale, true);
+  assert.equal(f.run('clientState.resources.devices.phase'), 'error');
+  await f.run('refreshDevices()');
+  assert.equal(reads, 2);
+  f.run('invalidateRuntimeContext()');
+  await f.run('resyncAfterRealtimeConnect()');
+  assert.equal(reads, 3);
 });
 
 test('identity invalidation removes old site and location presentation, including cooldown', () => {

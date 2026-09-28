@@ -32,7 +32,9 @@ export function createRenderCoordinator({
   patchAlerts,
   scheduler = globalThis,
   metrics = null,
-  batchWindowMs = DEFAULT_BATCH_WINDOW_MS
+  batchWindowMs = DEFAULT_BATCH_WINDOW_MS,
+  telemetryIntervalMs = 1000,
+  now = () => performance.now()
 } = {}) {
   if (typeof fullRender !== 'function') {
     throw new TypeError('createRenderCoordinator requires a fullRender callback.');
@@ -40,6 +42,9 @@ export function createRenderCoordinator({
 
   let latestSnapshot = null;
   let flushTimer = null;
+  let scheduledAt = null;
+  let lastTelemetryFlushAt = -Infinity;
+  let telemetryOnly = true;
   let fullRenderRequired = false;
   let fullRenderReason = null;
   let visible = true;
@@ -50,6 +55,7 @@ export function createRenderCoordinator({
     if (flushTimer !== null) {
       scheduler.clearTimeout?.(flushTimer);
       flushTimer = null;
+      scheduledAt = null;
     }
   }
 
@@ -58,12 +64,18 @@ export function createRenderCoordinator({
     fullRenderReason = null;
     dirtyDomains.clear();
     dirtyEntityRefs.clear();
+    telemetryOnly = true;
   }
 
   function scheduleFlush(delay = batchWindowMs) {
-    if (!visible || flushTimer !== null) return;
+    if (!visible) return;
+    const due = now() + Math.max(0, Number(delay) || 0);
+    if (flushTimer !== null && scheduledAt <= due) return;
+    clearScheduledFlush();
+    scheduledAt = due;
     flushTimer = scheduler.setTimeout(() => {
       flushTimer = null;
+      scheduledAt = null;
       flush();
     }, Math.max(0, Number(delay) || 0));
   }
@@ -81,7 +93,10 @@ export function createRenderCoordinator({
     for (const reference of arrayOf(metadata.entityRefs)) {
       if (reference !== null && reference !== undefined) dirtyEntityRefs.add(String(reference));
     }
-    scheduleFlush();
+    telemetryOnly = telemetryOnly && metadata.presentation === 'telemetry';
+    scheduleFlush(fullRenderRequired ? 0 : telemetryOnly
+      ? Math.max(batchWindowMs, lastTelemetryFlushAt + telemetryIntervalMs - now())
+      : batchWindowMs);
   }
 
   function invokePatch(callback, metricName, args) {
@@ -106,38 +121,45 @@ export function createRenderCoordinator({
 
     const domains = new Set(dirtyDomains);
     const entityRefs = [...dirtyEntityRefs];
+    if (telemetryOnly && domains.size > 0) lastTelemetryFlushAt = now();
     clearDirtyState();
     if (domains.size === 0) return false;
 
     metrics?.recordBatch(entityRefs.length || domains.size);
     let patched = true;
     try {
-      if (domains.has(CHANGE_DOMAIN.DEVICES) || domains.has(CHANGE_DOMAIN.DEVICE_DETAIL)) {
+      const screenPatched = domains.has(CHANGE_DOMAIN.SCREEN) && typeof patchScreen === 'function';
+      const devicePatched = (domains.has(CHANGE_DOMAIN.DEVICES) || domains.has(CHANGE_DOMAIN.DEVICE_DETAIL))
+        && typeof patchDevices === 'function';
+      if (screenPatched) {
+        patched = invokePatch(patchScreen, 'runtimePatchCount', [snapshot]) && patched;
+      }
+      if (devicePatched && !screenPatched) {
         patched = invokePatch(patchDevices, 'devicePatchCount', [entityRefs, snapshot]) && patched;
       }
       if (domains.has(CHANGE_DOMAIN.WEATHER)) {
-        patched = invokePatch(patchWeather, 'weatherPatchCount', [snapshot]) && patched;
+        patched = invokePatch(patchWeather, 'weatherPatchCount', [snapshot, { headerOnly: screenPatched }]) && patched;
       }
-      if (domains.has(CHANGE_DOMAIN.WEATHER_FORECAST)) {
+      if (domains.has(CHANGE_DOMAIN.WEATHER_FORECAST) && !screenPatched
+        && !(domains.has(CHANGE_DOMAIN.WEATHER) && typeof patchWeather === 'function')) {
         patched = invokePatch(patchForecast, 'forecastPatchCount', [snapshot]) && patched;
       }
-      if (domains.has(CHANGE_DOMAIN.WEATHER_SETTINGS)) {
+      if (domains.has(CHANGE_DOMAIN.WEATHER_SETTINGS) && !screenPatched) {
         patched = invokePatch(patchWeatherSettings, 'weatherPatchCount', [snapshot]) && patched;
       }
       if (domains.has(CHANGE_DOMAIN.RUNTIME) || domains.has(CHANGE_DOMAIN.CONNECTION)) {
-        patched = invokePatch(patchRuntime, 'runtimePatchCount', [snapshot]) && patched;
+        patched = invokePatch(patchRuntime, 'runtimePatchCount', [snapshot, {
+          headerOnly: screenPatched, skipDetail: devicePatched, deviceRefs: entityRefs
+        }]) && patched;
       }
-      if (domains.has(CHANGE_DOMAIN.COMMANDS)) {
-        patched = invokePatch(patchCommands, 'commandPatchCount', [entityRefs, snapshot]) && patched;
+      if (domains.has(CHANGE_DOMAIN.COMMANDS) && !screenPatched) {
+        patched = invokePatch(patchCommands, 'commandPatchCount', [entityRefs, snapshot, { skipControls: devicePatched }]) && patched;
       }
-      if (domains.has(CHANGE_DOMAIN.ACTIVITY)) {
+      if (domains.has(CHANGE_DOMAIN.ACTIVITY) && !screenPatched) {
         patched = invokePatch(patchActivity, 'activityPatchCount', [entityRefs, snapshot]) && patched;
       }
-      if (domains.has(CHANGE_DOMAIN.ALERTS)) {
+      if (domains.has(CHANGE_DOMAIN.ALERTS) && !screenPatched) {
         patched = invokePatch(patchAlerts, 'alertPatchCount', [entityRefs, snapshot]) && patched;
-      }
-      if (domains.has(CHANGE_DOMAIN.SCREEN)) {
-        patched = invokePatch(patchScreen, 'runtimePatchCount', [snapshot]) && patched;
       }
     } catch {
       patched = false;

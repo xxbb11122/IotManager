@@ -102,7 +102,7 @@ test('mobile client exposes devices, activity, add, and connection settings with
     window.__localMotionStarts = [];
     document.getElementById('app').addEventListener('animationstart', (event) => {
       if (event.target.matches('[data-region="screen"]')) window.__pageMotionStarts.push(event.animationName);
-      if (event.target.matches('.weather-data, .timeline-item')) window.__localMotionStarts.push(event.animationName);
+      if (event.target.matches('[data-region="weather-update-stamp"], .timeline-item')) window.__localMotionStarts.push(event.animationName);
     });
   });
   await expect.poll(() => deviceReadCount).toBeGreaterThan(0);

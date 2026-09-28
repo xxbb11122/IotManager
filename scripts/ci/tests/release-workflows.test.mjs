@@ -24,6 +24,18 @@ const recoveryWorkflow = read('.github/workflows/recovery-drill.yml');
 const quickCi = read('.github/workflows/ci.yml');
 const monitoringDockerfile = read('deploy/monitoring/Dockerfile');
 
+// Strict verification must exercise the real client presentation regressions,
+// not only the former happy-path mobile smoke test.
+for (const script of ['scripts/verify.sh', 'scripts/verify.ps1']) {
+  const contents = read(script);
+  for (const suite of ['mobile-client', 'mobile-offline-recovery', 'motion-states', 'motion-interruptions',
+    'motion-render-integrity', 'motion-preview', 'motion-preview-visuals', 'refresh-stability']) {
+    assert.ok(contents.includes(`e2e/${suite}.spec.js`), `${script} must run ${suite} in strict client verification.`);
+  }
+}
+assert.ok(JSON.parse(read('client/package.json')).scripts.build.includes('check-production.mjs'),
+  'Every client production build must verify that development preview code is absent.');
+
 assert.match(releaseGate, /create-known-good-release-manifest/,
   'A completed Release Gate must generate a known-good release manifest.');
 assert.match(releaseGate, /retention-days:\s*90/,

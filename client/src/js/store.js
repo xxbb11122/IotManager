@@ -1,4 +1,5 @@
 import { transitionCommand } from './command-state.js';
+import { valueEqual } from './value-equality.js';
 
 export const REALTIME_EVENT_VERSION = 1;
 
@@ -25,6 +26,14 @@ const DEFAULT_CONNECTION_HEALTH = Object.freeze({
   lastDisconnectedAt: null,
   error: null
 });
+
+const MEASUREMENT_FIELDS = new Set(['temperature', 'humidity', 'pressure', 'signalStrength', 'batteryLevel',
+  'cpuUsage', 'uptimeSeconds', 'voltage', 'current', 'power', 'energy', 'telemetry', 'lastSeen', 'lastSeenAt', 'updatedAt']);
+
+function isMeasurementOnlyChange(existing, incoming) {
+  return Boolean(existing) && Object.keys(incoming).every(key =>
+    valueEqual(existing[key], incoming[key]) || MEASUREMENT_FIELDS.has(key));
+}
 
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -228,6 +237,7 @@ function normalizeMetadata(metadata, origin) {
     ...(domains ? { domains } : {}),
     ...(entityRefs ? { entityRefs } : {}),
     structural: source.structural === true,
+    ...(source.presentation === 'telemetry' ? { presentation: 'telemetry' } : {}),
     ...(typeof source.reason === 'string' && source.reason ? { reason: source.reason } : {})
   };
 }
@@ -248,9 +258,16 @@ export function createClientStore(initialState = {}) {
   let currentState = freezeDeep(normalizeState(initialState));
   const listeners = new Set();
   let publicationOrigin = 'local';
+  const counters = { publications: 0, suppressedPublications: 0 };
 
   function publish(next, metadata = {}) {
-    currentState = freezeDeep(normalizeState(next));
+    const normalized = normalizeState(next);
+    if (valueEqual(currentState, normalized)) {
+      counters.suppressedPublications += 1;
+      return currentState;
+    }
+    currentState = freezeDeep(normalized);
+    counters.publications += 1;
     const eventMetadata = normalizeMetadata(metadata, publicationOrigin);
     for (const listener of listeners) {
       listener(currentState, eventMetadata);
@@ -352,6 +369,8 @@ export function createClientStore(initialState = {}) {
       domains: [CHANGE_DOMAIN.DEVICES],
       entityRefs: referencesForMetadata(updated, reference),
       structural: false,
+      ...(publicationOrigin === 'realtime' && isMeasurementOnlyChange(currentState.devices[index], updated)
+        ? { presentation: 'telemetry' } : {}),
       reason: index >= 0 ? 'upsert_device' : 'add_device'
     });
   }
@@ -547,7 +566,11 @@ export function createClientStore(initialState = {}) {
         continue;
       }
       const reference = payloadDeviceReference(update);
-      if (patchDevice(reference, update)) {
+      const existing = selectDevice(reference);
+      // Only known measurement fields may wait for the 1Hz presentation budget.
+      // Unknown fields, connection/control/authority changes always stay urgent.
+      const ordinary = isMeasurementOnlyChange(existing, update);
+      if (patchDevice(reference, update, { reason: 'telemetry_update', ...(ordinary ? { presentation: 'telemetry' } : {}) })) {
         changed = true;
       }
     }
@@ -596,6 +619,7 @@ export function createClientStore(initialState = {}) {
 
   return Object.freeze({
     getState,
+    diagnostics: () => Object.freeze({ ...counters }),
     subscribe,
     selectDevice,
     selectActiveDevice,

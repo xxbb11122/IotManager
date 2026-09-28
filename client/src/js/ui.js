@@ -51,6 +51,7 @@ import { createNavigationState, navigationRouteKey } from './navigation-state.js
 import { createMotionPolicy } from './motion-policy.js';
 import { createPullRefreshState } from './pull-refresh.js';
 import { reconcileElement } from './dom-reconcile.js';
+import { BUILD_INFO } from './build-info.js';
 
 const icons = {
   Activity,
@@ -163,13 +164,13 @@ export function deviceScreenState(device = {}, runtime = {}) {
  * The UI only receives a view model plus user-intent callbacks.  It never
  * imports the store, adapters, Web Bluetooth, or REST client directly.
  */
-export function createClientUi(root = document.getElementById('app'), handlers = {}) {
+export function createClientUi(root = document.getElementById('app'), handlers = {}, options = {}) {
   if (!root || typeof root.replaceChildren !== 'function') {
     throw new Error('createClientUi requires a DOM root element.');
   }
 
   if (activeUi) activeUi.destroy();
-  activeUi = new ClientUi(root, handlers);
+  activeUi = new ClientUi(root, handlers, options);
   return activeUi;
 }
 
@@ -212,8 +213,10 @@ export function renderLogs() { activeUi?.render(activeUi.model); }
 export function renderBleModal() { activeUi?.render(activeUi.model); }
 
 class ClientUi {
-  constructor(root, handlers) {
+  constructor(root, handlers, { metrics = null } = {}) {
     this.root = root;
+    this.metrics = metrics;
+    this.commandPress = null;
     this.handlers = { ...handlers };
     this.model = normalizeViewModel({});
     this.renderedScreen = null;
@@ -313,7 +316,7 @@ class ClientUi {
     return JSON.stringify([
       this.model.context.organizationCode, this.model.context.siteCode,
       this.model.endpointProfile.id, this.model.endpointProfile.apiBaseUrl,
-      this.model.runtime.sessionRevision ?? 0, this.model.auth.authenticated === true
+      this.model.runtime.sessionRevision ?? 0, this.model.auth.authenticated === true, this.model.auth.cachePartition
     ]);
   }
 
@@ -401,6 +404,7 @@ class ClientUi {
       for (const animation of this.root.getAnimations?.({ subtree: true }) ?? []) animation.cancel();
       this.root.querySelector('[data-region="screen"]')?.classList.remove('screen-region--motion-peer', 'screen-region--motion-forward', 'screen-region--motion-back', 'screen-region--motion-context');
       this.weatherRevealStamp = null;
+      this.root.querySelector('[data-region="weather-update-stamp"]')?.classList.remove('motion-reveal');
       this.root.querySelectorAll('.motion-exit').forEach(node => node.remove());
       // A preference/visibility change cancels an unfinished gesture. An
       // ordinary data patch in reduced mode must not disable pulling itself.
@@ -418,6 +422,7 @@ class ClientUi {
 
   renderFull(viewModel = {}) {
     if (this.destroyed) return;
+    this.metrics?.increment('uiRenderCount');
     this.model = normalizeViewModel(viewModel);
     this.syncContext();
     this.reconcileLocalState();
@@ -466,12 +471,17 @@ class ClientUi {
       this.root.replaceChildren(this.buildShell());
     } else {
       const header = shell.querySelector('[data-region="header"]');
-      if (header) reconcileElement(header, this.buildHeader());
+      if (header) this.reconcile(header, this.buildHeader());
       const main = shell.querySelector('[data-region="screen"]');
-      main?.querySelector('.pull-refresh')?.replaceWith(this.buildPullRefreshIndicator());
+      const pullIndicator = main?.querySelector('.pull-refresh');
+      if (pullIndicator) this.reconcile(pullIndicator, this.buildPullRefreshIndicator());
       const content = main?.querySelector('[data-region="screen-content"]');
-      if (content && !routeChanged) reconcileElement(content, this.buildCurrentScreen());
-      else content?.replaceWith(this.buildCurrentScreen());
+      if (content && !routeChanged) this.reconcile(content, this.buildCurrentScreen());
+      else if (content) {
+        content.replaceWith(this.buildCurrentScreen());
+        this.metrics?.increment('domReplaceCount');
+        this.metrics?.increment('domMutationCount');
+      }
     }
     this.renderedScreen = nextScreen;
     this.renderedRouteKey = routeKey;
@@ -525,7 +535,7 @@ class ClientUi {
       event.target.classList.remove('screen-region--motion-peer', 'screen-region--motion-forward', 'screen-region--motion-back', 'screen-region--motion-context');
       return;
     }
-    if (event.target.matches?.('[data-region="weather-data"]')) {
+    if (event.target.matches?.('[data-region="weather-update-stamp"]')) {
       event.target.classList.remove('motion-reveal');
       this.weatherRevealStamp = null;
     }
@@ -535,6 +545,7 @@ class ClientUi {
     const shell = this.root.querySelector('.app-shell');
     shell?.classList.toggle('app-shell--hidden', document.hidden);
     if (document.hidden) {
+      if (this.commandPress) this.commandPress.cancelled = true;
       this.resetPullRefresh();
       this.root.querySelector('[data-region="screen"]')?.classList.remove(
         'screen-region--motion-peer', 'screen-region--motion-forward', 'screen-region--motion-back'
@@ -618,12 +629,36 @@ class ClientUi {
     return true;
   }
 
+  reconcile(current, next) {
+    const result = reconcileElement(current, next, {
+      preserveInput: node => node === document.activeElement && (node.type !== 'range' || this.rangeInteraction?.target === node),
+      onMutation: kind => {
+        this.metrics?.increment('domMutationCount');
+        if (kind === 'replace') this.metrics?.increment('domReplaceCount');
+      }
+    });
+    this.invalidateChangedPress();
+    return result;
+  }
+
+  commandSignature(target) {
+    return JSON.stringify(Object.entries(target.dataset).sort(([a], [b]) => a.localeCompare(b)));
+  }
+
+  invalidateChangedPress() {
+    const press = this.commandPress;
+    if (!press) return;
+    if (!press.target.isConnected || press.target.disabled || press.target.getAttribute('aria-disabled') === 'true'
+      || press.scope !== this.contextKey() || press.view !== this.viewKey()
+      || press.signature !== this.commandSignature(press.target)) press.cancelled = true;
+  }
+
   updateModel(viewModel = {}) {
     this.model = normalizeViewModel(viewModel);
     this.syncContext();
     this.reconcileLocalState();
     const feedback = this.root.querySelector('[data-region="global-feedback"]');
-    if (feedback) reconcileElement(feedback, this.buildFeedback());
+    if (feedback) this.reconcile(feedback, this.buildFeedback());
     return this.model;
   }
 
@@ -655,42 +690,45 @@ class ClientUi {
     this.resetPullRefresh();
   }
 
-  patchRuntime(viewModel = {}) {
+  patchRuntime(viewModel = {}, { headerOnly = false, skipDetail = false, deviceRefs = [] } = {}) {
     this.updateModel(viewModel);
     const header = this.root.querySelector('[data-region="header"]');
     if (!header) return false;
-    reconcileElement(header, this.buildHeader());
+    this.reconcile(header, this.buildHeader());
+    if (headerOnly) return true;
     if (this.local.screen === 'devices') {
       const context = this.root.querySelector('[data-region="device-context"]');
       if (!context) return false;
-      context.replaceWith(this.buildContextRow());
+      this.reconcile(context, this.buildContextRow());
       return true;
     }
     if (this.local.screen === 'detail') {
       const device = this.getActiveDevice();
+      if (skipDetail && device && referencesContainDevice(deviceRefs, device)) return true;
       const connection = this.root.querySelector('[data-region="device-connection"]');
       if (!device || !connection) return false;
-      connection.replaceWith(this.buildConnectionSurface(device, getPrimaryConnection(device, this.model.activeConnection)));
+      this.reconcile(connection, this.buildConnectionSurface(device, getPrimaryConnection(device, this.model.activeConnection)));
       this.patchDeviceControls(device, { deferForRange: true });
     }
     return true;
   }
 
-  patchWeather(viewModel = {}) {
+  patchWeather(viewModel = {}, { headerOnly = false } = {}) {
     const restoreState = this.captureRenderState();
     this.updateModel(viewModel);
     const headerWeather = this.root.querySelector('[data-region="weather-header"]');
-    if (headerWeather) headerWeather.replaceWith(this.buildWeatherHeaderSummary());
+    if (headerWeather) this.reconcile(headerWeather, this.buildWeatherHeaderSummary());
+    if (headerOnly) return true;
     if (this.local.screen === 'devices') {
       const context = this.root.querySelector('[data-region="device-context"]');
       if (!context) return false;
-      context.replaceWith(this.buildContextRow());
+      this.reconcile(context, this.buildContextRow());
       return true;
     }
     if (this.local.screen !== 'weather') return true;
     const weatherData = this.root.querySelector('[data-region="weather-data"]');
     if (!weatherData) return false;
-    weatherData.replaceWith(this.buildWeatherData());
+    this.reconcile(weatherData, this.buildWeatherData());
     this.restoreRenderState(restoreState);
     return true;
   }
@@ -701,7 +739,7 @@ class ClientUi {
     if (this.local.screen !== 'weather') return true;
     const weatherData = this.root.querySelector('[data-region="weather-data"]');
     if (!weatherData) return false;
-    weatherData.replaceWith(this.buildWeatherData());
+    this.reconcile(weatherData, this.buildWeatherData());
     this.restoreRenderState(restoreState);
     return true;
   }
@@ -712,7 +750,7 @@ class ClientUi {
     const location = this.root.querySelector('[data-region="weather-location"]');
     if (!location) return false;
     if (document.activeElement instanceof HTMLElement && location.contains(document.activeElement)) return true;
-    location.replaceWith(this.buildWeatherLocationSurface());
+    this.reconcile(location, this.buildWeatherLocationSurface());
     return true;
   }
 
@@ -728,7 +766,7 @@ class ClientUi {
     const refreshAction = this.root.querySelector('[data-region="weather-refresh-action"]');
     if (!cooldown || !refreshAction) return false;
     const seconds = weatherCooldownSeconds(retryAt, now);
-    cooldown.replaceWith(this.buildWeatherCooldownRegion(seconds));
+    this.reconcile(cooldown, this.buildWeatherCooldownRegion(seconds));
     this.patchWeatherRefreshAction(seconds);
     return true;
   }
@@ -736,10 +774,7 @@ class ClientUi {
   patchWeatherRefreshAction(seconds = weatherCooldownSeconds(this.model.weatherRefreshRetryAt)) {
     const current = this.root.querySelector('[data-region="weather-refresh-action"]');
     if (!current) return false;
-    const focused = document.activeElement === current;
-    const replacement = this.buildWeatherRefreshButton(seconds);
-    current.replaceWith(replacement);
-    if (focused) replacement.focus({ preventScroll: true });
+    this.reconcile(current, this.buildWeatherRefreshButton(seconds));
     return true;
   }
 
@@ -750,16 +785,17 @@ class ClientUi {
     return true;
   }
 
-  patchCommands(deviceRefs = [], viewModel = {}) {
+  patchCommands(deviceRefs = [], viewModel = {}, { skipControls = false } = {}) {
     this.updateModel(viewModel);
     if (this.local.screen !== 'detail') return true;
     const device = this.getActiveDevice();
     if (!device || !referencesContainDevice(deviceRefs, device)) return true;
     const command = this.root.querySelector('[data-region="device-command"]');
     if (!command) return false;
-    command.replaceWith(this.buildCommandSurface(device));
+    this.reconcile(command, this.buildCommandSurface(device));
+    if (skipControls) return true;
     const state = this.root.querySelector('[data-region="device-state"]');
-    if (state) state.replaceWith(this.buildStateSurface(device));
+    if (state) this.reconcile(state, this.buildStateSurface(device));
     this.patchDeviceControls(device);
     return true;
   }
@@ -800,7 +836,8 @@ class ClientUi {
     const focusState = hasCapturedFocus ? restoreState : this.pendingFocusIntent ?? restoreState;
     this.rangeInteraction = null;
     this.deferredControlPatch = false;
-    controls.replaceWith(this.buildControlsSurface(device, screenState));
+    this.metrics?.increment('controlsPatchCount');
+    this.reconcile(controls, this.buildControlsSurface(device, screenState));
     const focusRestored = this.restoreRenderState(focusState);
     if (this.pendingFocusIntent) {
       const pendingFocus = this.pendingFocusIntent;
@@ -821,7 +858,7 @@ class ClientUi {
       if (!device || !referencesContainDevice(deviceRefs, device)) return true;
       const activity = this.root.querySelector('[data-region="device-activity"]');
       if (!activity) return false;
-      activity.replaceWith(this.buildActivitySurface(device, 6));
+      this.reconcile(activity, this.buildActivitySurface(device, 6));
       return true;
     }
     if (this.local.screen !== 'activity') return true;
@@ -840,7 +877,7 @@ class ClientUi {
     const screen = this.root.querySelector('[data-region="screen-content"]');
     if (!screen) return false;
     const restoreState = this.captureRenderState();
-    reconcileElement(screen, this.buildCurrentScreen());
+    this.reconcile(screen, this.buildCurrentScreen());
     this.restoreRenderState(restoreState);
     return true;
   }
@@ -862,7 +899,7 @@ class ClientUi {
         if (existing) {
           const replacement = this.buildDeviceRow(device);
           if (existing.dataset.online !== replacement.dataset.online) replacement.classList.add('device-row--status-changed');
-          reconcileElement(existing, replacement);
+          this.reconcile(existing, replacement);
         }
       }
     }
@@ -878,10 +915,11 @@ class ClientUi {
       updated.replaceChildren(...(this.model.devices.length
         ? this.model.devices.map((device) => this.buildDeviceRow(device))
         : [element('div', 'empty-inline', { text: '还没有设备。' })]));
-      reconcileElement(list, updated);
+      this.reconcile(list, updated);
     }
-    count.textContent = `已认领设备 (${this.model.devices.length})`;
-    online.replaceWith(this.buildDeviceOnlineCount(this.model.devices));
+    const countText = `已认领设备 (${this.model.devices.length})`;
+    if (count.textContent !== countText) { count.textContent = countText; this.metrics?.increment('domMutationCount'); }
+    this.reconcile(online, this.buildDeviceOnlineCount(this.model.devices));
     this.restoreRenderState(restoreState);
     return true;
   }
@@ -894,9 +932,9 @@ class ClientUi {
     const connectionRegion = this.root.querySelector('[data-region="device-connection"]');
     const stateRegion = this.root.querySelector('[data-region="device-state"]');
     if (!detailHeading || !connectionRegion || !stateRegion) return false;
-    detailHeading.replaceWith(this.buildDetailHeading(device, connection));
-    connectionRegion.replaceWith(this.buildConnectionSurface(device, connection));
-    stateRegion.replaceWith(this.buildStateSurface(device));
+    this.reconcile(detailHeading, this.buildDetailHeading(device, connection));
+    this.reconcile(connectionRegion, this.buildConnectionSurface(device, connection));
+    this.reconcile(stateRegion, this.buildStateSurface(device));
 
     this.patchDeviceControls(device, { deferForRange: true });
     return true;
@@ -904,6 +942,7 @@ class ClientUi {
 
   destroy() {
     this.destroyed = true;
+    this.commandPress = null;
     this.motionPolicy.destroy();
     document.removeEventListener('focusin', this.onFocusIn);
     window.removeEventListener('popstate', this.onPopState);
@@ -1321,11 +1360,10 @@ class ClientUi {
     const forecast = plainObject(this.model.weatherForecast);
     const resource = this.model.resources.weather ?? {};
     const stamp = String(weather?.fetchedAt ?? weather?.updatedAt ?? '');
-    const motionAllowed = !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const motionAllowed = this.motionPolicy.snapshot().animate;
     if (this.lastWeatherStamp && stamp && stamp !== this.lastWeatherStamp) {
       this.weatherRevealStamp = motionAllowed ? stamp : null;
     }
-    if (motionAllowed && stamp && this.weatherRevealStamp === stamp) content.classList.add('motion-reveal');
     if (stamp) this.lastWeatherStamp = stamp;
 
     if (weather?.refreshError) {
@@ -1339,7 +1377,7 @@ class ClientUi {
       return content;
     }
 
-    const hero = element('section', 'weather-hero');
+    const hero = element('section', 'weather-hero', { data: { region: 'weather-hero' } });
     const heroMain = element('div', 'weather-hero__main');
     const condition = element('div', 'weather-hero__condition');
     condition.append(icon(weatherIcon(current.iconKey), 42));
@@ -1351,7 +1389,8 @@ class ClientUi {
     heroMain.append(element('div', 'weather-hero__temperature', { text: weatherValue(current.temperatureC, '°C') }));
     heroMain.append(element('p', 'weather-hero__feels', { text: `体感 ${weatherValue(current.apparentTemperatureC, '°C')}` }));
     hero.append(heroMain);
-    const refresh = element('p', 'weather-hero__updated', { text: weather?.fetchedAt ? `更新于 ${formatDate(weather.fetchedAt)}` : '等待天气数据' });
+    const refresh = element('p', 'weather-hero__updated', { data: { region: 'weather-update-stamp' }, text: weather?.fetchedAt ? `更新于 ${formatDate(weather.fetchedAt)}` : '等待天气数据' });
+    if (motionAllowed && stamp && this.weatherRevealStamp === stamp) refresh.classList.add('motion-reveal');
     hero.append(refresh);
     content.append(hero);
 
@@ -1897,6 +1936,11 @@ class ClientUi {
       disabled: this.isBusy('switch-endpoint')
     }));
     fragment.append(surface);
+    const identity = element('section', 'surface surface--padded', { data: { region: 'build-identity' } });
+    identity.append(surfaceHeading('当前安装版本', '反馈问题时请同时提供此构建标识，便于核对手机安装的版本。'));
+    identity.append(element('p', '', { text: `版本 ${BUILD_INFO.version} · 提交 ${BUILD_INFO.commit.slice(0, 12)}${BUILD_INFO.dirty ? ' · 含工作区修改' : ''}` }));
+    identity.append(element('p', 'muted', { text: `构建时间 ${BUILD_INFO.builtAt}` }));
+    fragment.append(identity);
     return fragment;
   }
 
@@ -2447,6 +2491,20 @@ class ClientUi {
 
   onClick(event) {
     const target = event.target instanceof Element ? event.target.closest('[data-action]') : null;
+    if (this.commandPress && event.detail !== 0) {
+      this.invalidateChangedPress();
+      const press = this.commandPress;
+      this.commandPress = null;
+      if (press.cancelled || press.target !== target) {
+        event.preventDefault();
+        this.metrics?.increment('commandIntentCancelledCount');
+        this.notify('设备状态或操作上下文已变化，本次操作已取消，请确认后重试。', 'warning');
+        return;
+      }
+    } else if (event.detail === 0) {
+      // Keyboard and assistive activation express a new intent at click time.
+      this.commandPress = null;
+    }
     if (!target || !this.root.contains(target) || target.disabled || target.getAttribute('aria-disabled') === 'true') return;
     const action = target.dataset.action;
     if (!action) return;
@@ -2723,6 +2781,19 @@ class ClientUi {
   }
 
   onPointerDown(event) {
+    if ((event.pointerType === 'touch' || event.pointerType === 'pen') && event.isPrimary === false) {
+      if (this.commandPress) this.commandPress.cancelled = true;
+      return;
+    }
+    this.commandPress = null;
+    const command = event.target.closest?.('[data-action]');
+    if (command && (command.dataset.action.startsWith('command-') || command.dataset.action === 'retry-command')
+      && !command.disabled && command.getAttribute('aria-disabled') !== 'true') {
+      this.commandPress = {
+        target: command, pointerId: event.pointerId, signature: this.commandSignature(command),
+        scope: this.contextKey(), view: this.viewKey(), cancelled: false
+      };
+    }
     if (event.target instanceof HTMLInputElement && event.target.classList.contains('range-input') && !event.target.disabled) {
       this.rangeInteraction = { pointerId: event.pointerId, target: event.target };
       return;
@@ -2743,6 +2814,7 @@ class ClientUi {
   }
 
   onPointerUp(event) {
+    if (event.type === 'pointercancel' && this.commandPress?.pointerId === event.pointerId) this.commandPress.cancelled = true;
     if (this.rangeInteraction?.pointerId === event.pointerId) {
       this.rangeInteraction = null;
       if (this.deferredControlPatch || event.type === 'pointercancel') {

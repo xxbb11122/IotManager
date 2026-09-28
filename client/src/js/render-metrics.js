@@ -8,6 +8,16 @@ const DEFAULT_COUNTERS = Object.freeze({
   activityPatchCount: 0,
   alertPatchCount: 0,
   countdownPatchCount: 0,
+  uiRenderCount: 0,
+  controlsPatchCount: 0,
+  domMutationCount: 0,
+  domReplaceCount: 0,
+  commandIntentCancelledCount: 0,
+  localStateSuppressedCount: 0,
+  snapshotAutomaticCount: 0,
+  snapshotExplicitCount: 0,
+  snapshotJoinedCount: 0,
+  snapshotCooldownCount: 0,
   maxPatchBatchSize: 0
 });
 
