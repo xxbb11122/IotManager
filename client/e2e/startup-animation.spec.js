@@ -14,10 +14,32 @@ test('launch icon stays visible until the app shell is ready, then releases the 
   await expect(overlay).toBeVisible();
   await expect(icon).toHaveJSProperty('complete', true);
   expect(await icon.evaluate((image) => image.naturalWidth)).toBeGreaterThan(0);
+  await expect(icon).toHaveAttribute('src', /ic_launcher_foreground\.png$/);
+  await expect(overlay.locator('.startup-halo')).toHaveCount(0);
   await expect(page.locator('#app')).toHaveAttribute('aria-hidden', 'true');
+  await page.evaluate(() => {
+    const app = document.getElementById('app');
+    const startup = document.getElementById('startup-overlay');
+    window.__startupFadeState = null;
+    const observer = new MutationObserver(() => {
+      if (!startup.classList.contains('startup-overlay--leaving')) return;
+      window.__startupFadeState = {
+        appInert: app.inert,
+        appHidden: app.getAttribute('aria-hidden'),
+        pointerEvents: getComputedStyle(startup).pointerEvents
+      };
+      observer.disconnect();
+    });
+    observer.observe(startup, { attributes: true, attributeFilter: ['class'] });
+  });
   releaseMain();
   await expect(page.locator('.app-shell')).toBeVisible();
   await expect(overlay).toHaveCount(0);
+  expect(await page.evaluate(() => window.__startupFadeState)).toEqual({
+    appInert: true,
+    appHidden: 'true',
+    pointerEvents: 'auto'
+  });
   await expect(page.locator('#app')).not.toHaveAttribute('aria-hidden');
   await expect(page.locator('#app')).toHaveJSProperty('inert', false);
 });
