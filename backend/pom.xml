@@ -27,6 +27,9 @@
         <byte-buddy.version>1.17.8</byte-buddy.version>
         <!-- CVE-2026-54291 is fixed in PostgreSQL JDBC 42.7.12. -->
         <postgresql.version>42.7.12</postgresql.version>
+        <!-- Keep Jackson's 2.21 modules aligned and include the fixes for
+             CVE-2026-68497, CVE-2026-91776, and CVE-2026-91777. -->
+        <jackson-bom.version>2.21.7</jackson-bom.version>
         <spring-ai.version>1.1.8</spring-ai.version>
     </properties>
 

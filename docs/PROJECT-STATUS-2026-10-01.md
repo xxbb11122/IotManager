@@ -36,6 +36,10 @@
 
 上一公开提交 `83e6bc7` 的 [Quick CI](https://github.com/xxbb11122/IotManager/actions/runs/36424040632) 与 [P0 Docker Runtime](https://github.com/xxbb11122/IotManager/actions/runs/36424040548) 均成功；那是旧 SHA 的证据。本次新增 AI/Android 代码推送后，必须查看**新提交 SHA** 的 [Quick CI](https://github.com/xxbb11122/IotManager/actions/workflows/ci.yml) 和 [P0 Docker Runtime](https://github.com/xxbb11122/IotManager/actions/workflows/runtime-e2e.yml)，不能沿用上述结论。
 
+### 首次推送后的安全扫描反馈
+
+首次提交 `3cccd0a` 的 [Quick CI](https://github.com/xxbb11122/IotManager/actions/runs/36803981487) 在源码安全扫描处阻断：`jackson-databind 2.21.4` 被报告 3 项 HIGH（CVE-2026-68497、CVE-2026-91776、CVE-2026-91777）；其余 Java/Web/Android/Compose 构建任务成功。`quick-gate` 的失败是安全任务失败的连带结果。依赖树显示该版本经 `logstash-logback-encoder` 引入；项目现将 Jackson BOM 固定为同一维护分支的 [2.21.7](https://github.com/FasterXML/jackson/wiki/Jackson-Release-2.21)，并要求后续提交重新通过安全扫描。没有关闭扫描或以未经批准的 VEX 绕过阻断。
+
 ## 3. 公开说明审核 / README self-check
 
 | 审核项 | 结论 |
