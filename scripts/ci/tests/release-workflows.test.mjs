@@ -19,6 +19,7 @@ const resilience = read('scripts/runtime/verify-resilience.sh');
 const resiliencePs = read('scripts/runtime/verify-resilience.ps1');
 const backupScript = read('deploy/backup/backup.sh');
 const backupHealthcheck = read('deploy/backup/backup-healthcheck.sh');
+const restoreScript = read('deploy/backup/restore.sh');
 const runtimeWorkflow = read('.github/workflows/runtime-e2e.yml');
 const recoveryWorkflow = read('.github/workflows/recovery-drill.yml');
 const quickCi = read('.github/workflows/ci.yml');
@@ -157,6 +158,8 @@ assert.doesNotMatch(recoveryWorkflow, /down[^\n]*\|\|\s*true/,
 
 assert.match(backupScript, /source_flyway_version=.*flyway_schema_history[\s\S]*backupSha256[\s\S]*sourceFlywayVersion/,
   'Every logical dump must carry backup-checksum-bound source schema metadata.');
+assert.match(restoreScript, /pg_restore --list "\$backup_file"[\s\S]*installed_vector_version[\s\S]*0\.8\.6[\s\S]*\$4 == "EXTENSION"[\s\S]*\$4 == "COMMENT"[\s\S]*pg_restore --use-list=/,
+  'Owner-only recovery must verify the admin-installed pgvector version and exclude only its privileged archive entries.');
 assert.match(backupHealthcheck, /metadata_file=.*metadata_name[\s\S]*metadata_checksum.*recorded_checksum[\s\S]*metadata_version/,
   'Backup health must require consistent schema metadata in addition to the dump and checksum.');
 assert.match(logicalRecovery, /\.metadata\.json[\s\S]*backupSha256[\s\S]*sourceFlywayVersion[\s\S]*recoveredFlywayVersion/,

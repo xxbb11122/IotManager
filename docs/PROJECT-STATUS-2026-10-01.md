@@ -42,6 +42,8 @@
 
 `3eebf209` 的 [Quick CI](https://github.com/xxbb11122/IotManager/actions/runs/36805038678) 随后全部通过，包括源码安全、SBOM、Java、三端 Web、Android Debug、Compose 配置与 quick-gate。对应 [P0 Docker Runtime](https://github.com/xxbb11122/IotManager/actions/runs/36805038653) 仍失败：新库启动时备份 sidecar 早于 Backend 的 Flyway 迁移读取 `flyway_schema_history`，反复重启，使非 root 运行态检查失败。本次修复将 Backend 就绪与首份逻辑备份健康设为有界启动前置条件；是否真正关闭该门禁，须以修复提交的新运行记录为准。
 
+`b49773a` 的 [Quick CI](https://github.com/xxbb11122/IotManager/actions/runs/36818967163) 已全部通过；[P0 Docker Runtime](https://github.com/xxbb11122/IotManager/actions/runs/36818967120) 证明上述启动竞态已关闭，并推进到独立逻辑恢复步骤。该步又暴露管理员预装的 pgvector 扩展与受限恢复角色的权限冲突：`pg_restore --clean` 试图执行 `DROP/COMMENT EXTENSION vector`。本次追加仅对该扩展的 TOC 条目做定向排除，且恢复前必须确认目标库 pgvector 版本为 0.8.6；其他对象仍执行正常恢复。最终结果以新 SHA 的全链路运行态为准。
+
 ## 3. 公开说明审核 / README self-check
 
 | 审核项 | 结论 |
