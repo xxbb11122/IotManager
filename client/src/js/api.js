@@ -164,6 +164,48 @@ export class ApiClient {
     return this.request('/sites', options);
   }
 
+  askAi(siteId, question, conversationId = null, options = {}) {
+    return this.request('/sites/' + encodeURIComponent(siteId) + '/ai/chat', {
+      ...options,
+      method: 'POST',
+      body: { question, conversationId }
+    });
+  }
+
+  getAiConversation(siteId, conversationId, options = {}) {
+    return this.request('/sites/' + encodeURIComponent(siteId) + '/ai/conversations/' +
+      encodeURIComponent(conversationId), options);
+  }
+
+  getCurrentUser(options = {}) { return this.request('/me', options); }
+  getAiStatus(siteId, options = {}) { return this.request(this.aiPath(siteId, '/status'), options); }
+  getAiCapabilities(siteId, options = {}) { return this.request(this.aiPath(siteId, '/capabilities'), options); }
+  getAiRequest(siteId, key, options = {}) { return this.request(this.aiPath(siteId, '/requests/' + encodeURIComponent(key)), options); }
+  listAiConversations(siteId, query = {}, options = {}) {
+    return this.request(this.aiPath(siteId, '/conversations' + this.aiQuery(query)), options);
+  }
+  listAiMessages(siteId, id, query = {}, options = {}) {
+    return this.request(this.aiPath(siteId, '/conversations/' + encodeURIComponent(id) + '/messages' + this.aiQuery(query)), options);
+  }
+  getAiPersona(siteId, options = {}) { return this.request(this.aiPath(siteId, '/persona'), options); }
+  listAiPersonas(siteId, options = {}) { return this.request(this.aiPath(siteId, '/persona/versions'), options); }
+  saveAiPersona(siteId, persona, options = {}) { return this.request(this.aiPath(siteId, '/persona'), { ...options, method: 'PUT', body: persona }); }
+  activateAiPersona(siteId, version, expectedActiveVersion, options = {}) {
+    return this.request(this.aiPath(siteId, '/persona/' + encodeURIComponent(version) + '/activate'),
+      { ...options, method: 'POST', body: { expectedActiveVersion } });
+  }
+  aiPath(siteId, suffix) { return '/sites/' + encodeURIComponent(siteId) + '/ai' + suffix; }
+  aiQuery({ cursor, limit = 20 } = {}) {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (cursor) query.set('cursor', cursor);
+    return '?' + query;
+  }
+
+  deleteAiConversation(siteId, conversationId, options = {}) {
+    return this.request('/sites/' + encodeURIComponent(siteId) + '/ai/conversations/' +
+      encodeURIComponent(conversationId), { ...options, method: 'DELETE' });
+  }
+
   getDevice(deviceId, options = {}) {
     return this.request(`/devices/${encodeURIComponent(deviceId)}`, options);
   }

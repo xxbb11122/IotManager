@@ -2,6 +2,21 @@ server:
   port: 8080
 
 spring:
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
+  ai:
+    model:
+      chat: none
+      embedding: none
+      image: none
+      moderation: none
+      audio:
+        speech: none
+        transcription: none
+    retry:
+      max-attempts: 1
   application:
     name: iot-manager
 
@@ -47,6 +62,19 @@ management:
       application: ${spring.application.name}
 
 iot:
+  ai:
+    enabled: false
+    knowledge-enabled: false
+    embedding-dimension: 1536
+    max-file-bytes: 5242880
+    max-site-bytes: 52428800
+    max-question-chars: 2000
+    max-answer-chars: 8000
+    max-concurrent-chats: 3
+    min-similarity: 0.65
+    conversation-retention-days: 30
+    max-site-chats-per-day: 200
+    max-site-uploads-per-day: 20
   security:
     # R0 development/test remain open only inside a controlled network. The
     # production profile turns this on and requires Keycloak-issued JWTs.
@@ -58,6 +86,8 @@ iot:
     reads-per-minute: 120
     archive-reads-per-minute: 5
     commands-per-minute: 30
+    ai-chats-per-minute: 10
+    ai-writes-per-minute: 6
   time:
     clock-skew-tolerance: 30s
     # N-1 wrote server-authored LocalDateTime fields in this deployment zone.

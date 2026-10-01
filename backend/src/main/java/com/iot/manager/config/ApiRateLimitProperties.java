@@ -9,6 +9,8 @@ public class ApiRateLimitProperties {
     private int readsPerMinute = 120;
     private int archiveReadsPerMinute = 5;
     private int commandsPerMinute = 30;
+    private int aiChatsPerMinute = 10;
+    private int aiWritesPerMinute = 6;
 
     public boolean isEnabled() {
         return enabled;
@@ -39,4 +41,9 @@ public class ApiRateLimitProperties {
     public void setCommandsPerMinute(int commandsPerMinute) {
         this.commandsPerMinute = commandsPerMinute;
     }
+
+    public int getAiChatsPerMinute() { return aiChatsPerMinute; }
+    public void setAiChatsPerMinute(int aiChatsPerMinute) { this.aiChatsPerMinute = aiChatsPerMinute; }
+    public int getAiWritesPerMinute() { return aiWritesPerMinute; }
+    public void setAiWritesPerMinute(int aiWritesPerMinute) { this.aiWritesPerMinute = aiWritesPerMinute; }
 }

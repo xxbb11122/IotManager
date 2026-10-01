@@ -4,6 +4,24 @@ This project has one release baseline. Before merging or publishing it, verify
 the Java services, all Vite applications, the Capacitor Android package, and
 the deployment configuration from the same commit.
 
+The current Spring AI phase is documented in
+[DeepSeek mock integration](SPRING-AI-DEEPSEEK-MOCK-INTEGRATION-2026-09-30.md):
+Chat uses a local HTTP substitute, the knowledge base and production AI remain
+disabled, and no real provider request is claimed. When a real pilot is planned,
+verify pgvector 0.8.6 is installed in the
+live and restored IoT databases before Flyway V27, then run the PostgreSQL
+Testcontainers migration and site-isolation tests. Exercise the Caddy upload
+route with both Content-Length and chunked multipart bodies at and above the
+6 MB request boundary. Verify VIEWER can ask questions and delete only their
+own conversations, while knowledge/persona writes require OWNER or ADMIN
+and site membership. Confirm an absent key or disabled feature leaves the
+existing health and device APIs available; inject remote 429, timeout and
+disconnect failures; confirm no secret or prompt body appears in errors,
+logs, metrics or front-end bundles. Restore a backup containing AI documents,
+vectors, personas and conversations before enabling AI in production. A
+passing local build without Docker or provider credentials does not satisfy
+the runtime or remote-model acceptance gates.
+
 ## Required toolchains
 
 - Java services: JDK 17 and Maven 3.9+.
@@ -150,3 +168,34 @@ recovery-drill relation, and restores a fresh owner-only logical backup.
 Physical WAL/PITR evidence is
 separate: `.github/workflows/recovery-drill.yml` runs only on the protected
 self-hosted recovery runner and never uses the filesystem integration store.
+
+## App AI implementation, October 1, 2026
+
+See the [public project status and evidence boundary](PROJECT-STATUS-2026-10-01.md).
+The backend has passed 189 tests with Docker available and zero skips, including
+H2 and PostgreSQL request recovery, deletion races, atomic persistence and
+V28 upgrade/older-write compatibility. Client Node tests passed 194 cases.
+The previous full client browser regression passed 48 cases; 8 environment-dependent
+deployment cases were skipped. After the navigation animation update, 11 related
+browser cases passed: 6 AI workspace, 1 bottom navigation, 3 startup and 1 mobile
+workflow. The 194 Node cases also passed again.
+
+The Android Debug 1.1.1 APK (versionCode 3) builds with Platform 36 and the Browser plugin. Public
+build environment checks pass; the configured server chat key was absent from
+the packaged web assets. The emulator now boots using the existing SDK through
+an ASCII alias. Eleven installed-APK mock checks passed, including bottom navigation
+alignment/interrupted taps/reduced-motion media, native HTTP,
+Preferences, keyboard and Back, persona, background pause, process restart,
+rotation with safe-area checks, and Browser open/return. The tested APK hash
+matches the local delivery manifest; raw emulator logs, APK and screenshots are
+not committed to this public repository. See the
+[public evidence boundary](PROJECT-STATUS-2026-10-01.md).
+
+The local record shows a same-certificate upgrade from Debug 1.1.0 to 1.1.1.
+See the [public status summary](PROJECT-STATUS-2026-10-01.md); the APK,
+manifest and isolated mock evidence remain local-only until a same-SHA CI
+artifact is available.
+
+The native run uses an isolated mock and does not certify complete OIDC login,
+real-device TLS, native HTTP timeout/cancellation, or a real DeepSeek call from
+the new APK. A reachable phone HTTPS endpoint and test phone remain unavailable.

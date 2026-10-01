@@ -83,3 +83,4 @@ foreach ($name in $secretNames) {
 }
 
 Write-Host "Secret directory ready: $SecretDirectory"
+Write-Host 'AI provider keys are not generated. Chat-only mode needs provider-issued ai_chat_api_key. Add ai_embedding_api_key only when enabling the knowledge base; keep both files user-only.'

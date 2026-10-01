@@ -4,6 +4,7 @@ backend/data/
 backend/target/
 backend/*.log
 backend/*.err.log
+**/*.log
 .idea/
 .vs/
 .superpowers/
@@ -22,5 +23,6 @@ artifacts/p0-runtime/
 artifacts/recovery-drill/
 artifacts/release/
 artifacts/simulation/
+artifacts/android-test-runtime/
 client/.env.local
 client/.env.*.local

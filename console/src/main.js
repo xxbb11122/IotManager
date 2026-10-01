@@ -1,6 +1,6 @@
 import './css/style.css';
 import Chart from 'chart.js/auto';
-import { api, esc, configureApiAuthentication } from './js/api.js';
+import { api, apiBlob, esc, configureApiAuthentication } from './js/api.js';
 import { realtime } from './js/realtime.js';
 import { createRenderMetrics } from './js/render-metrics.js';
 import { BrowserOidcSession, resolveBrowserOidcConfig } from '../../shared/browser-oidc.js';
@@ -17,6 +17,10 @@ const state = {
   weatherSettings: null,
   alerts: [],
   sites: [],
+  siteId: null,
+  roles: [],
+  aiConversationId: null,
+  aiJobId: null,
   siteCode: 'demo-site',
   siteName: '演示站点'
 };
@@ -30,12 +34,42 @@ let realtimeRefreshInFlight = false;
 let realtimeRefreshQueued = false;
 let lastRealtimeRefreshAt = 0;
 let hiddenRealtimeRefreshDirty = false;
+let aiRevision = 0;
+let aiAbort = new AbortController();
+
+function resetAi(clearManagement = true) {
+  aiRevision += 1;
+  aiAbort.abort();
+  aiAbort = new AbortController();
+  state.aiConversationId = null;
+  document.getElementById('ai-question').value = '';
+  for (const id of ['ai-answer', 'ai-citations']) {
+    const element = document.getElementById(id);
+    if (element) element.textContent = '';
+  }
+  if (clearManagement) {
+    state.aiJobId = null;
+    document.getElementById('ai-retry-job').hidden = true;
+    for (const id of ['ai-job-status', 'ai-documents', 'ai-persona-versions']) {
+      document.getElementById(id).textContent = '';
+    }
+    document.getElementById('ai-kb-select').replaceChildren();
+    document.getElementById('ai-kb-name').value = '';
+    document.getElementById('ai-persona-name').value = '';
+    document.getElementById('ai-persona-instructions').value = '';
+    document.getElementById('ai-admin').hidden = true;
+    state.aiLatestPersonaVersion = 0;
+  }
+}
 
 const browserAuth = new BrowserOidcSession({
   config: resolveBrowserOidcConfig(),
   onStateChange: (authState) => {
     updateAuthenticationUi(authState);
-    if (authState.configured && !authState.authenticated) realtime.disconnect();
+    if (authState.configured && !authState.authenticated) {
+      realtime.disconnect();
+      resetAi();
+    }
   }
 });
 
@@ -149,13 +183,15 @@ function selectedDeviceIds() {
 
 function updateSiteUi() {
   const selector = document.getElementById('site-selector');
-  if (selector) selector.value = state.siteCode;
+  if (selector) selector.value = state.siteId ?? state.siteCode;
   const label = document.getElementById('site-label');
   if (label) label.textContent = state.siteName || state.siteCode;
 }
 
 async function selectSite(site, { reload = true } = {}) {
   if (!site?.siteCode) return;
+  resetAi();
+  state.siteId = site.id ?? null;
   state.siteCode = String(site.siteCode);
   state.siteName = String(site.siteName || site.siteCode);
   state.selectedGroup = null;
@@ -164,7 +200,7 @@ async function selectSite(site, { reload = true } = {}) {
   state.weather = null;
   state.weatherSettings = null;
   realtime.setSiteCode(state.siteCode);
-  try { localStorage.setItem(SITE_STORAGE_KEY, state.siteCode); } catch { /* browser persistence is optional */ }
+  try { localStorage.setItem(SITE_STORAGE_KEY, String(state.siteId ?? state.siteCode)); } catch { /* browser persistence is optional */ }
   updateSiteUi();
   if (!reload) return;
 
@@ -184,15 +220,21 @@ async function loadSites() {
     const sites = await api('/api/v1/sites');
     if (!Array.isArray(sites) || sites.length === 0) throw new Error('No accessible sites');
     state.sites = sites;
+    try {
+      state.roles = (await api('/api/v1/me')).roles || [];
+    } catch {
+      state.roles = browserAuth.isConfigured() ? [] : ['OWNER'];
+    }
     let savedCode = null;
     try { savedCode = localStorage.getItem(SITE_STORAGE_KEY); } catch { /* browser persistence is optional */ }
-    const selected = sites.find((site) => String(site.siteCode) === String(savedCode))
+    const selected = sites.find((site) => site.id != null && String(site.id) === String(savedCode))
+      || sites.find((site) => String(site.siteCode) === String(savedCode))
       || sites.find((site) => String(site.siteCode) === state.siteCode)
       || sites[0];
     if (selector) {
       selector.replaceChildren(...sites.map((site) => {
         const option = document.createElement('option');
-        option.value = site.siteCode;
+        option.value = site.id ?? site.siteCode;
         option.textContent = `${site.organizationName || site.organizationCode || ''} / ${site.siteName || site.siteCode}`;
         return option;
       }));
@@ -560,9 +602,98 @@ async function loadAudit() {
   </tr>`).join('') : '<tr><td colspan="7" class="empty">没有匹配的命令</td></tr>';
 }
 
+function aiPath(suffix) {
+  if (!state.siteId) throw new Error('请选择已授权站点');
+  return '/api/v1/sites/' + encodeURIComponent(state.siteId) + '/ai' + suffix;
+}
+
+function aiAdmin() {
+  return state.roles.includes('OWNER') || state.roles.includes('ADMIN');
+}
+
+async function loadAiDocuments(revision = aiRevision) {
+  const kbId = document.getElementById('ai-kb-select').value;
+  const container = document.getElementById('ai-documents');
+  if (!kbId || !aiAdmin()) { container.textContent = ''; return; }
+  const documents = await api(aiPath('/knowledge-bases/' + encodeURIComponent(kbId) + '/documents'), { signal: aiAbort.signal });
+  if (revision !== aiRevision) return;
+  container.innerHTML = documents.length ? documents.map((item) =>
+    '<div class="compact-row"><span>' + esc(item.name) + ' · v' + item.versionNumber + ' · ' +
+    esc(item.status) + '</span>' + (item.status === 'SUPERSEDED'
+      ? '<button type="button" class="btn btn-ghost btn-sm ai-activate-doc" data-id="' + esc(item.id) + '">恢复此版本</button>'
+      : '') + '<button type="button" class="btn btn-ghost btn-sm ai-delete-doc" data-id="' +
+    esc(item.id) + '">停用</button></div>').join('') : '<p class="muted">暂无文档</p>';
+}
+
+async function loadAi() {
+  const revision = aiRevision;
+  const answer = document.getElementById('ai-answer');
+  if (!state.siteId) {
+    answer.textContent = '当前站点没有可用的站点 ID。';
+    return;
+  }
+  try {
+    const status = await api(aiPath('/status'), { signal: aiAbort.signal });
+    if (revision !== aiRevision) return;
+    if (!status.enabled) {
+      answer.textContent = '站点 AI 尚未开启。';
+      document.getElementById('ai-admin').hidden = true;
+      return;
+    }
+    const [knowledgeBases, persona] = await Promise.all([
+      status.knowledgeEnabled ? api(aiPath('/knowledge-bases'), { signal: aiAbort.signal }) : Promise.resolve([]),
+      api(aiPath('/persona'), { signal: aiAbort.signal })
+    ]);
+    if (revision !== aiRevision) return;
+    document.getElementById('ai-knowledge-admin').hidden = !status.knowledgeEnabled;
+    document.getElementById('ai-knowledge-disabled').hidden = !!status.knowledgeEnabled;
+    if (!answer.textContent) answer.textContent = persona?.name ? '当前性格：' + persona.name : '当前未启用自定义性格。';
+    const admin = aiAdmin();
+    document.getElementById('ai-admin').hidden = !admin;
+    if (!admin) return;
+    const selector = document.getElementById('ai-kb-select');
+    const previous = selector.value;
+    selector.replaceChildren(...knowledgeBases.map((item) => {
+      const option = document.createElement('option');
+      option.value = item.id;
+      option.textContent = item.name;
+      return option;
+    }));
+    if (knowledgeBases.some((item) => item.id === previous)) selector.value = previous;
+    const versions = await api(aiPath('/persona/versions'), { signal: aiAbort.signal });
+    if (revision !== aiRevision) return;
+    state.aiLatestPersonaVersion = Math.max(0, ...versions.map((item) => item.version));
+    document.getElementById('ai-persona-versions').innerHTML = versions.length
+      ? versions.map((item) => '<div class="compact-row"><span>v' + item.version + ' · ' + esc(item.name) +
+        (item.active ? '（已启用）' : '') + '</span><button type="button" class="btn btn-ghost btn-sm ai-activate" data-version="' +
+        item.version + '">启用</button></div>').join('')
+      : '<p class="muted">暂无性格版本</p>';
+    if (status.knowledgeEnabled) await loadAiDocuments(revision);
+  } catch (error) {
+    if (revision !== aiRevision || error.name === 'AbortError') return;
+    answer.textContent = error.message.includes('404') ? '站点 AI 尚未开启。' : 'AI 加载失败：' + error.message;
+    document.getElementById('ai-admin').hidden = true;
+  }
+}
+
+async function pollAiJob(jobId, revision) {
+  for (let attempt = 0; attempt < 60 && revision === aiRevision; attempt += 1) {
+    const job = await api(aiPath('/ingest-jobs/' + encodeURIComponent(jobId)), { signal: aiAbort.signal });
+    if (revision !== aiRevision) return;
+    document.getElementById('ai-job-status').textContent = '索引状态：' + job.status +
+      (job.errorCode ? '（' + job.errorCode + '）' : '');
+    document.getElementById('ai-retry-job').hidden = job.status !== 'FAILED';
+    if (['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(job.status)) {
+      await loadAiDocuments(revision);
+      return;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 2000));
+  }
+}
+
 async function refreshCurrentPage() {
   const active = document.querySelector('.page.active')?.id?.replace('page-', '') || 'dashboard';
-  const loaders = { dashboard: loadDashboard, devices: loadDevices, groups: loadGroups, batches: loadBatches, alerts: loadAlerts, audit: loadAudit, weather: loadWeather };
+  const loaders = { dashboard: loadDashboard, devices: loadDevices, groups: loadGroups, batches: loadBatches, alerts: loadAlerts, audit: loadAudit, weather: loadWeather, ai: loadAi };
   await loaders[active]();
 }
 
@@ -706,10 +837,149 @@ async function navigate(page) {
 }
 
 document.querySelectorAll('.nav-item').forEach((element) => element.addEventListener('click', () => navigate(element.dataset.page)));
-document.getElementById('site-selector').addEventListener('change', async (event) => {
-  const site = state.sites.find((candidate) => String(candidate.siteCode) === String(event.target.value));
+document.getElementById('ai-new-chat').addEventListener('click', () => resetAi(false));
+globalThis.addEventListener?.('offline', resetAi);
+document.getElementById('ai-chat-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const revision = aiRevision;
+  const button = event.currentTarget.querySelector('button[type="submit"]');
+  button.disabled = true;
+  document.getElementById('ai-answer').textContent = '正在回答…';
   try {
-    await selectSite(site || { siteCode: event.target.value }, { reload: true });
+    const reply = await api(aiPath('/chat'), {
+      method: 'POST',
+      signal: aiAbort.signal,
+      body: JSON.stringify({
+        question: document.getElementById('ai-question').value,
+        conversationId: state.aiConversationId
+      })
+    });
+    if (revision !== aiRevision) return;
+    state.aiConversationId = reply.conversationId;
+    document.getElementById('ai-answer').textContent = reply.answer;
+    document.getElementById('ai-citations').innerHTML = (reply.citations || []).map((citation) =>
+      '<div class="compact-row"><span>' + esc(citation.documentName) + ' · v' + citation.version +
+      (citation.pageNumber ? ' · 第 ' + citation.pageNumber + ' 页' : '') + '<br>' +
+      esc(citation.snippet) + '</span><button type="button" class="btn btn-ghost btn-sm ai-download" data-id="' +
+      esc(citation.documentId) + '" data-name="' + esc(citation.documentName) + '">下载原文</button></div>').join('');
+  } catch (error) {
+    if (revision === aiRevision && error.name !== 'AbortError') {
+      document.getElementById('ai-answer').textContent = '问答失败：' + error.message;
+    }
+  } finally {
+    button.disabled = false;
+  }
+});
+document.getElementById('ai-citations').addEventListener('click', async (event) => {
+  const button = event.target.closest('.ai-download');
+  if (!button) return;
+  const revision = aiRevision;
+  const siteId = state.siteId;
+  try {
+    const blob = await apiBlob(aiPath('/documents/' + encodeURIComponent(button.dataset.id) + '/source'),
+      { signal: aiAbort.signal });
+    if (revision !== aiRevision || siteId !== state.siteId) return;
+    const href = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = href;
+    anchor.download = button.dataset.name;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(href), 30_000);
+  } catch (error) {
+    if (revision === aiRevision && error.name !== 'AbortError') toast('下载原文失败：' + error.message, true);
+  }
+});
+document.getElementById('ai-kb-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    await api(aiPath('/knowledge-bases'), {
+      method: 'POST',
+      body: JSON.stringify({ name: document.getElementById('ai-kb-name').value })
+    });
+    document.getElementById('ai-kb-name').value = '';
+    await loadAi();
+  } catch (error) { toast('创建知识库失败：' + error.message, true); }
+});
+document.getElementById('ai-kb-select').addEventListener('change', () =>
+  loadAiDocuments().catch((error) => toast(error.message, true)));
+document.getElementById('ai-upload-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const file = document.getElementById('ai-file').files[0];
+  const kbId = document.getElementById('ai-kb-select').value;
+  if (!file || !kbId) { toast('请先选择知识库和文件', true); return; }
+  const revision = aiRevision;
+  const body = new FormData();
+  body.append('file', file);
+  try {
+    const job = await api(aiPath('/knowledge-bases/' + encodeURIComponent(kbId) + '/documents'), {
+      method: 'POST', body, signal: aiAbort.signal
+    });
+    if (revision !== aiRevision) return;
+    state.aiJobId = job.id;
+    document.getElementById('ai-retry-job').hidden = true;
+    document.getElementById('ai-job-status').textContent = '索引状态：' + job.status;
+    await pollAiJob(job.id, revision);
+  } catch (error) {
+    if (revision === aiRevision && error.name !== 'AbortError') toast('上传失败：' + error.message, true);
+  }
+});
+document.getElementById('ai-retry-job').addEventListener('click', async () => {
+  if (!state.aiJobId) return;
+  const revision = aiRevision;
+  const button = document.getElementById('ai-retry-job');
+  button.hidden = true;
+  try {
+    const job = await api(aiPath('/ingest-jobs/' + encodeURIComponent(state.aiJobId) + '/retry'), {
+      method: 'POST', signal: aiAbort.signal
+    });
+    if (revision !== aiRevision) return;
+    document.getElementById('ai-job-status').textContent = '索引状态：' + job.status;
+    await pollAiJob(job.id, revision);
+  } catch (error) {
+    if (revision !== aiRevision || error.name === 'AbortError') return;
+    button.hidden = false;
+    toast('重试入库失败：' + error.message, true);
+  }
+});
+document.getElementById('ai-documents').addEventListener('click', async (event) => {
+  const button = event.target.closest('.ai-delete-doc, .ai-activate-doc');
+  if (!button) return;
+  try {
+    if (button.classList.contains('ai-activate-doc')) {
+      await api(aiPath('/documents/' + encodeURIComponent(button.dataset.id) + '/activate'), { method: 'POST' });
+    } else {
+      await api(aiPath('/documents/' + encodeURIComponent(button.dataset.id)), { method: 'DELETE' });
+    }
+    await loadAiDocuments();
+  } catch (error) { toast('修改文档版本失败：' + error.message, true); }
+});
+document.getElementById('ai-persona-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  try {
+    await api(aiPath('/persona'), {
+      method: 'PUT',
+      body: JSON.stringify({
+        name: document.getElementById('ai-persona-name').value,
+        instructions: document.getElementById('ai-persona-instructions').value,
+        expectedVersion: state.aiLatestPersonaVersion || 0
+      })
+    });
+    await loadAi();
+  } catch (error) { toast('保存性格失败：' + error.message, true); }
+});
+document.getElementById('ai-persona-versions').addEventListener('click', async (event) => {
+  const button = event.target.closest('.ai-activate');
+  if (!button) return;
+  try {
+    await api(aiPath('/persona/' + encodeURIComponent(button.dataset.version) + '/activate'), { method: 'POST' });
+    await loadAi();
+  } catch (error) { toast('启用性格失败：' + error.message, true); }
+});
+document.getElementById('site-selector').addEventListener('change', async (event) => {
+  const site = state.sites.find((candidate) => String(candidate.id) === String(event.target.value))
+    || state.sites.find((candidate) => String(candidate.siteCode) === String(event.target.value));
+  try {
+    await selectSite(site, { reload: true });
   } catch (error) {
     toast(`切换站点失败：${error.message}`, true);
     updateSiteUi();

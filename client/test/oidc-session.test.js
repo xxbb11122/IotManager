@@ -26,6 +26,11 @@ function discoveryResponse() {
   };
 }
 
+function idToken(nonce, { issuer = discoveryResponse().issuer, clientId = 'iot-mobile' } = {}) {
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  return [encode({ alg: 'RS256' }), encode({ iss: issuer, aud: clientId, sub: 'user-a', nonce, iat: 1000, exp: 2000 }), 'test-signature'].join('.');
+}
+
 function oidcManager({ fetchImpl, navigate = () => {}, now = () => 1_000_000 } = {}) {
   const browserStorage = memoryStorage();
   const store = new SecureSessionStore({ nativeRuntime: false, browserStorage });
@@ -79,7 +84,7 @@ test('PKCE login persists only the transaction and builds an authorization-code 
   }
 });
 
-test('OIDC callback exchanges PKCE code, rotates session storage, and refreshes on demand', async () => {
+test('OIDC callback exchanges PKCE code, validates identity and nonce, rotates session storage, and refreshes on demand', async () => {
   const requests = [];
   let tokenCall = 0;
   const { manager, store } = oidcManager({
@@ -92,7 +97,7 @@ test('OIDC callback exchanges PKCE code, rotates session storage, and refreshes 
       return new Response(JSON.stringify(tokenCall === 1 ? {
         access_token: 'access-initial',
         refresh_token: 'refresh-initial',
-        id_token: 'id-token',
+        id_token: idToken((await store.getJson(OIDC_STORAGE_KEYS.TRANSACTION_KEY)).nonce),
         expires_in: 300,
         refresh_expires_in: 600
       } : {
@@ -176,4 +181,68 @@ test('a refresh response arriving after logout cannot recreate the old session',
     assert.equal(manager.getAccessToken(), null);
     assert.equal(await store.getJson(OIDC_STORAGE_KEYS.SESSION_KEY), null);
   } finally { manager.stopAutoRefresh(); }
+});
+
+test('asynchronous browser open failure rejects login and cleans only its PKCE transaction', async () => {
+  const { manager, store } = oidcManager({
+    fetchImpl: async () => new Response(JSON.stringify(discoveryResponse())),
+    navigate: async () => { throw new Error('browser unavailable'); }
+  });
+  await assert.rejects(manager.beginLogin(), /browser unavailable/);
+  assert.equal(await store.getJson(OIDC_STORAGE_KEYS.TRANSACTION_KEY), null);
+  assert.equal(manager.pendingLoginState, null); assert.equal(manager.loginInProgress, false);
+});
+
+test('login reentry is blocked until cancellation, and stale browser closure cannot cancel the new login', async () => {
+  const { manager, store } = oidcManager({ fetchImpl: async () => new Response(JSON.stringify(discoveryResponse())) });
+  await manager.beginLogin(); const oldState = manager.pendingLoginState;
+  await assert.rejects(manager.beginLogin(), (error) => error.code === 'LOGIN_IN_PROGRESS');
+  assert.equal(await manager.cancelPendingLogin(oldState), true);
+  await manager.beginLogin(); assert.notEqual(manager.pendingLoginState, oldState);
+  assert.equal(await manager.cancelPendingLogin(oldState), false);
+  assert.ok(await store.getJson(OIDC_STORAGE_KEYS.TRANSACTION_KEY));
+  await manager.cancelPendingLogin();
+});
+
+test('browser closure during token exchange cannot remove the callback transaction', async () => {
+  let finishToken;
+  const { manager, store } = oidcManager({ fetchImpl: async (url) => {
+    if (String(url).includes('.well-known')) return new Response(JSON.stringify(discoveryResponse()));
+    return new Promise((resolve) => { finishToken = resolve; });
+  } });
+  const url = await manager.beginLogin(), state = new URL(url).searchParams.get('state');
+  const transaction = await store.getJson(OIDC_STORAGE_KEYS.TRANSACTION_KEY);
+  const callback = manager.completeRedirect('com.iot.manager.client://oauth/callback?code=c&state=' + state);
+  while (!finishToken) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(await manager.cancelPendingLogin(state), false);
+  assert.ok(await store.getJson(OIDC_STORAGE_KEYS.TRANSACTION_KEY));
+  finishToken(new Response(JSON.stringify({ access_token: 'mock-access', id_token: idToken(transaction.nonce), expires_in: 300 })));
+  assert.equal(await callback, true); assert.equal(await manager.cancelPendingLogin(state), false);
+  assert.equal(manager.getAccessToken(), 'mock-access'); manager.stopAutoRefresh();
+});
+
+test('a cold started manager restores the pending PKCE transaction and validates the nonce', async () => {
+  const { manager, store } = oidcManager({ fetchImpl: async () => new Response(JSON.stringify(discoveryResponse())) });
+  const url = await manager.beginLogin(); const transaction = await store.getJson(OIDC_STORAGE_KEYS.TRANSACTION_KEY);
+  const cold = new OidcSessionManager({ config: manager.config, tokenStore: store, now: () => 1_000_000,
+    fetchImpl: async (url) => new Response(JSON.stringify(String(url).includes('.well-known') ? discoveryResponse()
+      : { access_token: 'cold-access', id_token: idToken(transaction.nonce), expires_in: 300 })) });
+  assert.equal(await cold.completeRedirect('com.iot.manager.client://oauth/callback?code=c&state=' + new URL(url).searchParams.get('state')), true);
+  assert.equal(cold.getAccessToken(), 'cold-access'); cold.stopAutoRefresh(); manager.stopAutoRefresh();
+});
+
+test('wrong nonce, issuer or audience rejects the authorization before persisting a session', async () => {
+  for (const variant of ['nonce', 'issuer', 'audience']) {
+    const { manager, store } = oidcManager({ fetchImpl: async (url) => {
+      if (String(url).includes('.well-known')) return new Response(JSON.stringify(discoveryResponse()));
+      const tx = await store.getJson(OIDC_STORAGE_KEYS.TRANSACTION_KEY);
+      return new Response(JSON.stringify({ access_token: 'must-not-save', expires_in: 300,
+        id_token: idToken(variant === 'nonce' ? 'foreign-nonce' : tx.nonce,
+          variant === 'issuer' ? { issuer: 'https://other.example.test' } : variant === 'audience' ? { clientId: 'other-client' } : {}) }));
+    } });
+    const url = await manager.beginLogin();
+    await assert.rejects(manager.completeRedirect('com.iot.manager.client://oauth/callback?code=c&state=' + new URL(url).searchParams.get('state')),
+      (error) => error.code === 'INVALID_ID_TOKEN');
+    assert.equal(await store.getJson(OIDC_STORAGE_KEYS.SESSION_KEY), null); assert.equal(manager.getAccessToken(), null);
+  }
 });

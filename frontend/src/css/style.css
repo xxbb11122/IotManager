@@ -145,3 +145,4 @@ body {
   .charts-row{grid-template-columns:1fr}
   .weather-panel__current,.weather-panel__forecasts{grid-template-columns:1fr;display:grid}.weather-top-metrics{width:100%}.weather-panel__indicators{grid-template-columns:repeat(2,minmax(0,1fr))}.weather-indicator:nth-child(2n){border-right:0}
 }
+.ai-readonly{padding:1rem;line-height:1.5}.ai-readonly form{display:grid;gap:.6rem}.ai-readonly textarea{min-height:90px;padding:.7rem;border:1px solid var(--border);border-radius:6px;font:inherit}.ai-readonly button{padding:.6rem .9rem;margin-right:.5rem}.ai-readonly #site-ai-answer{white-space:pre-wrap}.ai-readonly #site-ai-citations{font-size:.8rem;color:var(--text2)}

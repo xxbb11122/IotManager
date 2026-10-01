@@ -32,6 +32,7 @@ import {
   Router,
   SearchX,
   ShieldAlert,
+  Sparkles,
   Target,
   Thermometer,
   TriangleAlert,
@@ -52,6 +53,7 @@ import { createMotionPolicy } from './motion-policy.js';
 import { createPullRefreshState } from './pull-refresh.js';
 import { reconcileElement } from './dom-reconcile.js';
 import { BUILD_INFO } from './build-info.js';
+import { buildAiView } from './ai/ai-view.js';
 
 const icons = {
   Activity,
@@ -87,6 +89,7 @@ const icons = {
   Router,
   SearchX,
   ShieldAlert,
+  Sparkles,
   Target,
   Thermometer,
   TriangleAlert,
@@ -355,6 +358,7 @@ class ClientUi {
     this.exitTimers.clear();
     this.viewRevision += 1;
     this.local.screen = result.route.screen;
+    this.handlers.screenChanged?.(this.local.screen);
     if (result.route.screen === 'detail') this.model = { ...this.model, activeDeviceId: result.route.entityId };
     this.pendingFocusIntent = null;
     this.navigationRestore = result.position;
@@ -554,9 +558,22 @@ class ClientUi {
   }
 
   syncNavigationSelection() {
-    for (const button of this.root.querySelectorAll('[data-action="navigate"][data-screen]')) {
-      const activeClass = button.classList.contains('nav-button') ? 'nav-button--active' : 'desktop-nav-button--active';
-      button.classList.toggle(activeClass, button.dataset.screen === this.local.screen);
+    for (const nav of this.root.querySelectorAll('.primary-nav, .bottom-nav')) {
+      const buttons = [...nav.querySelectorAll(':scope > [data-action="navigate"][data-screen]')];
+      let activeIndex = -1;
+      buttons.forEach((button, index) => {
+        const active = isPrimaryNavigationActive(button.dataset.screen, this.local.screen);
+        const activeClass = button.classList.contains('nav-button') ? 'nav-button--active' : 'desktop-nav-button--active';
+        button.classList.toggle(activeClass, active);
+        if (active) {
+          activeIndex = index;
+          button.setAttribute('aria-current', 'page');
+        } else button.removeAttribute('aria-current');
+      });
+      if (nav.classList.contains('bottom-nav')) {
+        nav.classList.toggle('bottom-nav--has-selection', activeIndex >= 0);
+        if (activeIndex >= 0) nav.style.setProperty('--nav-selection-offset', `${activeIndex * 100}%`);
+      }
     }
   }
 
@@ -757,6 +774,22 @@ class ClientUi {
   patchScreen(viewModel = {}) {
     this.updateModel(viewModel);
     return this.patchScreenContent();
+  }
+
+  patchAi(viewModel = {}) {
+    const focus = this.captureRenderState();
+    this.updateModel(viewModel);
+    if (!this.local.screen.startsWith('ai')) return true;
+    const content = this.root.querySelector('[data-region="ai-content"]');
+    if (!content) return false;
+    const log = content.querySelector('[data-region="ai-messages"]');
+    const position = log?.scrollTop ?? 0;
+    const atBottom = !log || log.scrollHeight - log.clientHeight - position < 48;
+    this.reconcile(content, buildAiView(this.model.ai, { screen: this.local.screen }));
+    this.restoreRenderState(focus);
+    const next = content.querySelector('[data-region="ai-messages"]');
+    if (next) next.scrollTop = atBottom ? next.scrollHeight : position;
+    return true;
   }
 
   patchWeatherCooldown({ retryAt = null, now = Date.now() } = {}) {
@@ -1128,6 +1161,7 @@ class ClientUi {
   buildDesktopNav() {
     const nav = element('nav', 'primary-nav', { ariaLabel: '主导航' });
     nav.append(this.navButton('devices', '设备', 'Boxes'));
+    nav.append(this.navButton('ai', 'AI', 'Sparkles'));
     nav.append(this.navButton('activity', '动态', 'Activity'));
     nav.append(this.navButton('add', '添加设备', 'Plus'));
     return nav;
@@ -1136,6 +1170,7 @@ class ClientUi {
   buildMobileNav() {
     const nav = element('nav', 'bottom-nav', { ariaLabel: '主导航' });
     nav.append(this.navButton('devices', '设备', 'Boxes', true));
+    nav.append(this.navButton('ai', 'AI', 'Sparkles', true));
     nav.append(this.navButton('activity', '动态', 'Activity', true));
     nav.append(this.navButton('add', '添加', 'Plus', true));
     return nav;
@@ -1144,7 +1179,7 @@ class ClientUi {
   navButton(screen, label, iconName, mobile = false) {
     const className = mobile ? 'nav-button' : 'desktop-nav-button';
     const button = actionButton(label, 'navigate', {
-      className: `${className}${this.local.screen === screen ? ` ${className}--active` : ''}`,
+      className: className + (isPrimaryNavigationActive(screen, this.local.screen) ? ' ' + className + '--active' : ''),
       iconName,
       data: { screen, motion: 'peer' },
       ariaLabel: label
@@ -1157,6 +1192,11 @@ class ClientUi {
     screen.append(this.buildFeedback());
 
     switch (this.local.screen) {
+      case 'ai':
+      case 'ai-history':
+      case 'ai-persona':
+        screen.append(buildAiView(this.model.ai, { screen: this.local.screen }));
+        break;
       case 'add':
         screen.append(this.buildAddScreen());
         break;
@@ -1315,10 +1355,12 @@ class ClientUi {
     }
     const list = element('div', 'path-grid');
     sites.forEach((site) => {
-      const selected = String(site.siteCode) === String(this.model.context.siteCode);
+      const selected = site.id != null && this.model.context.siteId != null
+        ? String(site.id) === String(this.model.context.siteId)
+        : String(site.siteCode) === String(this.model.context.siteCode);
       const choice = actionButton('', 'select-site', {
         className: `path-choice${selected ? ' path-choice--selected' : ''}`,
-        data: { siteCode: site.siteCode },
+        data: { siteCode: site.siteCode, siteId: site.id },
         disabled: selected || this.isBusy('switch-site'),
         ariaLabel: `${site.organizationName ?? ''} / ${site.siteName ?? site.siteCode}`
       });
@@ -2509,6 +2551,10 @@ class ClientUi {
     const action = target.dataset.action;
     if (!action) return;
     event.preventDefault();
+    if (action.startsWith('ai-')) {
+      this.invoke('aiAction', { action, id: target.dataset.aiId }, { render: false });
+      return;
+    }
 
     switch (action) {
       case 'navigate':
@@ -2571,7 +2617,7 @@ class ClientUi {
         this.render(this.model);
         break;
       case 'select-site':
-        this.invoke('switchSite', { siteCode: target.dataset.siteCode }, {
+        this.invoke('switchSite', { siteCode: target.dataset.siteCode, siteId: target.dataset.siteId }, {
           busy: 'switch-site',
           onResolved: () => {
             this.screenScrollPositions.delete('devices');
@@ -2721,8 +2767,12 @@ class ClientUi {
 
   onInput(event) {
     const target = event.target;
-    if (!(target instanceof HTMLInputElement) || !this.root.contains(target)) return;
+    if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) || !this.root.contains(target)) return;
     const field = target.dataset.field;
+    if (field?.startsWith('ai-')) {
+      this.handlers.aiInput?.({ field, value: target.value });
+      return;
+    }
     if (field?.startsWith('endpoint')) {
       this.viewRevision += 1;
       this.local.endpointTest = null;
@@ -3070,6 +3120,7 @@ function normalizeViewModel(viewModel) {
     pendingWeatherLocation: plainObject(source.pendingWeatherLocation),
     endpointProfile: plainObject(source.endpointProfile),
     auth: plainObject(source.auth ?? source.authentication),
+    ai: source.ai,
     commands: objectValues(commandsById),
     activitiesByDeviceId: plainObject(activitiesByDeviceId),
     activities: arrayOf(source.activities ?? source.activity),
@@ -3273,6 +3324,10 @@ function surfaceHeading(title, subtitle) {
   if (subtitle) group.append(element('p', 'surface-subtitle', { text: subtitle }));
   heading.append(group);
   return heading;
+}
+
+function isPrimaryNavigationActive(screen, currentScreen) {
+  return screen === currentScreen || (screen === 'ai' && currentScreen.startsWith('ai-'));
 }
 
 function backButton(screen) {
@@ -3562,7 +3617,8 @@ function normalizeCommandStatus(value) {
 function screenAnnouncement(screen) {
   return ({
     devices: '设备列表', activity: '现场动态', add: '添加设备', ble: '蓝牙直连', lan: '局域网模拟发现',
-    detail: '设备详情', connections: '连接设置', sites: '选择站点', weather: '园区天气'
+    detail: '设备详情', connections: '连接设置', sites: '选择站点', weather: '园区天气',
+    ai: 'AI 助手', 'ai-history': 'AI 会话历史', 'ai-persona': 'AI 性格'
   })[screen] ?? '设备运营';
 }
 

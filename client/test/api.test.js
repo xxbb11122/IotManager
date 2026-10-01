@@ -184,3 +184,19 @@ test('weather API client keeps the site scope and forecast limits explicit', asy
   assert.equal(requests[4].url, 'https://iot.example.test/api/v1/sites/demo%20site/weather/refresh');
   assert.equal(requests[4].init.method, 'POST');
 });
+
+test('AI authentication refresh preserves the original idempotency key and body', async () => {
+  let token = 'old', refreshes = 0; const requests = [];
+  const api = new ApiClient({ baseUrl: 'https://iot.example.test/api', accessTokenProvider: async () => token,
+    onUnauthorized: async () => { refreshes++; token = 'new'; return true; },
+    fetchImpl: async (url, init) => {
+      requests.push({ url, init });
+      return new Response(JSON.stringify(init.headers.authorization === 'Bearer new' ? { answer: 'mock' } : { message: 'expired' }),
+        { status: init.headers.authorization === 'Bearer new' ? 200 : 401, headers: { 'content-type': 'application/json' } });
+    } });
+  await api.askAi(1, '问题', null, { headers: { 'Idempotency-Key': 'test-key' } });
+  assert.equal(refreshes, 1); assert.equal(requests.length, 2);
+  assert.equal(requests[0].init.headers['Idempotency-Key'], 'test-key');
+  assert.equal(requests[1].init.headers['Idempotency-Key'], 'test-key');
+  assert.equal(requests[0].init.body, requests[1].init.body);
+});

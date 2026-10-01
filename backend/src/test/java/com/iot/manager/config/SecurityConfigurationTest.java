@@ -176,6 +176,23 @@ class SecurityConfigurationTest {
     }
 
     @Test
+    void disabledAiStillAppliesDedicatedViewerAndAdminRules() {
+        ensureViewerMembership();
+        HttpHeaders viewer = bearerHeaders("viewer-token");
+        ResponseEntity<String> chat = restTemplate.exchange(
+                url("/api/v1/sites/1/ai/chat"), HttpMethod.POST, new HttpEntity<>("{}", viewer), String.class);
+        ResponseEntity<String> manage = restTemplate.exchange(
+                url("/api/v1/sites/1/ai/knowledge-bases"), HttpMethod.POST,
+                new HttpEntity<>("{}", viewer), String.class);
+        ResponseEntity<String> deleteOwn = restTemplate.exchange(
+                url("/api/v1/sites/1/ai/conversations/test"), HttpMethod.DELETE,
+                new HttpEntity<>(viewer), String.class);
+        assertThat(chat.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(deleteOwn.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(manage.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
     void siteWeatherRequiresDatabaseMembershipInAdditionToJwtRole() {
         ensureViewerMembership();
 

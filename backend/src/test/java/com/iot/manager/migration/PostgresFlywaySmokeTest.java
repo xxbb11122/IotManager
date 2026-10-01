@@ -2,6 +2,7 @@ package com.iot.manager.migration;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -26,13 +27,18 @@ class PostgresFlywaySmokeTest {
     private static final Pattern MIGRATION_FILE = Pattern.compile("V(\\d+)__.+\\.sql");
 
     @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(
+            DockerImageName.parse("pgvector/pgvector:0.8.6-pg16").asCompatibleSubstituteFor("postgres"))
             .withDatabaseName("iot_manager_test")
             .withUsername("iot_manager")
             .withPassword("test-only-password");
 
     @Test
     void latestFlywayMigrationsApplyToPostgres16() throws Exception {
+        try (var connection = DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+             var statement = connection.createStatement()) {
+            statement.execute("CREATE EXTENSION IF NOT EXISTS vector");
+        }
         Flyway flyway = Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .locations("classpath:db/migration", "classpath:db/migration-postgresql")
@@ -40,7 +46,7 @@ class PostgresFlywaySmokeTest {
 
         Map<Integer, String> postgresMigrations = postgresMigrationInventory();
         assertThat(postgresMigrations).doesNotContainKey(19);
-        assertThat(postgresMigrations).containsKeys(20, 21, 22, 23, 24, 25);
+        assertThat(postgresMigrations).containsKeys(20, 21, 22, 23, 24, 25, 26, 27, 28);
         assertThat(flyway.info().pending())
                 .as("resolved PostgreSQL migrations before applying them")
                 .hasSize(postgresMigrations.size());
@@ -83,6 +89,8 @@ class PostgresFlywaySmokeTest {
         assertTableExists("retention_watermarks"); // V23
         assertColumnUsesTextType("device_telemetry_samples_archive", "state_json"); // V24
         assertIndexExists("idx_device_commands_completed_utc"); // V25
+        assertTableExists("ai_chunk_vectors"); // V27
+        assertTableExists("ai_chat_requests"); // V28
     }
 
     private Map<Integer, String> postgresMigrationInventory() throws Exception {

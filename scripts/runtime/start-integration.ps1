@@ -132,14 +132,26 @@ function Assert-IdentityPlane {
     $temporaryResponse = "$($temporaryCertificate).response"
     try {
         $compose = Compose-Arguments
-        Invoke-Native -Description 'Export integration Caddy CA' -Arguments ($compose + @('cp', 'caddy:/data/caddy/pki/authorities/local/root.crt', $temporaryCertificate))
-        # Schannel performs an online revocation lookup even when --cacert
-        # explicitly pins Caddy's local integration CA. That lookup cannot
-        # succeed for an offline, freshly generated CA, so disable only the
-        # revocation lookup; TLS chain and hostname validation remain active.
-        $status = & curl.exe --silent --show-error --ssl-no-revoke --output $temporaryResponse --write-out '%{http_code}' --cacert $temporaryCertificate "$BaseUrl/auth/realms/iot-manager/.well-known/openid-configuration"
-        if ($LASTEXITCODE -ne 0) { throw 'Identity-plane discovery request failed through Caddy.' }
-        if ($status.Trim() -ne '200') { throw "Identity-plane discovery request returned $($status.Trim()) instead of HTTP 200." }
+        foreach ($attempt in 1, 2) {
+            Remove-Item -LiteralPath $temporaryCertificate -Force -ErrorAction SilentlyContinue
+            Invoke-Native -Description 'Export integration Caddy CA' -Arguments ($compose + @('cp', 'caddy:/data/caddy/pki/authorities/local/root.crt', $temporaryCertificate))
+            # Schannel performs an online revocation lookup even when --cacert
+            # pins Caddy's local CA. Keep chain and hostname validation active.
+            $status = & curl.exe --silent --show-error --ssl-no-revoke --output $temporaryResponse --write-out '%{http_code}' --cacert $temporaryCertificate "$BaseUrl/auth/realms/iot-manager/.well-known/openid-configuration"
+            $curlExit = $LASTEXITCODE
+            if ($curlExit -eq 0) {
+                if ($status.Trim() -ne '200') { throw "Identity-plane discovery request returned $($status.Trim()) instead of HTTP 200." }
+                return
+            }
+            # An integration volume left offline past local certificate expiry
+            # can serve its old in-memory certificate while Caddy removes the
+            # expired file. One restart makes Caddy issue a fresh local cert.
+            if ($curlExit -ne 60 -or $attempt -ne 1) {
+                throw "Identity-plane discovery request failed through Caddy (curl exit $curlExit)."
+            }
+            Invoke-Native -Description 'Restart integration Caddy after TLS certificate failure' -Arguments ($compose + @('restart', 'caddy'))
+            Wait-ServiceHealthy -Service 'caddy'
+        }
     }
     finally {
         Remove-Item -LiteralPath $temporaryCertificate -Force -ErrorAction SilentlyContinue
@@ -220,7 +232,7 @@ $env:IOT_SECRET_DIR = $secretDirectory
 trap {
     if ($null -eq $originalSecretDirectory) { Remove-Item Env:IOT_SECRET_DIR -ErrorAction SilentlyContinue }
     else { $env:IOT_SECRET_DIR = $originalSecretDirectory }
-    throw
+    throw $_
 }
 & (Join-Path $PSScriptRoot 'new-secrets.ps1') -SecretDirectory $secretDirectory
 if ($LASTEXITCODE -ne 0) { throw 'Secret generation failed.' }
@@ -252,6 +264,9 @@ foreach ($secretName in $requiredSecretNames) {
 $startFlags = if ($Mode -eq 'local') { @('-d', '--build') } else { @('-d', '--no-build', '--pull', 'never') }
 $identity = (Compose-Arguments) + @('up') + $startFlags + @('volume-init', 'postgres', 'keycloak', 'caddy')
 Invoke-Native -Description 'Start identity plane' -Arguments $identity
+Wait-ServiceHealthy -Service 'postgres'
+$vectorPreflight = (Compose-Arguments) + @('exec', '-T', 'postgres', '/usr/local/bin/install-vector-existing.sh')
+Invoke-Native -Description 'Install and verify pgvector before Backend' -Arguments $vectorPreflight
 Wait-ServiceHealthy -Service 'keycloak'
 Wait-ServiceHealthy -Service 'caddy'
 Assert-IdentityPlane

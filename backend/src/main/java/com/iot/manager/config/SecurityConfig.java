@@ -1,6 +1,7 @@
 package com.iot.manager.config;
 
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import com.iot.manager.ai.AiProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -45,7 +46,8 @@ import java.util.Set;
         ApiRateLimitProperties.class,
         ObservabilityProperties.class,
         TimeProperties.class,
-        RetentionProperties.class
+        RetentionProperties.class,
+        AiProperties.class
 })
 public class SecurityConfig {
 
@@ -125,6 +127,15 @@ public class SecurityConfig {
                         // handshake interceptor performs the credential
                         // check before the WebSocket is upgraded.
                         .requestMatchers("/ws/edge/v1").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/sites/*/ai/chat")
+                            .hasAnyRole("OWNER", "ADMIN", "OPERATOR", "VIEWER")
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/sites/*/ai/conversations/*")
+                            .hasAnyRole("OWNER", "ADMIN", "OPERATOR", "VIEWER")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/sites/*/ai/ingest-jobs/**",
+                                "/api/v1/sites/*/ai/persona/versions").hasAnyRole("OWNER", "ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/sites/*/ai/**").hasAnyRole("OWNER", "ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/sites/*/ai/**").hasAnyRole("OWNER", "ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/sites/*/ai/**").hasAnyRole("OWNER", "ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/**").hasAnyRole("OWNER", "ADMIN", "OPERATOR", "VIEWER")
                         .requestMatchers(HttpMethod.POST, "/api/**").hasAnyRole("OWNER", "ADMIN", "OPERATOR")
                         .requestMatchers(HttpMethod.PUT, "/api/**").hasAnyRole("OWNER", "ADMIN", "OPERATOR")

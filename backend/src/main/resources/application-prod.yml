@@ -3,6 +3,22 @@ server:
   forward-headers-strategy: framework
 
 spring:
+  ai:
+    model:
+      chat: ${IOT_AI_CHAT_PROVIDER:none}
+      embedding: ${IOT_AI_EMBEDDING_PROVIDER:none}
+    openai:
+      chat:
+        base-url: ${IOT_AI_CHAT_BASE_URL:https://api.deepseek.com}
+        api-key: ${IOT_AI_CHAT_API_KEY:}
+        options:
+          model: ${IOT_AI_CHAT_MODEL:deepseek-flash}
+          max-tokens: ${IOT_AI_CHAT_MAX_TOKENS:1024}
+      embedding:
+        base-url: ${IOT_AI_EMBEDDING_BASE_URL:https://api.openai.com}
+        api-key: ${IOT_AI_EMBEDDING_API_KEY:}
+        options:
+          model: ${IOT_AI_EMBEDDING_MODEL:text-embedding-3-small}
   config:
     # Docker Compose mounts runtime credentials as files. Keeping this import
     # optional preserves explicit non-container startup diagnostics while the
@@ -60,6 +76,15 @@ management:
           include: readinessState,db
 
 iot:
+  ai:
+    enabled: ${IOT_AI_ENABLED:false}
+    knowledge-enabled: ${IOT_AI_KNOWLEDGE_ENABLED:false}
+    chat-completions-path: ${IOT_AI_CHAT_COMPLETIONS_PATH:/chat/completions}
+    allowed-hosts: ${IOT_AI_ALLOWED_HOSTS:}
+    embedding-dimension: ${IOT_AI_EMBEDDING_DIMENSION:1536}
+    max-site-chats-per-day: ${IOT_AI_MAX_SITE_CHATS_PER_DAY:200}
+    max-site-uploads-per-day: ${IOT_AI_MAX_SITE_UPLOADS_PER_DAY:20}
+    conversation-retention-days: ${IOT_AI_CONVERSATION_RETENTION_DAYS:30}
   security:
     enabled: true
   edge-agent:
@@ -69,6 +94,8 @@ iot:
     reads-per-minute: ${IOT_RATE_LIMIT_READS_PER_MINUTE:120}
     archive-reads-per-minute: ${IOT_RATE_LIMIT_ARCHIVE_READS_PER_MINUTE:5}
     commands-per-minute: ${IOT_RATE_LIMIT_COMMANDS_PER_MINUTE:30}
+    ai-chats-per-minute: ${IOT_RATE_LIMIT_AI_CHATS_PER_MINUTE:10}
+    ai-writes-per-minute: ${IOT_RATE_LIMIT_AI_WRITES_PER_MINUTE:6}
   web:
     # Required, comma-separated HTTPS origins supplied by deployment secrets,
     # for example: https://iot.example.com,https://ops.example.com

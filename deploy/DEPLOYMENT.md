@@ -44,6 +44,49 @@ The verification script proves the public `404`, a private authenticated
 scrape, and an `up` Prometheus target before storing redacted evidence. The
 GitHub `P0 Docker Runtime` workflow enables this profile automatically.
 
+## Spring AI 可选服务
+
+AI 默认关闭。新建 PostgreSQL 数据卷时初始化脚本会安装固定来源的 pgvector
+0.8.6；已有数据卷须先备份、构建并启动升级后的 PostgreSQL 镜像，再在启动 Backend
+前执行一次：
+
+```bash
+docker compose -f deploy/docker-compose.yml exec -T postgres /usr/local/bin/install-vector-existing.sh
+```
+
+该命令只在指定的 IoT 数据库安装或检查扩展，要求容器内的数据库管理员凭据。若旧库已有
+其他 pgvector 版本，脚本会停止并要求先审阅扩展升级，不能让 Flyway V27 盲目运行。
+确认扩展为 0.8.6 后再启动 Backend，由非超级用户 Flyway 执行 V26/V27；
+应用账号仍只有 DML 权限。恢复演练的目标库也必须先安装同版本扩展。
+
+DeepSeek 聊天接口已完成模拟联调，Windows Docker 集成栈已使用有效密钥通过真实
+供应商调用和浏览器端到端问答验收；该本机环境现为 `IOT_AI_ENABLED=true`、
+`IOT_AI_KNOWLEDGE_ENABLED=false`。首次凭据导致的 401 已在更换密钥后解决。
+在此环境启用聊天的密钥放置、重启、真实请求验收和回退步骤见
+[Windows Docker 聊天部署记录](../docs/SPRING-AI-WINDOWS-DEPLOYMENT-2026-09-30.md)。
+模拟凭据只在测试中使用，不能据此开启远程服务。
+在新环境进行真实聊天试点时，在受保护的 ${IOT_SECRET_DIR} 放入供应商签发的
+`ai_chat_api_key` 非空文件（仅所有者可读，0400 或 0600），运行 secret-volume-init 并重启 Backend。
+聊天专用配置为 `IOT_AI_ENABLED=true`、`IOT_AI_CHAT_PROVIDER=openai`、
+`IOT_AI_EMBEDDING_PROVIDER=none`、`IOT_AI_KNOWLEDGE_ENABLED=false`、
+`IOT_AI_CHAT_BASE_URL=https://api.deepseek.com`、
+`IOT_AI_CHAT_COMPLETIONS_PATH=/chat/completions`、`IOT_AI_CHAT_MODEL=deepseek-flash`、
+`IOT_AI_ALLOWED_HOSTS=api.deepseek.com`。这里的 `openai` 表示 Spring AI 的兼容协议适配器。
+需要更换服务商时，分别替换 Chat 地址、路径、模型、允许主机和服务端密钥，并重跑契约测试。
+
+知识库另行启用：先确定远程 Embedding 供应商、模型、维度及数据处理区域，放入
+`ai_embedding_api_key`，设置 `IOT_AI_EMBEDDING_PROVIDER=openai` 与
+`IOT_AI_KNOWLEDGE_ENABLED=true`，完成模型与向量索引联调后才上传文档。
+Chat 与 Embedding 可使用不同地址和密钥；不能将密钥写入 .env 或前端构建变量。关掉
+`IOT_AI_ENABLED` 可停止 AI 问答与管理 API，基础设备服务不依赖远程模型健康状态。
+`GET /api/v1/sites/{siteId}/ai/status` 始终可供已授权站点成员读取开关状态；
+`CONFIGURED_REMOTE` 只表示配置加载成功，不表示供应商网络连通。
+单文件 5 MB、站点 50 MB、每日站点问答 200 次与文档入库 20 次为初始上限，正式值需按容量和成本验收确认。
+控制台提供文档状态与性格版本；问答只返回当前站点的引用。
+
+DeepSeek 的真实凭据与本机问答链路已经验收；数据处理区域、保留期与正式预算仍需在
+公网生产发布前确认，Embedding 供应商尚未选定。模拟 HTTP 契约测试不等同于真实远程联调。
+
 ## Runtime secret delivery
 
 `IOT_SECRET_DIR` is a host directory, not a Docker-managed secret object.
@@ -55,7 +98,7 @@ source values into one named volume per service. It assigns each target
 directory `0700` and each target file `0400` to that service's runtime UID.
 
 Keep the host directory root-controlled (`0700`) with non-empty, LF-terminated
-`0400` files. Do not put secret values in `.env`. The initializer gives each
+owner-only `0400` or `0600` files. Do not put secret values in `.env`. The initializer gives each
 service only its minimum set: for example, `backup` receives the owner database
 credential but never the Backend DML credential, and Prometheus receives only
 the scrape token. The runtime validation asserts those positive and negative

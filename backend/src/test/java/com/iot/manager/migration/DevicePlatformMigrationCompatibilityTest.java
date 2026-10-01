@@ -91,7 +91,7 @@ class DevicePlatformMigrationCompatibilityTest {
                 .load();
         latest.migrate();
 
-        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("25");
+        assertThat(latest.info().current().getVersion().getVersion()).isEqualTo("28");
         assertThat(jdbcTemplate.queryForObject("""
                 SELECT command_id
                 FROM device_commands

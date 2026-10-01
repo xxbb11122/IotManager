@@ -17,6 +17,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -45,10 +46,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class RetentionServicePostgresIntegrationTest {
 
     @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(
+            DockerImageName.parse("pgvector/pgvector:0.8.6-pg16").asCompatibleSubstituteFor("postgres"))
             .withDatabaseName("iot_manager_retention_test")
             .withUsername("iot_manager")
-            .withPassword("test-only-password");
+            .withPassword("test-only-password")
+            .withInitScript("pgvector-init.sql");
 
     @DynamicPropertySource
     static void configurePostgres(DynamicPropertyRegistry registry) {

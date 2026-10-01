@@ -106,6 +106,21 @@
     </div>
 
     <!-- Alerts -->
+    <section class="panel" id="site-ai-panel">
+      <div class="panel-header"><h2>站点 AI 问答</h2></div>
+      <div class="panel-body ai-readonly">
+        <p>可回答通用问题；站点资料需启用知识库，设备状态只读。设备操作仍需在原界面确认。</p>
+        <form id="site-ai-form">
+          <label for="site-ai-question">问题</label>
+          <textarea id="site-ai-question" maxlength="2000" required></textarea>
+          <div><button type="submit">提问</button><button id="site-ai-new" type="button">新会话</button></div>
+        </form>
+        <p id="site-ai-answer" aria-live="polite"></p>
+        <div id="site-ai-citations"></div>
+      </div>
+    </section>
+
+    <!-- Alerts -->
     <div class="panel">
       <div class="panel-header"><h2>活跃告警</h2></div>
       <div class="panel-body" id="alerts-container">

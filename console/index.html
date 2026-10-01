@@ -33,6 +33,7 @@
       <button class="nav-item" data-page="alerts">告警</button>
       <button class="nav-item" data-page="audit">命令审计</button>
       <button class="nav-item" data-page="weather">站点天气</button>
+      <button class="nav-item" data-page="ai">站点 AI</button>
     </nav>
 
     <main class="content">
@@ -183,6 +184,47 @@
             <div class="panel-body padded" id="weather-current"><div class="empty">加载中</div></div>
           </section>
         </div>
+      </section>
+      <section class="page" id="page-ai">
+        <section class="panel">
+          <div class="panel-header"><h2>站点 AI 问答</h2></div>
+          <div class="panel-body padded">
+            <p class="muted">可回答通用问题；站点资料需启用知识库，设备状态只读。AI 不下发设备命令。</p>
+            <form id="ai-chat-form" class="stack-form">
+              <label class="form-group">问题<textarea id="ai-question" maxlength="2000" required></textarea></label>
+              <div class="btn-row"><button class="btn btn-primary" type="submit">提问</button><button class="btn btn-ghost" id="ai-new-chat" type="button">新会话</button></div>
+            </form>
+            <div id="ai-answer" class="ai-answer" aria-live="polite"></div>
+            <div id="ai-citations" class="compact-list"></div>
+          </div>
+        </section>
+        <section class="panel" id="ai-admin">
+          <div class="panel-header"><h2>AI 管理</h2></div>
+          <div class="panel-body padded">
+            <p id="ai-knowledge-disabled" class="muted" hidden>站点知识库暂未启用；问答与性格设置可单独使用。</p>
+            <div id="ai-knowledge-admin">
+            <form id="ai-kb-form" class="stack-form">
+              <label class="form-group">新知识库名称<input id="ai-kb-name" maxlength="120" required></label>
+              <button class="btn btn-primary" type="submit">创建知识库</button>
+            </form>
+            <label class="form-group">当前知识库<select id="ai-kb-select"></select></label>
+            <form id="ai-upload-form" class="stack-form">
+              <label class="form-group">上传 TXT、Markdown 或可提取文字的 PDF（最大 5 MB）<input id="ai-file" type="file" accept=".txt,.md,.pdf" required></label>
+              <p class="muted">已发布文档可供本站点所有成员在回答中检索，并下载原文。</p>
+              <button class="btn btn-primary" type="submit">上传并索引</button>
+            </form>
+            <p id="ai-job-status" class="muted"></p>
+            <button id="ai-retry-job" class="btn btn-ghost btn-sm" type="button" hidden>重试失败入库</button>
+            <div id="ai-documents" class="compact-list"></div>
+            </div>
+            <form id="ai-persona-form" class="stack-form">
+              <label class="form-group">性格名称<input id="ai-persona-name" maxlength="80" required></label>
+              <label class="form-group">语气与回答格式<textarea id="ai-persona-instructions" maxlength="4000" required></textarea></label>
+              <button class="btn btn-primary" type="submit">保存新版本</button>
+            </form>
+            <div id="ai-persona-versions" class="compact-list"></div>
+          </div>
+        </section>
       </section>
     </main>
   </div>

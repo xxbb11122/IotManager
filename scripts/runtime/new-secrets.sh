@@ -51,3 +51,4 @@ for secret_name in \
 done
 
 printf 'Secret directory ready: %s\n' "$secret_directory"
+printf '%s\n' 'AI provider keys are not generated. Chat-only mode needs provider-issued ai_chat_api_key. Add ai_embedding_api_key only when enabling the knowledge base; use mode 0600.'

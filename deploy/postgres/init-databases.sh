@@ -68,6 +68,7 @@ psql --set=ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$IOT_DB_DATABAS
   --set=iot_database="$IOT_DB_DATABASE" \
   --set=iot_owner="$IOT_DB_OWNER_USERNAME" \
   --set=iot_app="$IOT_DB_USERNAME" <<'SQL'
+CREATE EXTENSION IF NOT EXISTS vector;
 REVOKE ALL ON DATABASE :"iot_database" FROM PUBLIC;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT CONNECT, TEMPORARY ON DATABASE :"iot_database" TO :"iot_app";

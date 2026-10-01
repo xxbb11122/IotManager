@@ -1,7 +1,7 @@
 {
   "name": "iot-client",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.1",
   "type": "module",
   "scripts": {
     "dev": "vite --port 5175",
@@ -13,7 +13,8 @@
     "android:debug": "npm run android:sync && node scripts/android-build.mjs assembleDebug",
     "android:release": "npm run android:sync && node scripts/android-build.mjs assembleRelease",
     "android:bundle": "npm run android:sync && node scripts/android-build.mjs bundleRelease",
-    "android:release:verify": "node scripts/android-build.mjs validateReleaseSigning"
+    "android:release:verify": "node scripts/android-build.mjs validateReleaseSigning",
+    "android:ai:smoke": "node scripts/native-ai-smoke.mjs"
   },
   "devDependencies": {
     "@capacitor/cli": "8.4.2",
@@ -25,6 +26,7 @@
     "@capacitor-community/bluetooth-le": "8.2.0",
     "@capacitor/android": "8.4.2",
     "@capacitor/app": "8.1.1",
+    "@capacitor/browser": "8.0.4",
     "@capacitor/core": "8.4.2",
     "@capacitor/geolocation": "^8.2.1",
     "@capacitor/network": "8.0.1",

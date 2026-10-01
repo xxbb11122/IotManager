@@ -7,6 +7,7 @@ import io.micrometer.core.instrument.Timer;
 import org.springframework.stereotype.Service;
 
 import java.util.Locale;
+import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -95,6 +96,14 @@ public class PlatformMetricsService {
         }
         Timer.builder("iot.retention.job.duration")
                 .tag("category", normalized(category))
+                .tag("outcome", normalized(outcome))
+                .register(meterRegistry)
+                .record(duration);
+    }
+
+    public void aiOperation(String operation, String outcome, Duration duration) {
+        Timer.builder("iot.ai.operation.duration")
+                .tag("operation", normalized(operation))
                 .tag("outcome", normalized(outcome))
                 .register(meterRegistry)
                 .record(duration);

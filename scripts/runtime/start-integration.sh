@@ -206,6 +206,8 @@ else
 fi
 docker "${compose[@]}" up "${start_flags[@]}" volume-init postgres keycloak caddy
 
+wait_service_healthy postgres
+docker "${compose[@]}" exec -T postgres /usr/local/bin/install-vector-existing.sh
 wait_service_healthy keycloak
 wait_service_healthy caddy
 

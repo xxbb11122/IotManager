@@ -1,9 +1,13 @@
 import './css/style.css';
+import './css/ai.css';
 
 import { Capacitor } from '@capacitor/core';
 import { App } from '@capacitor/app';
+import { Browser } from '@capacitor/browser';
 import { Preferences } from '@capacitor/preferences';
 import { resolveClientConfig } from './js/api.js';
+import { createAiController } from './js/ai/ai-controller.js';
+import { createAiRecoveryStore } from './js/ai/ai-state.js';
 import { OidcSessionManager, normalizeOidcConfig } from './js/auth/oidc-session.js';
 import { createLocalBleDevice, decorateLanDevice, mergePlatformAndLocalDevices } from './js/client-flow.js';
 import { isTerminalCommandStatus } from './js/command-state.js';
@@ -22,11 +26,13 @@ import { createRenderCoordinator } from './js/render-coordinator.js';
 import { createRenderMetrics } from './js/render-metrics.js';
 import { valueEqual } from './js/value-equality.js';
 import { createSnapshotRefreshGate } from './js/snapshot-refresh-gate.js';
+import { createStartupTransition } from './js/platform/startup-transition.js';
 import { createClientUi } from './js/ui.js';
 import { createWeatherRefreshCooldown } from './js/weather-refresh-cooldown.js';
 import { resourceState, beginResource, resolveResource, rejectResource, createRuntimeTaskRegistry, parseWeatherCoordinates, refreshPresentation } from './js/runtime-resource-state.js';
 
 const DEMO_CONTEXT = Object.freeze({
+  siteId: null,
   organizationName: '演示组织',
   organizationCode: 'demo-org',
   siteName: '演示站点',
@@ -84,6 +90,8 @@ let platform = null;
 let endpointProfile = null;
 let authSession = null;
 let authUrlListener = null;
+let browserFinishedListener = null;
+let browserCloseTimer = null;
 let nativeBackListener = null;
 let ble = nativeRuntime ? new NativeBleAdapter() : new BleAdapter();
 let platformUnsubscribers = [];
@@ -134,10 +142,17 @@ let clientState = {
   error: null
 };
 
+const startupTransition = createStartupTransition();
 const renderMetrics = createRenderMetrics();
 const deviceSnapshotGate = createSnapshotRefreshGate({ cooldownMs: REALTIME_RESYNC_COOLDOWN_MS, metrics: renderMetrics });
 const ui = createClientUi(document.getElementById('app'), {
   setTab: () => {},
+  screenChanged: (screen) => { void ai.setScreen(screen); },
+  aiAction,
+  aiInput: ({ field, value }) => {
+    if (field === 'ai-question') ai.setDraft(value);
+    else ai.setPersonaDraft(field === 'ai-persona-name' ? 'name' : 'instructions', value);
+  },
   openAddDevice: () => setClientState({ error: null }),
   chooseAddPath: () => setClientState({ error: null }),
   openWeather,
@@ -176,6 +191,18 @@ const ui = createClientUi(document.getElementById('app'), {
   openBluetoothSettings: () => ble.openBluetoothSettings?.(),
   dismissError: () => setClientState({ error: null })
 }, { metrics: renderMetrics });
+const ai = createAiController({
+  contextProvider: () => ({
+    api: platform?.api ?? null, siteId: clientState.context.siteId,
+    auth: clientState.auth, endpoint: endpointProfile, organization: clientState.context.organizationCode
+  }),
+  recovery: createAiRecoveryStore(Preferences),
+  onChange: (state) => {
+    clientState = { ...clientState, ai: state };
+    ui.patchAi(viewModel());
+  }
+});
+startupTransition.markUiReady();
 const renderCoordinator = createRenderCoordinator({
   fullRender: (snapshot) => ui.renderFull(snapshot),
   patchDevices: (references, snapshot) => ui.patchDevices(references, snapshot),
@@ -297,6 +324,37 @@ function viewModel() {
   return { ...state, ...clientState, runtime: { ...state.runtime, sessionRevision }, endpointProfile };
 }
 
+async function aiAction({ action, id }) {
+  switch (action) {
+    case 'ai-send': return ai.send();
+    case 'ai-new': return ai.newConversation();
+    case 'ai-recover': return ai.recover();
+    case 'ai-cancel': return ai.cancelWait();
+    case 'ai-retry':
+      if (ai.getState().pending?.state === 'UNKNOWN' && !window.confirm('原请求结果及费用无法确认，再次生成可能重复计费。确定重新提问？')) return;
+      return ai.retry();
+    case 'ai-reload': return ai.reload();
+    case 'ai-history-more': return ai.loadHistory(true);
+    case 'ai-messages-more': return ai.loadMessages(true);
+    case 'ai-select':
+      await ai.selectConversation(id);
+      ui.navigate('ai', { kind: 'push' }); render('ai_conversation_selected');
+      return;
+    case 'ai-delete':
+      if (window.confirm('删除此会话及消息？删除后无法恢复。')) return ai.deleteConversation(id);
+      return;
+    case 'ai-persona-save': return ai.savePersona();
+    case 'ai-persona-activate': return ai.activatePersona(Number(id));
+    case 'ai-copy': {
+      const row = ai.getState().messages.find((message) => message.id === id && message.role === 'ASSISTANT');
+      if (!row) return;
+      try { await navigator.clipboard.writeText(row.content); ui.notify('回答已复制。', 'success'); }
+      catch { ui.notify('复制失败，请手动选择回答文本。', 'warning'); }
+      return;
+    }
+  }
+}
+
 function render(reason = 'explicit_render') {
   renderCoordinator.forceFull(reason, viewModel());
 }
@@ -388,6 +446,7 @@ function storageNotice(message, id = 'storage') {
 }
 
 function invalidateRuntimeContext({ preserveSites = false } = {}) {
+  ai.reset();
   sessionRevision += 1;
   runtimeTasks.invalidate();
   lastWeatherReadAt = 0;
@@ -500,11 +559,13 @@ async function configureAuthSession(profile) {
   let manager;
   manager = new OidcSessionManager({
     config,
+    navigate: (url) => nativeRuntime ? Browser.open({ url }) : globalThis.location.assign(url),
     onStateChange: (auth) => {
       if (authSession !== manager) return;
       if (Boolean(auth.authenticated) !== Boolean(clientState.auth.authenticated)
         || auth.cachePartition !== clientState.auth.cachePartition) invalidateRuntimeContext();
       setClientState({ auth });
+      void ai.syncContext();
       if (!auth.authenticated) {
         platform?.disconnect();
         store.setRuntimeContext({ stale: true });
@@ -617,7 +678,8 @@ async function loadSites() {
     setClientState({ sites, resources: { sites: resolveResource({ hasData: sites.length > 0 }) } });
     if (sites.length > 0) {
       const selected = sites.find((site) => String(site.siteCode) === String(clientState.context.siteCode)) ?? sites[0];
-      if (selected && String(selected.siteCode) !== String(clientState.context.siteCode)) {
+      if (selected && (String(selected.siteCode) !== String(clientState.context.siteCode)
+          || String(selected.id) !== String(clientState.context.siteId))) {
         await applySiteContext(selected, { persist: false, reload: false });
         if (platform === adapter && String(clientState.context.siteCode) === String(selected.siteCode)) setResource('sites', resolveResource({ hasData: true }));
       }
@@ -632,10 +694,12 @@ async function loadSites() {
   }
 }
 
-async function switchSite({ siteCode } = {}) {
-  const selected = clientState.sites.find((site) => String(site.siteCode) === String(siteCode ?? ''));
+async function switchSite({ siteCode, siteId } = {}) {
+  const selected = clientState.sites.find((site) => siteId != null && String(site.id) === String(siteId))
+    || clientState.sites.find((site) => String(site.siteCode) === String(siteCode ?? ''));
   if (!selected) throw new Error('选择的站点不可用，请重新同步站点列表');
-  if (String(selected.siteCode) === String(clientState.context.siteCode)) return selected;
+  if (String(selected.siteCode) === String(clientState.context.siteCode)
+      && String(selected.id) === String(clientState.context.siteId)) return selected;
   await applySiteContext(selected, { persist: true, reload: true });
   return selected;
 }
@@ -643,6 +707,7 @@ async function switchSite({ siteCode } = {}) {
 async function applySiteContext(site, { persist = true, reload = true } = {}) {
   const context = {
     ...clientState.context,
+    siteId: site.id ?? null,
     organizationCode: site.organizationCode ?? clientState.context.organizationCode,
     organizationName: site.organizationName ?? clientState.context.organizationName,
     siteCode: site.siteCode,
@@ -674,6 +739,7 @@ async function applySiteContext(site, { persist = true, reload = true } = {}) {
   deviceSnapshotGate.reset();
   setWeatherRefreshCooldown(0);
   setClientState({ context, weatherSettings: null, pendingWeatherLocation: null });
+  void ai.syncContext();
   platform?.setSiteCode?.(context.siteCode);
   platform?.disconnect();
   if (platform) bindPlatformEvents(platform);
@@ -738,6 +804,8 @@ async function signOut() {
   const manager = authSession;
   invalidateRuntimeContext();
   setClientState({ auth: { ...clientState.auth, authenticated: false, cachePartition: null, status: 'signing_out' } });
+  await ai.reset({ clearMetadata: true });
+  void ai.syncContext();
   // Revocation starts immediately; cache cleanup must not delay local logout.
   const logout = manager?.logout();
   logout?.catch(() => {});
@@ -1226,9 +1294,13 @@ function withDefaultOidcFields(profile, defaults = defaultOidcFields({ native: n
 }
 
 async function handleNativeOidcRedirect(url) {
+  if (authSession?.isRedirect(url) && browserCloseTimer !== null) { clearTimeout(browserCloseTimer); browserCloseTimer = null; }
   try {
     const completed = await completeOidcRedirect(url);
-    if (completed) await synchronizePlatformEndpoint();
+    if (completed) {
+      await Browser.close().catch(() => {});
+      await synchronizePlatformEndpoint();
+    }
   } catch (error) {
     setClientState({ error: `登录未完成：${error?.message ?? '请重试。'}` });
   }
@@ -1284,6 +1356,19 @@ async function bootstrapRuntime() {
   if (nativeRuntime && !authUrlListener) {
     authUrlListener = await App.addListener('appUrlOpen', ({ url }) => handleNativeOidcRedirect(url));
   }
+  if (nativeRuntime && !browserFinishedListener) {
+    browserFinishedListener = await Browser.addListener('browserFinished', () => {
+      const manager = authSession, expectedState = manager?.pendingLoginState;
+      if (!expectedState) return;
+      if (browserCloseTimer !== null) clearTimeout(browserCloseTimer);
+      browserCloseTimer = setTimeout(() => {
+        browserCloseTimer = null;
+        if (authSession === manager) void manager.cancelPendingLogin(expectedState).catch(() => {
+          setClientState({ error: '登录取消后的存储清理失败，请重新登录。' });
+        });
+      }, 750);
+    });
+  }
   if (nativeRuntime && !nativeBackListener) {
     nativeBackListener = await App.addListener('backButton', () => {
       // Root-page exit is not inferred from canGoBack. Retain the app at its
@@ -1300,6 +1385,7 @@ async function bootstrapRuntime() {
   }
   lifecycleHandle = await attachAppLifecycle({
     onBackground: async () => {
+      ai.setForeground(false);
       appBackgroundedAt = Date.now();
       try {
         await stopBleScan();
@@ -1310,6 +1396,7 @@ async function bootstrapRuntime() {
       store.setRuntimeContext({ stale: true });
     },
     onForeground: async () => {
+      ai.setForeground(true);
       try {
         const availability = ble.availability();
         setClientState({ ble: { availability: availability.available, reason: availability.reason ?? null } });
@@ -1672,6 +1759,7 @@ function reconnectRealtime() {
 function handleDocumentVisibility() {
   const visible = document.visibilityState !== 'hidden';
   renderCoordinator.setVisibility(visible);
+  ai.setForeground(visible);
   if (visible && weatherCooldownDirty) {
     weatherCooldownDirty = false;
     weatherRefreshCooldown.tick();
@@ -1685,6 +1773,9 @@ if (import.meta.env.DEV) {
 }
 
 window.addEventListener('beforeunload', () => {
+  ai.destroy();
+  if (browserCloseTimer !== null) clearTimeout(browserCloseTimer);
+  startupTransition.dispose();
   document.removeEventListener('visibilitychange', handleDocumentVisibility);
   renderCoordinator.destroy();
   weatherRefreshCooldown.clear();
@@ -1692,6 +1783,7 @@ window.addEventListener('beforeunload', () => {
   unsubscribeBle();
   void lifecycleHandle?.remove?.();
   void authUrlListener?.remove?.();
+  void browserFinishedListener?.remove?.();
   void nativeBackListener?.remove?.();
   authSession?.stopAutoRefresh();
   platform?.disconnect();

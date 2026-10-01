@@ -69,6 +69,18 @@ copy_secret iot_db_app_password /targets/backend IOT_DB_PASSWORD 10001 10001
 copy_secret iot_db_owner_password /targets/backend IOT_FLYWAY_PASSWORD 10001 10001
 copy_secret weather_fingerprint_secret /targets/backend IOT_WEATHER_FINGERPRINT_SECRET 10001 10001
 copy_secret metrics_scrape_token /targets/backend IOT_METRICS_SCRAPE_TOKEN 10001 10001
+# Provider-issued credentials are optional while AI is disabled. Never
+# generate substitute keys: operators provision these files from the provider.
+if [ -s /source/ai_chat_api_key ]; then
+  copy_secret ai_chat_api_key /targets/backend IOT_AI_CHAT_API_KEY 10001 10001
+else
+  rm -f /targets/backend/IOT_AI_CHAT_API_KEY
+fi
+if [ -s /source/ai_embedding_api_key ]; then
+  copy_secret ai_embedding_api_key /targets/backend IOT_AI_EMBEDDING_API_KEY 10001 10001
+else
+  rm -f /targets/backend/IOT_AI_EMBEDDING_API_KEY
+fi
 
 prepare_target /targets/backup 999 999
 copy_secret iot_db_owner_password /targets/backup iot_db_owner_password 999 999

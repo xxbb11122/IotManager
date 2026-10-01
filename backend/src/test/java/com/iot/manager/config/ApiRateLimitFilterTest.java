@@ -43,6 +43,30 @@ class ApiRateLimitFilterTest {
         verify(metrics).rateLimited("read");
     }
 
+    @Test
+    void aiLimitUsesPathSiteIdEvenWhenQueryParameterClaimsAnotherSite() throws Exception {
+        ApiRateLimitProperties properties = new ApiRateLimitProperties();
+        properties.setEnabled(true);
+        properties.setAiChatsPerMinute(1);
+        ApiRateLimitFilter filter = new ApiRateLimitFilter(properties, mock(PlatformMetricsService.class),
+                Clock.fixed(Instant.parse("2026-09-23T00:00:00Z"), ZoneOffset.UTC));
+
+        MockHttpServletRequest first = new MockHttpServletRequest("POST", "/api/v1/sites/42/ai/chat");
+        first.setParameter("siteCode", "first");
+        first.setRemoteAddr("192.0.2.10");
+        MockHttpServletResponse firstResponse = new MockHttpServletResponse();
+        filter.doFilter(first, firstResponse, new MockFilterChain());
+
+        MockHttpServletRequest second = new MockHttpServletRequest("POST", "/api/v1/sites/42/ai/chat");
+        second.setParameter("siteCode", "second");
+        second.setRemoteAddr("192.0.2.10");
+        MockHttpServletResponse secondResponse = new MockHttpServletResponse();
+        filter.doFilter(second, secondResponse, new MockFilterChain());
+
+        assertThat(firstResponse.getStatus()).isEqualTo(200);
+        assertThat(secondResponse.getStatus()).isEqualTo(429);
+    }
+
     private MockHttpServletResponse response(ApiRateLimitFilter filter) throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/devices");
         request.setRemoteAddr("192.0.2.10");

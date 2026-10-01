@@ -18,10 +18,11 @@ export function configureApiAuthentication({ tokenProvider = () => null, onUnaut
 export async function api(path, opts = {}, retriedAfterRefresh = false) {
   const token = await accessTokenProvider();
   const { headers: requestHeaders = {}, ...requestOptions } = opts;
+  const multipart = requestOptions.body instanceof FormData;
   const res = await fetch(API + versionedPath(path), {
     ...requestOptions,
     headers: {
-      'Content-Type': 'application/json',
+      ...(multipart ? {} : { 'Content-Type': 'application/json' }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...requestHeaders
     }
@@ -35,6 +36,19 @@ export async function api(path, opts = {}, retriedAfterRefresh = false) {
   }
   const ct = res.headers.get('content-type') || '';
   return ct.includes('application/json') ? res.json() : res.text();
+}
+
+export async function apiBlob(path, opts = {}, retriedAfterRefresh = false) {
+  const token = await accessTokenProvider();
+  const res = await fetch(API + versionedPath(path), {
+    ...opts,
+    headers: token ? { Authorization: 'Bearer ' + token } : {}
+  });
+  if (res.status === 401 && !retriedAfterRefresh && unauthorizedHandler && await unauthorizedHandler()) {
+    return apiBlob(path, opts, true);
+  }
+  if (!res.ok) throw new Error((await res.text().catch(() => '')) || res.statusText);
+  return res.blob();
 }
 
 export function esc(s) {

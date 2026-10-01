@@ -112,6 +112,27 @@ function base64UrlToBytes(value) {
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
+
+// Authorization Code tokens are received directly from the validated TLS token
+// endpoint (OIDC Core 3.1.3.7). Never use decoded claims as API authorization.
+function validateAuthorizationIdToken(value, transaction, config, now) {
+  try {
+    const parts = text(value).split('.');
+    if (parts.length !== 3 || !parts[2]) throw new Error('malformed');
+    const header = JSON.parse(new TextDecoder().decode(base64UrlToBytes(parts[0])));
+    const claims = JSON.parse(new TextDecoder().decode(base64UrlToBytes(parts[1])));
+    const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+    if (!['RS256', 'RS384', 'RS512', 'PS256', 'PS384', 'PS512', 'ES256', 'ES384', 'ES512'].includes(header.alg)
+      || claims.iss !== config.issuerUrl || !audiences.includes(config.clientId)
+      || (claims.azp && claims.azp !== config.clientId) || (audiences.length > 1 && claims.azp !== config.clientId)
+      || claims.nonce !== transaction.nonce || !text(claims.sub)
+      || !Number.isFinite(claims.exp) || claims.exp * 1000 <= now
+      || !Number.isFinite(claims.iat) || claims.iat * 1000 > now + 60_000) throw new Error('claims');
+  } catch (cause) {
+    throw new OidcError('ID token identity, nonce, or expiry could not be validated', { code: 'INVALID_ID_TOKEN', cause });
+  }
+}
+
 function sanitizeTokenSet(response, previous, now, cryptoRef) {
   const accessToken = text(response?.access_token);
   if (!accessToken) throw new OidcError('Token endpoint did not return an access token', { code: 'INVALID_TOKEN_RESPONSE' });
@@ -135,7 +156,7 @@ function sanitizeTokenSet(response, previous, now, cryptoRef) {
 function endpointFromDiscovery(discovery, key) {
   const value = text(discovery?.[key]);
   if (!value) throw new OidcError(`OIDC discovery does not include ${key}`, { code: 'INVALID_DISCOVERY' });
-  return value;
+  return validateUrl(value, key).href;
 }
 
 function formBody(values) {
@@ -144,8 +165,7 @@ function formBody(values) {
     .map(([key, value]) => [key, String(value)])).toString();
 }
 
-function authState(configured, session, error = null) {
-  const now = Date.now();
+function authState(configured, session, error = null, now = Date.now()) {
   const authenticated = Boolean(session?.accessToken && Number(session.expiresAt) > now);
   return Object.freeze({
     configured,
@@ -186,6 +206,9 @@ export class OidcSessionManager {
     this.refreshPromise = null;
     this.refreshTimer = null;
     this.sessionGeneration = 0;
+    this.pendingLoginState = null;
+    this.loginInProgress = false;
+    this.callbackInProgress = false;
   }
 
   isConfigured() {
@@ -198,11 +221,11 @@ export class OidcSessionManager {
   }
 
   getState() {
-    return authState(this.isConfigured(), this.session);
+    return authState(this.isConfigured(), this.session, null, this.now());
   }
 
   emit(error = null) {
-    this.onStateChange(authState(this.isConfigured(), this.session, error));
+    this.onStateChange(authState(this.isConfigured(), this.session, error, this.now()));
   }
 
   async restore() {
@@ -251,29 +274,54 @@ export class OidcSessionManager {
 
   async beginLogin({ prompt = null } = {}) {
     if (!this.config) throw new OidcError('OIDC is not configured for this endpoint', { code: 'NOT_CONFIGURED' });
-    const [discovery, pkce] = await Promise.all([this.loadDiscovery(), createPkcePair({ cryptoRef: this.cryptoRef })]);
-    const transaction = {
-      state: secureRandom(32, this.cryptoRef),
-      nonce: secureRandom(32, this.cryptoRef),
-      codeVerifier: pkce.codeVerifier,
-      redirectUri: this.config.redirectUri,
-      createdAt: this.now()
-    };
-    await this.tokenStore.setJson(TRANSACTION_KEY, transaction);
-    const authorizationUrl = new URL(endpointFromDiscovery(discovery, 'authorization_endpoint'));
-    authorizationUrl.search = formBody({
-      response_type: 'code',
-      client_id: this.config.clientId,
-      redirect_uri: this.config.redirectUri,
-      scope: this.config.scope,
-      state: transaction.state,
-      nonce: transaction.nonce,
-      code_challenge: pkce.codeChallenge,
-      code_challenge_method: 'S256',
-      prompt
-    });
-    this.navigate(authorizationUrl.toString());
-    return authorizationUrl.toString();
+    if (this.loginInProgress || this.callbackInProgress)
+      throw new OidcError('Sign-in is already in progress', { code: 'LOGIN_IN_PROGRESS' });
+    this.loginInProgress = true;
+    const generation = this.sessionGeneration;
+    let transaction = null;
+    try {
+      const [discovery, pkce] = await Promise.all([this.loadDiscovery(), createPkcePair({ cryptoRef: this.cryptoRef })]);
+      if (generation !== this.sessionGeneration) throw new OidcError('Sign-in context changed', { code: 'SESSION_CONTEXT_CHANGED' });
+      transaction = {
+        state: secureRandom(32, this.cryptoRef), nonce: secureRandom(32, this.cryptoRef),
+        codeVerifier: pkce.codeVerifier, redirectUri: this.config.redirectUri,
+        issuerUrl: this.config.issuerUrl, clientId: this.config.clientId, createdAt: this.now()
+      };
+      this.pendingLoginState = transaction.state;
+      await this.tokenStore.setJson(TRANSACTION_KEY, transaction);
+      if (generation !== this.sessionGeneration) throw new OidcError('Sign-in context changed', { code: 'SESSION_CONTEXT_CHANGED' });
+      const authorizationUrl = new URL(endpointFromDiscovery(discovery, 'authorization_endpoint'));
+      authorizationUrl.search = formBody({
+        response_type: 'code', client_id: this.config.clientId, redirect_uri: this.config.redirectUri,
+        scope: this.config.scope, state: transaction.state, nonce: transaction.nonce,
+        code_challenge: pkce.codeChallenge, code_challenge_method: 'S256', prompt
+      });
+      await this.navigate(authorizationUrl.toString());
+      return authorizationUrl.toString();
+    } catch (error) {
+      if (generation === this.sessionGeneration) {
+        await this.removeLoginTransaction(transaction?.state);
+        this.pendingLoginState = null; this.loginInProgress = false; this.emit(error);
+      }
+      throw error;
+    }
+  }
+
+  async removeLoginTransaction(expectedState) {
+    if (!expectedState) return;
+    const transaction = await this.tokenStore.getJson(TRANSACTION_KEY);
+    if (transaction?.state === expectedState) await this.tokenStore.remove(TRANSACTION_KEY);
+  }
+
+  async cancelPendingLogin(expectedState = this.pendingLoginState) {
+    if (!expectedState || expectedState !== this.pendingLoginState || this.callbackInProgress) return false;
+    const transaction = await this.tokenStore.getJson(TRANSACTION_KEY);
+    if (expectedState !== this.pendingLoginState || this.callbackInProgress) return false;
+    if (transaction?.state === expectedState) await this.tokenStore.remove(TRANSACTION_KEY);
+    if (expectedState !== this.pendingLoginState || this.callbackInProgress) return false;
+    this.pendingLoginState = null; this.loginInProgress = false;
+    this.emit(new OidcError('登录已取消，可重新登录。', { code: 'LOGIN_CANCELLED' }));
+    return true;
   }
 
   isRedirect(url) {
@@ -291,47 +339,41 @@ export class OidcSessionManager {
   }
 
   async completeRedirect(url) {
-    if (!this.isRedirect(url)) return false;
+    if (!this.isRedirect(url) || this.callbackInProgress) return false;
+    this.callbackInProgress = true;
     const generation = this.sessionGeneration;
-    const callback = new URL(url, this.config.redirectUri);
-    const providerError = text(callback.searchParams.get('error'));
-    if (providerError) {
-      await this.tokenStore.remove(TRANSACTION_KEY);
-      const detail = text(callback.searchParams.get('error_description'));
-      const error = new OidcError(detail || `Sign-in failed: ${providerError}`, { code: 'AUTHORIZATION_ERROR' });
-      this.emit(error);
-      throw error;
-    }
-    const code = text(callback.searchParams.get('code'));
-    const state = text(callback.searchParams.get('state'));
-    const transaction = await this.tokenStore.getJson(TRANSACTION_KEY);
-    if (generation !== this.sessionGeneration) return false;
-    if (!code || !transaction || state !== transaction.state || transaction.redirectUri !== this.config.redirectUri) {
-      await this.tokenStore.remove(TRANSACTION_KEY);
-      const error = new OidcError('Sign-in callback could not be validated', { code: 'INVALID_CALLBACK' });
-      this.emit(error);
-      throw error;
-    }
+    let transaction = null;
     try {
+      const callback = new URL(url, this.config.redirectUri);
+      const code = text(callback.searchParams.get('code'));
+      const state = text(callback.searchParams.get('state'));
+      transaction = await this.tokenStore.getJson(TRANSACTION_KEY);
+      if (generation !== this.sessionGeneration) return false;
+      if (!transaction || state !== transaction.state || transaction.redirectUri !== this.config.redirectUri
+        || transaction.issuerUrl !== this.config.issuerUrl || transaction.clientId !== this.config.clientId
+        || this.now() - transaction.createdAt < 0 || this.now() - transaction.createdAt > 600_000)
+        throw new OidcError('Sign-in callback could not be validated', { code: 'INVALID_CALLBACK' });
+      const providerError = text(callback.searchParams.get('error'));
+      if (providerError) throw new OidcError(text(callback.searchParams.get('error_description')) || 'Sign-in failed: ' + providerError,
+        { code: 'AUTHORIZATION_ERROR' });
+      if (!code) throw new OidcError('Sign-in callback code is missing', { code: 'INVALID_CALLBACK' });
       const response = await this.requestToken({
-        grant_type: 'authorization_code',
-        code,
-        redirect_uri: this.config.redirectUri,
-        client_id: this.config.clientId,
-        code_verifier: transaction.codeVerifier
+        grant_type: 'authorization_code', code, redirect_uri: this.config.redirectUri,
+        client_id: this.config.clientId, code_verifier: transaction.codeVerifier
       });
       if (generation !== this.sessionGeneration) return false;
+      validateAuthorizationIdToken(response?.id_token, transaction, this.config, this.now());
       await this.saveSession(response, { newAuthorization: true });
       if (generation !== this.sessionGeneration) return false;
-      await this.tokenStore.remove(TRANSACTION_KEY);
-      this.emit();
-      return true;
+      await this.removeLoginTransaction(transaction.state);
+      this.pendingLoginState = null; this.loginInProgress = false;
+      this.emit(); return true;
     } catch (error) {
       if (generation !== this.sessionGeneration) return false;
-      await this.tokenStore.remove(TRANSACTION_KEY);
-      this.emit(error);
-      throw error;
-    }
+      await this.removeLoginTransaction(transaction?.state);
+      this.pendingLoginState = null; this.loginInProgress = false;
+      this.emit(error); throw error;
+    } finally { if (generation === this.sessionGeneration) this.callbackInProgress = false; }
   }
 
   async tryRefresh() {
@@ -389,7 +431,7 @@ export class OidcSessionManager {
         post_logout_redirect_uri: this.config.redirectUri,
         client_id: this.config.clientId
       });
-      this.navigate(url.toString());
+      await this.navigate(url.toString());
       return url.toString();
     }
     return null;
@@ -408,6 +450,7 @@ export class OidcSessionManager {
 
   invalidatePendingOperations() {
     this.sessionGeneration += 1;
+    this.pendingLoginState = null; this.loginInProgress = false; this.callbackInProgress = false;
     this.refreshPromise = null;
     this.stopAutoRefresh();
   }

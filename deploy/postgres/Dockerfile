@@ -60,16 +60,36 @@ RUN --mount=type=cache,id=iot-manager-walg-go-mod,target=/go/pkg/mod \
     /out/wal-g --version; \
     chmod 0555 /out/wal-g
 
+FROM postgres:16-bookworm@sha256:bb3e1a57e5407e0a5280b4211980a5e537f4abd234a87014ac979849a78dd825 AS pgvector-build
+ARG PGVECTOR_COMMIT=8ee86c96f0fd72390f890aa8a336fda6d3ab4c6c
+# Debian's official ftp endpoint avoids the current deb.debian.org route,
+# which returned 503 for Bookworm package downloads in Docker Desktop.
+RUN sed -i 's|http://deb.debian.org/debian$|http://ftp.debian.org/debian|' /etc/apt/sources.list.d/debian.sources \
+    && apt-get -o Acquire::Retries=5 update \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends build-essential git postgresql-server-dev-16 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /tmp/pgvector
+RUN git init \
+    && git remote add origin https://github.com/pgvector/pgvector.git \
+    && git fetch --depth 1 origin "${PGVECTOR_COMMIT}" \
+    && git checkout --detach FETCH_HEAD \
+    && test "$(git rev-parse HEAD)" = "${PGVECTOR_COMMIT}" \
+    && make \
+    && make install
+
 FROM postgres:16-bookworm@sha256:bb3e1a57e5407e0a5280b4211980a5e537f4abd234a87014ac979849a78dd825
 
 COPY --from=wal-g-build /out/wal-g /usr/local/bin/wal-g
+COPY --from=pgvector-build /usr/lib/postgresql/16/lib/vector.so /usr/lib/postgresql/16/lib/vector.so
+COPY --from=pgvector-build /usr/share/postgresql/16/extension/vector* /usr/share/postgresql/16/extension/
 COPY postgres/wal-g-env.sh postgres/wal-g-push.sh postgres/wal-g-fetch.sh postgres/wal-g-archive-loop.sh postgres/wal-g-backup-loop.sh postgres/wal-g-archive-healthcheck.sh postgres/wal-g-backup-healthcheck.sh postgres/application-role-psql.sh /usr/local/bin/
+COPY postgres/install-vector-existing.sh /usr/local/bin/install-vector-existing.sh
 
 # The compose service and every WAL-G sidecar run as UID 999, so the official
 # entrypoint never needs gosu. Removing this unused privileged-transition
 # helper eliminates its embedded Go runtime CVEs from the final image.
 RUN rm -f /usr/local/bin/gosu \
-    && chmod 0555 /usr/local/bin/wal-g /usr/local/bin/wal-g-env.sh /usr/local/bin/wal-g-push.sh /usr/local/bin/wal-g-fetch.sh /usr/local/bin/wal-g-archive-loop.sh /usr/local/bin/wal-g-backup-loop.sh /usr/local/bin/wal-g-archive-healthcheck.sh /usr/local/bin/wal-g-backup-healthcheck.sh /usr/local/bin/application-role-psql.sh
+    && chmod 0555 /usr/local/bin/wal-g /usr/local/bin/wal-g-env.sh /usr/local/bin/wal-g-push.sh /usr/local/bin/wal-g-fetch.sh /usr/local/bin/wal-g-archive-loop.sh /usr/local/bin/wal-g-backup-loop.sh /usr/local/bin/wal-g-archive-healthcheck.sh /usr/local/bin/wal-g-backup-healthcheck.sh /usr/local/bin/application-role-psql.sh /usr/local/bin/install-vector-existing.sh
 
 # postgres-data is prepared by the one-shot volume initializer before this
 # image starts. Keeping the final image unprivileged prevents an application

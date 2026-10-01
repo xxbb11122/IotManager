@@ -26,18 +26,35 @@ const RECONCILE_MIN_INTERVAL_MS = 30_000;
 const FALLBACK_MIN_INTERVAL_MS = 30_000;
 const metrics = createRenderMetrics();
 let currentSite = {
+  id: null,
   siteCode: 'demo-site',
   siteName: '演示站点',
   organizationCode: 'demo-org',
   organizationName: '演示组织'
 };
 const SITE_STORAGE_KEY = 'iot-manager.console-site.v1';
+let aiConversationId = null;
+let aiRevision = 0;
+let aiAbort = new AbortController();
+
+function resetAi() {
+  aiRevision += 1;
+  aiAbort.abort();
+  aiAbort = new AbortController();
+  aiConversationId = null;
+  document.getElementById('site-ai-question').value = '';
+  document.getElementById('site-ai-answer').textContent = '';
+  document.getElementById('site-ai-citations').replaceChildren();
+}
 
 const browserAuth = new BrowserOidcSession({
   config: resolveBrowserOidcConfig(),
   onStateChange: (authState) => {
     updateAuthenticationUi(authState);
-    if (authState.configured && !authState.authenticated) wsService.disconnect();
+    if (authState.configured && !authState.authenticated) {
+      wsService.disconnect();
+      resetAi();
+    }
   }
 });
 
@@ -374,21 +391,23 @@ window.addEventListener('refresh-alerts', async () => {
 
 function updateSiteUi() {
   const selector = document.getElementById('site-selector');
-  if (selector) selector.value = currentSite.siteCode;
+  if (selector) selector.value = currentSite.id ?? currentSite.siteCode;
   const label = document.getElementById('site-label');
   if (label) label.textContent = currentSite.siteName || currentSite.siteCode;
 }
 
 async function selectSite(site, { reload = true } = {}) {
   if (!site?.siteCode) return;
+  resetAi();
   currentSite = {
+    id: site.id ?? null,
     siteCode: String(site.siteCode),
     siteName: String(site.siteName || site.siteCode),
     organizationCode: site.organizationCode || currentSite.organizationCode,
     organizationName: site.organizationName || currentSite.organizationName
   };
   try {
-    localStorage.setItem(SITE_STORAGE_KEY, JSON.stringify({ siteCode: currentSite.siteCode }));
+    localStorage.setItem(SITE_STORAGE_KEY, JSON.stringify({ siteCode: currentSite.siteCode, siteId: currentSite.id }));
   } catch { /* optional browser persistence */ }
   wsService.setSiteCode(currentSite.siteCode);
   updateSiteUi();
@@ -411,15 +430,16 @@ async function loadSites() {
   try {
     const sites = await api('/api/v1/sites');
     if (!Array.isArray(sites) || sites.length === 0) throw new Error('No accessible sites');
-    let savedCode = null;
-    try { savedCode = JSON.parse(localStorage.getItem(SITE_STORAGE_KEY) || 'null')?.siteCode; } catch { /* ignore */ }
-    const selected = sites.find((site) => String(site.siteCode) === String(savedCode))
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(SITE_STORAGE_KEY) || 'null'); } catch { /* ignore */ }
+    const selected = sites.find((site) => saved?.siteId != null && String(site.id) === String(saved.siteId))
+      || sites.find((site) => String(site.siteCode) === String(saved?.siteCode))
       || sites.find((site) => String(site.siteCode) === String(currentSite.siteCode))
       || sites[0];
     if (selector) {
       selector.replaceChildren(...sites.map((site) => {
         const option = document.createElement('option');
-        option.value = site.siteCode;
+        option.value = site.id ?? site.siteCode;
         option.textContent = `${site.organizationName || site.organizationCode || ''} / ${site.siteName || site.siteCode}`;
         return option;
       }));
@@ -435,13 +455,54 @@ async function loadSites() {
 }
 
 document.getElementById('site-selector')?.addEventListener('change', async (event) => {
-  const siteCode = event.target.value;
+  const siteId = event.target.value;
   try {
-    const option = event.target.selectedOptions?.[0];
-    await selectSite({ siteCode, siteName: option?.textContent?.split(' / ').pop() || siteCode });
+    const sites = await api('/api/v1/sites');
+    const site = sites.find((candidate) => String(candidate.id) === String(siteId))
+      || sites.find((candidate) => String(candidate.siteCode) === String(siteId));
+    if (site) await selectSite(site);
   } catch (error) {
     console.error('切换站点失败:', error);
     updateSiteUi();
+  }
+});
+
+document.getElementById('site-ai-new')?.addEventListener('click', resetAi);
+globalThis.addEventListener?.('offline', resetAi);
+document.getElementById('site-ai-form')?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!currentSite.id) {
+    document.getElementById('site-ai-answer').textContent = '请选择已授权站点。';
+    return;
+  }
+  const revision = aiRevision;
+  const siteId = currentSite.id;
+  const answer = document.getElementById('site-ai-answer');
+  answer.textContent = '正在回答…';
+  try {
+    const result = await api('/api/v1/sites/' + encodeURIComponent(siteId) + '/ai/chat', {
+      method: 'POST',
+      signal: aiAbort.signal,
+      body: JSON.stringify({
+        question: document.getElementById('site-ai-question').value,
+        conversationId: aiConversationId
+      })
+    });
+    if (revision !== aiRevision || siteId !== currentSite.id) return;
+    aiConversationId = result.conversationId;
+    answer.textContent = result.answer;
+    const citations = document.getElementById('site-ai-citations');
+    citations.replaceChildren();
+    for (const citation of result.citations || []) {
+      const item = document.createElement('p');
+      item.textContent = citation.documentName + ' · v' + citation.version +
+        (citation.pageNumber ? ' · 第 ' + citation.pageNumber + ' 页' : '') + '：' + citation.snippet;
+      citations.append(item);
+    }
+  } catch (error) {
+    if (revision === aiRevision && error.name !== 'AbortError') {
+      answer.textContent = '问答失败：' + error.message;
+    }
   }
 });
 

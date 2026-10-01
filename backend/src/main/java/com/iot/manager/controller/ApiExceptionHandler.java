@@ -1,5 +1,6 @@
 package com.iot.manager.controller;
 
+import com.iot.manager.ai.AiException;
 import com.iot.manager.dto.ApiProblem;
 import com.iot.manager.service.CommandValidationException;
 import com.iot.manager.service.LanCandidateAlreadyClaimedException;
@@ -30,6 +31,15 @@ import java.util.NoSuchElementException;
 public class ApiExceptionHandler {
 
     private final TimeProvider timeProvider;
+
+    @ExceptionHandler(AiException.class)
+    public ResponseEntity<ApiProblem> handleAi(AiException exception) {
+        ResponseEntity.BodyBuilder builder = ResponseEntity.status(exception.getStatus());
+        if (exception.getRetryAfterSeconds() > 0) {
+            builder.header("Retry-After", Long.toString(exception.getRetryAfterSeconds()));
+        }
+        return builder.body(problemBody(exception.getStatus(), exception.getMessage(), Map.of("code", exception.getCode())));
+    }
 
     @ExceptionHandler(NoSuchElementException.class)
     public ResponseEntity<ApiProblem> handleNotFound(NoSuchElementException exception) {

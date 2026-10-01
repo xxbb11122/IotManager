@@ -51,7 +51,11 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
     ) throws ServletException, IOException {
         Category category = category(request);
         String principal = principal(request);
-        String siteCode = siteCode(request);
+        String siteCode = (category == Category.AI_CHAT || category == Category.AI_WRITE)
+                ? aiSiteId(request) : siteCode(request);
+        if (category == Category.AI_CHAT || category == Category.AI_WRITE) {
+            principal += ":" + (siteCode == null ? "unknown" : siteCode);
+        }
         if (principal != null) MDC.put("actor", principal);
         if (siteCode != null) MDC.put("siteCode", siteCode);
         try {
@@ -103,6 +107,14 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
     private Category category(HttpServletRequest request) {
         String method = request.getMethod();
         String path = request.getRequestURI();
+        if (path.matches("^/api/v1/sites/[^/]+/ai/chat$") && "POST".equalsIgnoreCase(method)) {
+            return Category.AI_CHAT;
+        }
+        if (path.matches("^/api/v1/sites/[^/]+/ai/.*")
+                && ("POST".equalsIgnoreCase(method) || "PUT".equalsIgnoreCase(method)
+                    || "DELETE".equalsIgnoreCase(method))) {
+            return Category.AI_WRITE;
+        }
         if ("GET".equalsIgnoreCase(method) || "HEAD".equalsIgnoreCase(method)) {
             return path.endsWith("/telemetry/archive") ? Category.ARCHIVE_READ : Category.READ;
         }
@@ -130,15 +142,22 @@ public class ApiRateLimitFilter extends OncePerRequestFilter {
         return null;
     }
 
+    private String aiSiteId(HttpServletRequest request) {
+        String[] parts = request.getRequestURI().split("/");
+        return parts.length > 5 && "sites".equals(parts[3]) ? parts[4] : "unknown";
+    }
+
     private int limit(Category category) {
         return switch (category) {
             case READ -> properties.getReadsPerMinute();
             case ARCHIVE_READ -> properties.getArchiveReadsPerMinute();
             case COMMAND -> properties.getCommandsPerMinute();
+            case AI_CHAT -> properties.getAiChatsPerMinute();
+            case AI_WRITE -> properties.getAiWritesPerMinute();
         };
     }
 
-    private enum Category { READ, ARCHIVE_READ, COMMAND }
+    private enum Category { READ, ARCHIVE_READ, COMMAND, AI_CHAT, AI_WRITE }
 
     private record Window(long startedAtMillis, int count) { }
 }

@@ -48,6 +48,7 @@ async function api(page, token, path, options = {}) {
 }
 
 test.describe('N to N-1 rollback data compatibility', () => {
+  test.skip(!baseUrl, 'Set IOT_RUNTIME_BASE_URL and rollback phase to run the isolated deployment drill.');
   test('writes under N and reads plus writes under N-1', async ({ browser }) => {
     test.setTimeout(90_000);
     expect(['write', 'read'], 'IOT_ROLLBACK_PHASE must be write or read').toContain(phase);

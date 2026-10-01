@@ -59,6 +59,22 @@ https://{$DOMAIN} {
 			}
 		}
 
+		@aiUpload {
+			method POST
+			path_regexp ^/api/v1/sites/[0-9]+/ai/knowledge-bases/[0-9a-f-]+/documents$
+		}
+		handle @aiUpload {
+			import common_security
+			import api_cors https://{$DOMAIN}
+			request_body {
+				max_size 6MB
+			}
+			reverse_proxy backend:8080 {
+				header_up X-Forwarded-Proto https
+				header_up X-Real-IP {remote_host}
+			}
+		}
+
 		@platform path /api /api/* /ws /ws/*
 		handle @platform {
 			import common_security
