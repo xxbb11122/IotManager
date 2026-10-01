@@ -112,11 +112,16 @@ function Compose-Arguments {
 }
 
 function Wait-ServiceHealthy {
-    param([string]$Service, [int]$TimeoutSeconds = 180)
+    param(
+        [string]$Service,
+        [int]$TimeoutSeconds = 180,
+        [switch]$Application,
+        [switch]$Observability
+    )
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {
-        $compose = Compose-Arguments
+        $compose = Compose-Arguments -Application:$Application -Observability:$Observability
         $id = (& docker @($compose + @('ps', '-q', $Service)) | Out-String).Trim()
         if ($id) {
             $health = (& docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' $id | Out-String).Trim()
@@ -274,10 +279,14 @@ Assert-IdentityPlane
 & (Join-Path $PSScriptRoot 'reconcile-keycloak-realm.ps1') -ProjectName $ProjectName -EnvironmentFile $EnvironmentFile -StateFile $StateFile -VerifyIdempotence
 & (Join-Path $PSScriptRoot 'bootstrap-keycloak-owner.ps1') -ProjectName $ProjectName -EnvironmentFile $EnvironmentFile -StateFile $StateFile -VerifyIdempotence
 
-$applicationServices = @('backend', 'backup', 'wal-g-archive', 'wal-g-backup')
+$applicationServices = @('backup', 'wal-g-archive', 'wal-g-backup')
 if ($observabilityEnabled) { $applicationServices += @('alertmanager', 'prometheus') }
+$backend = (Compose-Arguments -Application -Observability:$observabilityEnabled) + @('up') + $startFlags + @('backend')
+Invoke-Native -Description 'Start Backend and complete database migrations' -Arguments $backend
+Wait-ServiceHealthy -Service 'backend' -TimeoutSeconds 300 -Application -Observability:$observabilityEnabled
 $application = (Compose-Arguments -Application -Observability:$observabilityEnabled) + @('up') + $startFlags + $applicationServices
 Invoke-Native -Description 'Start application plane' -Arguments $application
+Wait-ServiceHealthy -Service 'backup' -TimeoutSeconds 180 -Application -Observability:$observabilityEnabled
 
 if ($Verify) {
     & (Join-Path $PSScriptRoot 'verify-stack.ps1') -ProjectName $ProjectName -EnvironmentFile $EnvironmentFile -StateFile $StateFile -Observability:$observabilityEnabled

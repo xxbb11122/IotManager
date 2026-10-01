@@ -2,7 +2,7 @@
 
 > 更新日期：2026-10-01（Asia/Shanghai）
 > 定位：单组织多站点 IoT 运维平台，R1 受控试点候选；**不是正式生产发布批准书**。
-> 范围：本次 GitHub 说明、待提交的应用/服务端/部署源码，以及本地可复现验证。历史文档只作背景，发布 Gate 以当次提交的工作流和签字证据为准。
+> 范围：本次 GitHub 说明、已提交的应用/服务端/部署源码，以及本地可复现验证。历史文档只作背景，发布 Gate 以当次提交的工作流和签字证据为准。
 
 ## 1. 产品定位与边界
 
@@ -39,6 +39,8 @@
 ### 首次推送后的安全扫描反馈
 
 首次提交 `3cccd0a` 的 [Quick CI](https://github.com/xxbb11122/IotManager/actions/runs/36803981487) 在源码安全扫描处阻断：`jackson-databind 2.21.4` 被报告 3 项 HIGH（CVE-2026-68497、CVE-2026-91776、CVE-2026-91777）；其余 Java/Web/Android/Compose 构建任务成功。`quick-gate` 的失败是安全任务失败的连带结果。第一步将 Backend 的 Jackson BOM 升为同一维护分支的 [2.21.7](https://github.com/FasterXML/jackson/wiki/Jackson-Release-2.21)；[第二次扫描](https://github.com/xxbb11122/IotManager/actions/runs/36804771243) 明确把剩余 3 项定位到独立的 `edge-agent/pom.xml`，因此也将 Edge Agent 的直接版本统一到 2.21.7。必须再以新 SHA 扫描；没有关闭扫描或以未经批准的 VEX 绕过阻断。
+
+`3eebf209` 的 [Quick CI](https://github.com/xxbb11122/IotManager/actions/runs/36805038678) 随后全部通过，包括源码安全、SBOM、Java、三端 Web、Android Debug、Compose 配置与 quick-gate。对应 [P0 Docker Runtime](https://github.com/xxbb11122/IotManager/actions/runs/36805038653) 仍失败：新库启动时备份 sidecar 早于 Backend 的 Flyway 迁移读取 `flyway_schema_history`，反复重启，使非 root 运行态检查失败。本次修复将 Backend 就绪与首份逻辑备份健康设为有界启动前置条件；是否真正关闭该门禁，须以修复提交的新运行记录为准。
 
 ## 3. 公开说明审核 / README self-check
 

@@ -102,10 +102,13 @@ assert_integration_role_matrix_configuration() {
 wait_service_healthy() {
   local service="$1"
   local timeout_seconds="${2:-180}"
+  local plane="${3:-identity}"
+  local -a service_compose=("${compose[@]}")
+  [[ "$plane" == application ]] && service_compose=("${application_compose[@]}")
   local deadline=$((SECONDS + timeout_seconds))
   while true; do
     local service_id health
-    service_id="$(docker "${compose[@]}" ps -q "$service" | head -n 1)"
+    service_id="$(docker "${service_compose[@]}" ps -q "$service" | head -n 1)"
     health="none"
     [[ -n "$service_id" ]] && health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$service_id")"
     [[ "$health" == healthy ]] && return 0
@@ -245,7 +248,7 @@ application_compose=(compose --project-name "$project_name" --profile applicatio
 application_compose+=(-f "$repository_root/deploy/docker-compose.yml" -f "$repository_root/deploy/docker-compose.integration.yml")
 [[ "$mode" == immutable ]] && application_compose+=(-f "$repository_root/deploy/docker-compose.immutable.yml")
 [[ "$rollback_compatibility_enabled" == true ]] && application_compose+=(-f "$repository_root/deploy/docker-compose.rollback.yml")
-application_services=(backend backup wal-g-archive wal-g-backup)
+application_services=(backup wal-g-archive wal-g-backup)
 if [[ "$observability_enabled" == true ]]; then
   application_compose=(compose --project-name "$project_name" --profile application --profile observability --env-file "$environment_file")
   [[ -n "$image_environment_file" ]] && application_compose+=(--env-file "$image_environment_file")
@@ -255,7 +258,13 @@ if [[ "$observability_enabled" == true ]]; then
   [[ "$rollback_compatibility_enabled" == true ]] && application_compose+=(-f "$repository_root/deploy/docker-compose.rollback.yml")
   application_services+=(alertmanager prometheus)
 fi
+# A fresh database has no Flyway history until Backend completes its migrations.
+# Starting the backup loop at the same time makes its first dump fail and the
+# container restart, which can race the runtime hardening gate.
+docker "${application_compose[@]}" up "${start_flags[@]}" backend
+wait_service_healthy backend 300 application
 docker "${application_compose[@]}" up "${start_flags[@]}" "${application_services[@]}"
+wait_service_healthy backup 180 application
 
 if [[ "$verify" == true ]]; then
   IOT_COMPOSE_PROJECT="$project_name" IOT_ENVIRONMENT_FILE="$environment_file" IOT_RUNTIME_STATE_FILE="$state_file" \

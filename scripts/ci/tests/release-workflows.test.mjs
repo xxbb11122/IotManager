@@ -112,6 +112,10 @@ assert.ok(pullIndex >= 0 && startupIndex > pullIndex,
   'Digest pre-pull must be ordered before immutable startup.');
 assert.match(launcher, /start_flags\+=\(--no-build --pull never\)/,
   'The integration launcher must enforce immutable no-build/no-pull startup.');
+assert.match(launcher, /up "\$\{start_flags\[@\]\}" backend[\s\S]*wait_service_healthy backend 300 application[\s\S]*up "\$\{start_flags\[@\]\}" "\$\{application_services\[@\]\}"[\s\S]*wait_service_healthy backup 180 application/,
+  'Bash startup must finish Backend migrations before starting and verifying the first logical backup.');
+assert.match(launcherPs, /Start Backend and complete database migrations[\s\S]*Wait-ServiceHealthy -Service 'backend'[\s\S]*Start application plane[\s\S]*Wait-ServiceHealthy -Service 'backup'/,
+  'PowerShell startup must apply the same migration-before-backup ordering.');
 assert.match(rollbackCompose, /SPRING_FLYWAY_IGNORE_MIGRATION_PATTERNS: "\*:future"/,
   'Compose must pass the narrowly scoped rollback Flyway compatibility variable.');
 
