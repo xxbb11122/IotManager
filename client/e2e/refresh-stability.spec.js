@@ -238,8 +238,7 @@ test('actual runtime: failed startup plus three WS reconnects performs one list 
   });
   await page.goto('/');
   await page.waitForFunction(() => window.fixtureSockets.length > 0);
-  await page.waitForTimeout(400);
-  expect(reads).toBe(1);
+  await expect.poll(() => reads).toBe(1);
   for (let i = 0; i < 3; i++) {
     const count = await page.evaluate(() => { const count = window.fixtureSockets.length; window.fixtureSockets.at(-1).close(); return count; });
     await page.waitForFunction(count => window.fixtureSockets.length > count && window.fixtureSockets.at(-1).readyState === 1, count);

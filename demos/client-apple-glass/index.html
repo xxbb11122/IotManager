@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f3f6f7">
+    <meta name="description" content="Apple 轻毛玻璃 v1.2 独立功能演示，所有设备和回答均为本地模拟数据。">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws://127.0.0.1:5188 ws://localhost:5188; object-src 'none'; base-uri 'self'; form-action 'none'">
+    <title>设备运营 · Glass 独立演示</title>
+  </head>
+  <body>
+    <div class="demo-strip">
+      <a class="demo-wordmark" href="./" aria-label="重新打开演示首页">GLASS <span>LAB / 1.2</span></a>
+      <p>独立功能演示 <span>· 全部数据与回执均为模拟</span></p>
+      <button type="button" class="demo-panel-trigger" id="open-demo-panel" aria-haspopup="dialog">演示测试台 <span aria-hidden="true">↗</span></button>
+    </div>
+    <div id="app" data-material="auto"></div>
+    <dialog id="demo-panel" aria-labelledby="demo-panel-title">
+      <div class="demo-panel-heading"><div><span class="demo-eyebrow">SCENARIO LAB</span><h2 id="demo-panel-title">演示测试台</h2></div><button type="button" id="close-demo-panel" aria-label="关闭测试台">×</button></div>
+      <p class="demo-panel-intro">选择场景后返回页面操作，观察目标值、上报值和回执变化。</p>
+      <div class="demo-panel-fields">
+        <label>设备场景<select id="demo-scenario"><option value="normal">正常连接 · 可控制</option><option value="cache">缓存只读 · 禁止控制</option><option value="offline">模拟断线 · 禁止控制</option><option value="unknown">未知蓝牙 Profile · 只读信息</option><option value="invalid">非法范围 min=20 / max=10</option><option value="unknown-value">强度上报未知 · 禁用滑块</option></select></label>
+        <label>下一条命令结果<select id="demo-outcome"><option value="ack">成功 ACK · 更新上报</option><option value="failed">失败 · 保留原上报</option><option value="unconfirmed">结果未确认 · 不自动重发</option></select></label>
+        <label>模拟回执等待<select id="demo-delay"><option value="1200">1.2 秒</option><option value="3000">3 秒</option><option value="6000">6 秒（便于中途切换）</option></select></label>
+        <label>AI 回答场景<select id="demo-ai-mode"><option value="reply">正常模拟回答</option><option value="processing">先处理中 · 再查询原请求</option><option value="failed">请求失败 · 明确重试</option><option value="rate-limit">限流 · 5 秒倒计时</option></select></label>
+        <label>文字大小<select id="demo-text-scale"><option value="100">100%</option><option value="150">150%</option><option value="200">200%</option></select></label>
+        <label>安全区模拟<select id="demo-safe-area"><option value="0">关闭</option><option value="1">顶 24 / 底 20 / 左右 12 px</option></select></label>
+      </div>
+      <div class="demo-panel-metrics" aria-label="本次演示统计"><div><strong id="demo-command-count">0</strong><span>命令提交</span></div><div><strong id="demo-ai-count">0</strong><span>AI 发送</span></div><div><strong id="demo-ai-query-count">0</strong><span>原请求查询</span></div></div>
+      <h3>最近事件</h3><div id="demo-events" class="demo-events" role="log" aria-label="模拟事件记录"></div>
+      <div class="demo-panel-actions"><button type="button" id="demo-export">导出测试记录</button><button type="button" id="demo-reset">重置演示</button><button type="button" id="demo-return" class="demo-primary">返回页面测试</button></div>
+      <p class="demo-panel-footnote">刷新或重置会清空本地演示状态。测试台不会连接后端、调用硬件或请求真实 AI。</p>
+    </dialog>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -526,7 +526,7 @@ class ClientUi {
     main.classList.remove('screen-region--motion-peer', 'screen-region--motion-forward', 'screen-region--motion-back', 'screen-region--motion-context');
     if (!this.motionPolicy.snapshot().animate) return;
     // Restoring the startup endpoint/site is hydration, not user navigation.
-    if (hint === 'context' && this.model.startup.phase === 'loading') return;
+    if (hint === 'context' && ['loading', 'syncing'].includes(this.model.startup.phase)) return;
     const kind = navigationMotionKind(from, to, hint);
     if (!kind) return;
     // Restart only for another real navigation; a same-screen redraw keeps the main node intact.

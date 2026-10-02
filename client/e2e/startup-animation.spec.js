@@ -13,6 +13,7 @@ test('launch icon stays visible until the app shell is ready, then releases the 
   const icon = overlay.locator('.startup-icon');
   await expect(overlay).toBeVisible();
   await expect(icon).toHaveJSProperty('complete', true);
+  await expect(icon).toHaveCSS('animation-name', 'none');
   expect(await icon.evaluate((image) => image.naturalWidth)).toBeGreaterThan(0);
   await expect(icon).toHaveAttribute('src', /ic_launcher_foreground\.png$/);
   await expect(overlay.locator('.startup-halo')).toHaveCount(0);

@@ -1,0 +1,24 @@
+{
+  "capturedAt": "2026-10-02T02:17:19.513Z",
+  "plan": "v1.2",
+  "documentSha256": "ed1c9f8fb2160ba341fabc5222553a4ecbdf5858748b830b9a426e5730e7ec67",
+  "sourceHashes": {
+    "client/src/js/ui.js": "4e308297993d9567d2b946d192b31925d47dad1fb1b9e7a997a153bd970b505f",
+    "client/src/js/device-capabilities.js": "134e1fb603ece2d0acee79ff0ca340aacf388408e9524ef442d5e41da9146a26",
+    "client/src/js/dom-reconcile.js": "bb121ad404bccbf4326ee2767349c7b59bdfc817b4fda7990004ba50de33861e",
+    "client/src/js/motion.js": "cb3d24b1b9e0c5b74e3dda981d83e3040756e122bffe9acf1bfb4922f6d6098f",
+    "client/src/js/task-state.js": "927b6ec13d907290804b67bdfdc94c39284bd88e169564a1503998f70177c54d",
+    "client/src/js/navigation-state.js": "88c518f93132b4e85f34f33abe5499f67ecd627177f7a09107bc8b5dc1308233",
+    "client/src/js/motion-policy.js": "2f3c03ee6e01d5a17931e2e592603b4c698b80b328efc6abe07f7124eeecf030",
+    "client/src/js/pull-refresh.js": "208af75a4805fdf0fd248b32d401b556a42287a2f26aec5357c4b173ba20a444",
+    "client/src/js/command-state.js": "92121ce5d8a48e413eec1296957c3ebc665dc31cefe0479736ba38a37b049865",
+    "client/src/js/build-info.js": "f1f1b0aa7d9bbe0ae495daff3b456761531bbf7e2357d8204f22e4e29425954e",
+    "client/src/js/platform/weather-timezone.js": "f3ade1a4bc77b750a899e509b9fbf2102e8c76c662fa00577fb42735bc40a3f0",
+    "client/src/js/ai/ai-view.js": "1b5b55c407d74ad83ec816d587b82451fda1304d0879b03635861d43bb2349d5",
+    "client/src/js/ai/ai-controller.js": "23916b1b0819faf9f5184ee10c4626fc9386e530082e83944e189aad8018b746",
+    "client/src/js/ai/ai-state.js": "f14fee6568a6ceed67b8d73e65498e57be0d667ea9b502c3c8b3a8a460e4d4cc",
+    "client/src/css/style.css": "ce1eec47e775d532121cddf109a24349a837ecc0c47e7f49e2e1b2b74d4d12b2",
+    "client/src/css/ai.css": "119aa066d75c59699d9bb1ac04b307d99f859dd6603eb540d4750809c7adb116"
+  },
+  "note": "Frozen UI-only copies; demo changes never write back to client. No production main, API, auth adapter or native plugin is included."
+}

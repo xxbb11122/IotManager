@@ -1,0 +1,71 @@
+{
+  "verifiedAt": "2026-10-02T02:50:05.275Z",
+  "checked": 16,
+  "allUnchanged": true,
+  "observations": [
+    {
+      "file": "client/src/js/ui.js",
+      "unchanged": true
+    },
+    {
+      "file": "client/src/js/device-capabilities.js",
+      "unchanged": true
+    },
+    {
+      "file": "client/src/js/dom-reconcile.js",
+      "unchanged": true
+    },
+    {
+      "file": "client/src/js/motion.js",
+      "unchanged": true
+    },
+    {
+      "file": "client/src/js/task-state.js",
+      "unchanged": true
+    },
+    {
+      "file": "client/src/js/navigation-state.js",
+      "unchanged": true
+    },
+    {
+      "file": "client/src/js/motion-policy.js",
+      "unchanged": true
+    },
+    {
+      "file": "client/src/js/pull-refresh.js",
+      "unchanged": true
+    },
+    {
+      "file": "client/src/js/command-state.js",
+      "unchanged": true
+    },
+    {
+      "file": "client/src/js/build-info.js",
+      "unchanged": true
+    },
+    {
+      "file": "client/src/js/platform/weather-timezone.js",
+      "unchanged": true
+    },
+    {
+      "file": "client/src/js/ai/ai-view.js",
+      "unchanged": true
+    },
+    {
+      "file": "client/src/js/ai/ai-controller.js",
+      "unchanged": true
+    },
+    {
+      "file": "client/src/js/ai/ai-state.js",
+      "unchanged": true
+    },
+    {
+      "file": "client/src/css/style.css",
+      "unchanged": true
+    },
+    {
+      "file": "client/src/css/ai.css",
+      "unchanged": true
+    }
+  ]
+}

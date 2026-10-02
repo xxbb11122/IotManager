@@ -136,6 +136,32 @@ test('restoring another issuer or an unbound legacy session requires fresh authe
   manager.stopAutoRefresh();
 });
 
+test('startup can restore local session state without starting a network refresh before reveal', async () => {
+  let requests = 0;
+  const { manager, store } = oidcManager({
+    fetchImpl: async (url) => {
+      requests += 1;
+      return new Response(JSON.stringify(String(url).includes('.well-known') ? discoveryResponse() : {
+        access_token: 'refreshed-access', refresh_token: 'refreshed-refresh', expires_in: 300
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+  });
+  try {
+    await store.setJson(OIDC_STORAGE_KEYS.SESSION_KEY, {
+      accessToken: 'near-expiry', refreshToken: 'stored-refresh', expiresAt: 1_030_000,
+      issuerUrl: manager.config.issuerUrl, clientId: manager.config.clientId, cachePartition: 'site-a'
+    });
+    await manager.restore({ deferRefresh: true });
+    assert.equal(requests, 0);
+    assert.equal(manager.getAccessToken(), 'near-expiry');
+    assert.equal(await manager.tryRefresh(), true);
+    assert.equal(manager.getAccessToken(), 'refreshed-access');
+    assert.equal(requests, 2);
+  } finally {
+    manager.stopAutoRefresh();
+  }
+});
+
 test('OIDC callback rejects a state mismatch without leaving a usable session', async () => {
   const { manager, store } = oidcManager({
     fetchImpl: async () => new Response(JSON.stringify(discoveryResponse()), { status: 200 })

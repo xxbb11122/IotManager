@@ -228,7 +228,7 @@ export class OidcSessionManager {
     this.onStateChange(authState(this.isConfigured(), this.session, error, this.now()));
   }
 
-  async restore() {
+  async restore({ deferRefresh = false } = {}) {
     if (!this.config) return this.getState();
     const generation = this.sessionGeneration;
     const stored = await this.tokenStore.getJson(SESSION_KEY);
@@ -246,8 +246,9 @@ export class OidcSessionManager {
       return this.getState();
     }
     try {
-      if (this.needsRefresh()) await this.refresh();
-      else this.scheduleRefresh();
+      if (this.needsRefresh()) {
+        if (!deferRefresh) await this.refresh();
+      } else this.scheduleRefresh();
       this.emit();
     } catch (error) {
       await this.clear({ emit: false });

@@ -34,6 +34,7 @@ function fixture(adapter = {}, cacheOverrides = {}) {
     RuntimeConfigRepository: class {}, CacheRepository: class { constructor() { return cache; } },
     BleAdapter: class { availability() { return { available: false }; } subscribe() { return noOp; } },
     createClientUi: () => ui, createStartupTransition: () => ({ markUiReady: noOp, dispose: noOp }),
+    createNativeStartupVisual: () => null,
     createAiRecoveryStore: () => ({}),
     createAiController: () => ({ reset: noOp, syncContext: noOp, destroy: noOp, setForeground: noOp }),
     createRenderMetrics: () => ({ increment: noOp }),

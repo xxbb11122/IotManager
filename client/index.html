@@ -11,13 +11,13 @@
     html, body { min-height: 100%; margin: 0; background: #f3f6f7; }
     #startup-overlay {
       position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center;
-      background: #f3f6f7; opacity: 1; transition: opacity 220ms ease-out;
+      background: #f3f6f7; opacity: 1; transition: opacity 280ms ease-out;
     }
     #startup-overlay.startup-overlay--leaving { opacity: 0; }
     .startup-visual { width: 160px; height: 160px; display: grid; place-items: center; }
     .startup-icon {
       width: 160px; height: 160px; object-fit: contain; border-radius: 50%;
-      background: #fff; animation: startup-icon-breathe 550ms ease-in-out both;
+      background: #fff;
     }
     .startup-status { position: absolute; top: calc(50% + 100px); margin: 0; color: #607078; font: 13px/1.5 system-ui, sans-serif; text-align: center; }
     .startup-retry {
@@ -25,9 +25,8 @@
       border-radius: 8px; background: #fff; color: #14555d; font: 600 14px/1.3 system-ui, sans-serif;
     }
     [hidden] { display: none !important; }
-    @keyframes startup-icon-breathe { 0%, 18%, 100% { transform: scale(1); } 58% { transform: scale(1.02); } }
     @media (prefers-reduced-motion: reduce) {
-      #startup-overlay, .startup-icon { animation: none !important; transition: none !important; }
+      #startup-overlay { transition: none !important; }
     }
   </style>
 </head>
@@ -54,14 +53,16 @@
       window.__iotStartupFirstFrameAt = null;
       requestAnimationFrame((timestamp) => { window.__iotStartupFirstFrameAt = timestamp; });
       const waiting = setTimeout(() => { status.hidden = false; }, 600);
-      const failed = setTimeout(() => {
+      const showFailure = () => {
         status.textContent = '界面启动未完成，请重新加载。';
         status.hidden = false;
         retry.hidden = false;
-      }, 4000);
+      };
+      const failed = setTimeout(showFailure, 4000);
       retry.addEventListener('click', () => location.reload());
       window.__iotStartupWatchdog = {
-        stop() { clearTimeout(waiting); clearTimeout(failed); }
+        stop() { clearTimeout(waiting); clearTimeout(failed); },
+        fail() { clearTimeout(waiting); clearTimeout(failed); showFailure(); }
       };
     })();
   </script>

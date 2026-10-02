@@ -27,6 +27,7 @@ import { createRenderMetrics } from './js/render-metrics.js';
 import { valueEqual } from './js/value-equality.js';
 import { createSnapshotRefreshGate } from './js/snapshot-refresh-gate.js';
 import { createStartupTransition } from './js/platform/startup-transition.js';
+import { createNativeStartupVisual } from './js/platform/native-startup-visual.js';
 import { createClientUi } from './js/ui.js';
 import { createWeatherRefreshCooldown } from './js/weather-refresh-cooldown.js';
 import { resourceState, beginResource, resolveResource, rejectResource, createRuntimeTaskRegistry, parseWeatherCoordinates, refreshPresentation } from './js/runtime-resource-state.js';
@@ -142,7 +143,7 @@ let clientState = {
   error: null
 };
 
-const startupTransition = createStartupTransition();
+const startupTransition = createStartupTransition({ nativeVisual: createNativeStartupVisual() });
 const renderMetrics = createRenderMetrics();
 const deviceSnapshotGate = createSnapshotRefreshGate({ cooldownMs: REALTIME_RESYNC_COOLDOWN_MS, metrics: renderMetrics });
 const ui = createClientUi(document.getElementById('app'), {
@@ -202,7 +203,6 @@ const ai = createAiController({
     ui.patchAi(viewModel());
   }
 });
-startupTransition.markUiReady();
 const renderCoordinator = createRenderCoordinator({
   fullRender: (snapshot) => ui.renderFull(snapshot),
   patchDevices: (references, snapshot) => ui.patchDevices(references, snapshot),
@@ -548,7 +548,7 @@ function tokenProvider() {
   return authSession?.getAccessToken() ?? endpointProfile?.accessToken ?? null;
 }
 
-async function configureAuthSession(profile) {
+async function configureAuthSession(profile, { deferRefresh = false } = {}) {
   authSession?.invalidatePendingOperations();
   const config = normalizeOidcConfig(profile);
   if (!config) {
@@ -574,7 +574,7 @@ async function configureAuthSession(profile) {
   });
   authSession = manager;
   setClientState({ auth: { ...manager.getState(), status: 'restoring' } });
-  await manager.restore();
+  await manager.restore({ deferRefresh });
   return manager;
 }
 
@@ -610,7 +610,7 @@ async function synchronizePlatformEndpoint() {
   return endpointProfile;
 }
 
-async function activateEndpoint(profile) {
+async function activateEndpoint(profile, { startupReady = null, launchUrl = null } = {}) {
   const normalizedProfile = normalizeEndpointProfile(profile);
   const activation = ++endpointActivationRevision;
   setClientState({ loading: { endpointPhase: 'saving' } });
@@ -634,7 +634,7 @@ async function activateEndpoint(profile) {
     setClientState({ sites: [], weatherSettings: null, pendingWeatherLocation: null });
     setWeatherRefreshCooldown(0);
     setClientState({ loading: { endpointPhase: 'restoring_auth' } });
-    await configureAuthSession(endpointProfile);
+    await configureAuthSession(endpointProfile, { deferRefresh: Boolean(startupReady) });
     if (activation !== endpointActivationRevision) return null;
     const endpointAuth = authSession;
     const activatedProfile = endpointProfile;
@@ -655,8 +655,20 @@ async function activateEndpoint(profile) {
       stale: true,
       lastSyncedAt: null
     });
-    await completeOidcRedirect();
+    const redirectUrl = launchUrl ?? currentUrl();
+    if (authSession?.isRedirect(redirectUrl)) {
+      const completed = await completeOidcRedirect(redirectUrl);
+      if (completed && nativeRuntime) await Browser.close().catch(() => {});
+    }
     if (activation !== endpointActivationRevision) return null;
+    if (startupReady) {
+      await startupReady();
+      // Restoring a near-expiry session may require a network request. Keep it
+      // out of the local first-frame gate, then refresh before remote sync.
+      if (authSession?.session?.accessToken && authSession.needsRefresh()) {
+        await authSession.tryRefresh();
+      }
+    }
     setClientState({ loading: { endpointPhase: 'synchronizing' } });
     await synchronizePlatformEndpoint();
     render();
@@ -1348,11 +1360,20 @@ async function bootstrapRuntime() {
     accessToken: defaults.accessToken ?? null,
     ...defaultOidcFields({ native: nativeRuntime })
   });
-  await activateEndpoint(profile);
-  // Pending locations are only restored for their original endpoint/site.
-  if (pendingWeatherLocation?.scopeKey === JSON.stringify(platformCacheScope())) {
-    setClientState({ pendingWeatherLocation });
-  }
+  const launch = nativeRuntime ? await App.getLaunchUrl?.().catch(() => null) : null;
+  await activateEndpoint(profile, {
+    launchUrl: launch?.url ?? null,
+    startupReady: async () => {
+      // Pending locations are only restored for their original endpoint/site.
+      if (pendingWeatherLocation?.scopeKey === JSON.stringify(platformCacheScope())) {
+        setClientState({ pendingWeatherLocation });
+      }
+      setClientState({ startup: { phase: 'syncing', error: null } });
+      render('startup_local_ready');
+      await startupTransition.markUiReady();
+    }
+  });
+  setClientState({ startup: { phase: 'ready', error: null } });
   if (nativeRuntime && !authUrlListener) {
     authUrlListener = await App.addListener('appUrlOpen', ({ url }) => handleNativeOidcRedirect(url));
   }
@@ -1375,13 +1396,6 @@ async function bootstrapRuntime() {
       // root; keyboard/system surfaces keep platform-managed behavior.
       ui.back();
     });
-  }
-  if (nativeRuntime) {
-    // An Android custom-scheme callback can cold-start the app before the
-    // appUrlOpen listener exists. Read the launch URL once so the PKCE
-    // transaction is completed in both warm- and cold-start flows.
-    const launch = await App.getLaunchUrl?.();
-    if (launch?.url) await handleNativeOidcRedirect(launch.url);
   }
   lifecycleHandle = await attachAppLifecycle({
     onBackground: async () => {
@@ -1420,7 +1434,6 @@ async function bootstrapRuntime() {
       platform?.connect();
     }
   });
-  setClientState({ startup: { phase: 'ready', error: null } });
 }
 
 async function requestBle() {

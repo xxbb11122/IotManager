@@ -1,0 +1,16 @@
+{
+  "name": "iot-apple-glass-standalone-demo",
+  "version": "1.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5188 --strictPort",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 5188 --strictPort",
+    "demo": "node scripts/serve.mjs",
+    "test": "node --test --test-timeout=15000 test/*.test.mjs",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": { "lucide": "1.26.0" },
+  "devDependencies": { "vite": "5.4.21", "@playwright/test": "1.62.0" }
+}

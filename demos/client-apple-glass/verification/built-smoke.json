@@ -1,0 +1,50 @@
+{
+  "verifiedAt": "2026-10-02T02:55:59.611Z",
+  "browser": "151.0.7922.34",
+  "target": "dependency-free static build",
+  "checks": [
+    {
+      "name": "Built home loads four devices, without a test global",
+      "passed": true
+    },
+    {
+      "name": "Built range command waits and displays confirmed mock ACK",
+      "passed": true
+    },
+    {
+      "name": "Built solid material applies and keeps its selected state",
+      "passed": true
+    },
+    {
+      "name": "Built AI quick prompt, explicit send and simulation label work",
+      "passed": true
+    },
+    {
+      "name": "Built test panel records submissions and resets its data",
+      "passed": true
+    },
+    {
+      "name": "No production source or module folder is exposed by the static server",
+      "passed": true
+    },
+    {
+      "name": "No page error or external request during built operations",
+      "passed": true
+    }
+  ],
+  "failure": null,
+  "errors": [],
+  "external": [],
+  "assets": [
+    {
+      "file": "index-8YwybLPP.css",
+      "bytes": 47907,
+      "sha256": "26fef7cc1f20eb54f123693f8e195f6b3478d749dc9a359194acff91d54665d1"
+    },
+    {
+      "file": "index-BG-9otDW.js",
+      "bytes": 192905,
+      "sha256": "db329920a966d3cb05a8aec915dbd73c7e6070e5b5385645dca02b37af226323"
+    }
+  ]
+}

@@ -1,119 +1,171 @@
-// The visual target is intentionally shorter than a mandatory splash delay.
-// A ready shell can add at most 180ms of hold before the 220ms exit.
-export const STARTUP_VISUAL_TARGET_MS = 450;
-export const STARTUP_READY_HOLD_LIMIT_MS = 180;
-const EXIT_FALLBACK_MS = 320;
+export const STARTUP_VISUAL_TARGET_MS = 700;
+export const STARTUP_EXIT_MS = 280;
+const EXIT_FALLBACK_MS = STARTUP_EXIT_MS + 120;
+const NATIVE_BRIDGE_FALLBACK_MS = 9000;
 
-export function startupHoldMs(elapsedVisibleMs, elapsedReadyMs) {
-  return Math.max(0, Math.min(
-    STARTUP_VISUAL_TARGET_MS - Math.max(0, elapsedVisibleMs),
-    STARTUP_READY_HOLD_LIMIT_MS - Math.max(0, elapsedReadyMs)
-  ));
+export function startupHoldMs(elapsedVisibleMs) {
+  return Math.max(0, STARTUP_VISUAL_TARGET_MS - Math.max(0, elapsedVisibleMs));
 }
 
-/** The launch layer is separate from the app root so the first UI render cannot remove it. */
+/** The overlay is retained until the native cover has actually left the screen. */
 export function createStartupTransition({
   overlay = document.getElementById('startup-overlay'),
   appRoot = document.getElementById('app'),
-  view = window
+  view = window,
+  nativeVisual = null
 } = {}) {
-  let leaving = false;
-  let removed = false;
-  const firstFrameAt = view.__iotStartupFirstFrameAt;
-  let visibleAt = Number.isFinite(firstFrameAt) ? firstFrameAt : (view.performance?.now?.() ?? Date.now());
-  let readyAt = null;
-  let visualFrame = null;
-  let firstFrame = null;
-  let secondFrame = null;
-  let readyTimer = null;
-  let holdTimer = null;
-  let fallbackTimer = null;
   const reducedMotion = view.matchMedia?.('(prefers-reduced-motion: reduce)');
-
+  const firstFrameAt = view.__iotStartupFirstFrameAt;
+  const visibleAt = Number.isFinite(firstFrameAt) ? firstFrameAt : (view.performance?.now?.() ?? Date.now());
   const now = () => view.performance?.now?.() ?? Date.now();
-  if (!Number.isFinite(firstFrameAt)) {
-    visualFrame = view.requestAnimationFrame((timestamp) => {
-      visibleAt = Number.isFinite(timestamp) ? timestamp : now();
-    });
-  }
+  let started = false;
+  let finished = false;
+  let fallbackRestored = false;
+  let nativeHidden = false;
+  let currentLaunchId = null;
+  let completion = null;
+  let finishPromise = null;
+  let rescueTimer = null;
+  let holdTimer = null;
+  let exitTimer = null;
+  let frameOne = null;
+  let frameTwo = null;
+  let nativeListener = null;
 
-  function onVisibilityChange() {
-    if (leaving && view.document?.hidden) removeOverlay();
-  }
-
-  function onReducedMotionChange(event) {
-    if (leaving && event.matches) removeOverlay();
-  }
-
-  function removeOverlay() {
-    if (removed) return;
-    removed = true;
-    if (visualFrame !== null) view.cancelAnimationFrame(visualFrame);
-    if (firstFrame !== null) view.cancelAnimationFrame(firstFrame);
-    if (secondFrame !== null) view.cancelAnimationFrame(secondFrame);
-    if (readyTimer !== null) view.clearTimeout(readyTimer);
+  function clearTimers() {
+    if (rescueTimer !== null) view.clearTimeout(rescueTimer);
     if (holdTimer !== null) view.clearTimeout(holdTimer);
-    if (fallbackTimer !== null) view.clearTimeout(fallbackTimer);
-    view.document?.removeEventListener?.('visibilitychange', onVisibilityChange);
-    reducedMotion?.removeEventListener?.('change', onReducedMotionChange);
-    overlay?.remove();
+    if (exitTimer !== null) view.clearTimeout(exitTimer);
+    if (frameOne !== null) view.cancelAnimationFrame(frameOne);
+    if (frameTwo !== null) view.cancelAnimationFrame(frameTwo);
+    rescueTimer = holdTimer = exitTimer = frameOne = frameTwo = null;
+  }
+
+  function releaseNativeListener() {
+    void nativeListener?.remove?.();
+    nativeListener = null;
+  }
+
+  function finish(visibleHome) {
+    if (finished) return;
+    finished = true;
+    clearTimers();
+    releaseNativeListener();
+    view.__iotStartupWatchdog?.stop?.();
+    overlay?.remove?.();
     if (appRoot) {
       appRoot.inert = false;
       appRoot.removeAttribute('aria-hidden');
     }
+    completion?.(visibleHome);
   }
 
-  function beginExit() {
-    if (removed) return;
-    if (view.document?.hidden || reducedMotion?.matches) {
-      removeOverlay();
-      return;
+  function restoreFallback({ failed = true, settle = true } = {}) {
+    if (finished || fallbackRestored) return;
+    fallbackRestored = true;
+    clearTimers();
+    releaseNativeListener();
+    currentLaunchId = null;
+    nativeHidden = false;
+    if (overlay) {
+      overlay.hidden = false;
+      overlay.classList?.remove?.('startup-overlay--leaving');
     }
-    overlay.addEventListener('transitionend', (event) => {
-      if (event.target === overlay && event.propertyName === 'opacity') removeOverlay();
-    }, { once: true });
-    overlay.classList.add('startup-overlay--leaving');
-    // transitionend is not guaranteed after backgrounding or stylesheet changes.
-    fallbackTimer = view.setTimeout(removeOverlay, EXIT_FALLBACK_MS);
+    if (appRoot) {
+      appRoot.inert = true;
+      appRoot.setAttribute?.('aria-hidden', 'true');
+    }
+    if (failed) view.__iotStartupWatchdog?.fail?.();
+    if (settle) completion?.(false);
   }
 
-  function markUiReady() {
-    if (leaving || removed || !appRoot?.querySelector('.app-shell')) return false;
-    leaving = true;
-    view.__iotStartupWatchdog?.stop?.();
-    readyAt = now();
-    if (!overlay || view.document?.hidden || reducedMotion?.matches) {
-      removeOverlay();
-      return true;
-    }
-
-    view.document?.addEventListener?.('visibilitychange', onVisibilityChange);
-    reducedMotion?.addEventListener?.('change', onReducedMotionChange);
-    const webPaintOpportunity = new Promise((resolve) => {
-      firstFrame = view.requestAnimationFrame(() => {
-        secondFrame = view.requestAnimationFrame(resolve);
-      });
-    });
-    const visualGateTimeout = new Promise((resolve) => {
-      readyTimer = view.setTimeout(resolve, STARTUP_READY_HOLD_LIMIT_MS);
-    });
-    void Promise.race([
-      webPaintOpportunity,
-      visualGateTimeout
-    ]).then(() => {
-      if (removed) return;
-      if (readyTimer !== null) view.clearTimeout(readyTimer);
-      const hold = startupHoldMs(now() - visibleAt, now() - readyAt);
-      if (hold > 0) holdTimer = view.setTimeout(beginExit, hold);
-      else beginExit();
-    });
+  function hideForNative() {
+    if (!overlay || finished) return false;
+    nativeHidden = true;
+    overlay.hidden = true;
     return true;
   }
 
-  function dispose() {
-    view.__iotStartupWatchdog?.stop?.();
-    removeOverlay();
+  function finishNativeExit(launchId) {
+    if (!nativeHidden || currentLaunchId !== launchId) return false;
+    finish(true);
+    return true;
   }
 
-  return Object.freeze({ markUiReady, dispose });
+  function beginWebExit() {
+    if (finished) return;
+    if (!overlay || view.document?.hidden || reducedMotion?.matches) {
+      finish(true);
+      return;
+    }
+    const fadeAt = visibleAt + STARTUP_VISUAL_TARGET_MS;
+    const startFade = () => {
+      if (finished) return;
+      overlay.addEventListener('transitionend', (event) => {
+        if (event.target === overlay && event.propertyName === 'opacity') finish(true);
+      }, { once: true });
+      overlay.classList.add('startup-overlay--leaving');
+      exitTimer = view.setTimeout(() => finish(true), EXIT_FALLBACK_MS);
+    };
+    frameOne = view.requestAnimationFrame(() => {
+      frameTwo = view.requestAnimationFrame(() => {
+        const remaining = Math.max(0, fadeAt - now());
+        if (remaining > 0) holdTimer = view.setTimeout(startFade, remaining);
+        else startFade();
+      });
+    });
+  }
+
+  async function beginNativeExit() {
+    let obtainedLaunch = false;
+    try {
+      nativeListener = await nativeVisual.addExitListener(({ launchId }) => finishNativeExit(launchId));
+      const launch = await nativeVisual.getLaunchState();
+      obtainedLaunch = true;
+      if (finished) return;
+      if (launch?.phase === 'WEB_FALLBACK') {
+        beginWebExit();
+        return;
+      }
+      if (launch?.phase !== 'COVERING' || launch.remainingWebRescueMs <= 0) {
+        restoreFallback();
+        return;
+      }
+      currentLaunchId = launch.launchId;
+      if (!hideForNative()) {
+        restoreFallback();
+        return;
+      }
+      rescueTimer = view.setTimeout(() => restoreFallback(), launch.remainingWebRescueMs);
+      const result = await nativeVisual.prepareReveal({
+        launchId: currentLaunchId,
+        reducedMotion: Boolean(reducedMotion?.matches)
+      });
+      if (!finished && nativeHidden && result?.accepted !== true) restoreFallback();
+    } catch {
+      if (finished) return;
+      restoreFallback({ failed: obtainedLaunch, settle: obtainedLaunch });
+      if (!obtainedLaunch) {
+        // No handoff was requested; Android releases to the retained Web cover.
+        holdTimer = view.setTimeout(beginWebExit, NATIVE_BRIDGE_FALLBACK_MS);
+      }
+    }
+  }
+
+  function markUiReady() {
+    if (started || finished || !appRoot?.querySelector('.app-shell')) return Promise.resolve(false);
+    started = true;
+    finishPromise = new Promise((resolve) => { completion = resolve; });
+    if (nativeVisual) void beginNativeExit();
+    else beginWebExit();
+    return finishPromise;
+  }
+
+  function dispose() {
+    clearTimers();
+    releaseNativeListener();
+    if (!finished) finish(false);
+  }
+
+  return Object.freeze({ markUiReady, hideForNative, finishNativeExit, restoreFallback, dispose });
 }

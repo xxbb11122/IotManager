@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Apple 轻毛玻璃与高对比工业物联标准预览 (合规独立运行版)</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "PingFang SC", "Segoe UI", Roboto, sans-serif;
+      background: #e2e8f0;
+      color: #0f172a;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 0;
+    }
+
+    /* 顶层工程视检工具条 (便于评测人员直接切换材质模式与响应式宽度) */
+    .inspection-toolbar {
+      width: 100%;
+      background: #0f172a;
+      color: #f8fafc;
+      padding: 8px 16px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 12px;
+      z-index: 1000;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    }
+
+    .inspection-title-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .inspection-badge {
+      background: #0066cc;
+      color: #ffffff;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      font-weight: 700;
+      font-size: 11px;
+    }
+
+    .inspection-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .inspection-btn {
+      background: #1e293b;
+      color: #e2e8f0;
+      border: 1px solid #334155;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11.5px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.15s ease;
+    }
+    .inspection-btn:hover {
+      background: #334155;
+      color: #ffffff;
+    }
+    .inspection-btn.active {
+      background: #0066cc;
+      border-color: #0066cc;
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    /* 主机模拟外壳：支持真机尺寸切换与全屏铺满 */
+    #mobile-viewport {
+      position: relative;
+      width: 100%;
+      max-width: 440px; /* 默认手机视口，可通过工具条切换宽屏 */
+      min-height: calc(100vh - 42px);
+      background: var(--canvas-bg, #f3f6f7);
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+      display: flex;
+      flex-direction: column;
+      padding-bottom: 96px; /* 为悬浮底栏预留安全避让区 */
+      transition: max-width 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+
+    #view-root {
+      flex: 1;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* 浮动提示通知卡片 */
+    .toast-banner {
+      position: fixed;
+      top: 56px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-120px);
+      background: rgba(15, 23, 42, 0.92);
+      color: #ffffff;
+      padding: 8px 18px;
+      border-radius: 9999px;
+      font-size: 12.5px;
+      font-weight: 600;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+      transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+      z-index: 9999;
+      pointer-events: none;
+    }
+    .toast-banner.show {
+      transform: translateX(-50%) translateY(0);
+    }
+  </style>
+</head>
+<body>
+  <!-- 视检调试工具栏 -->
+  <aside class="inspection-toolbar">
+    <div class="inspection-title-group">
+      <span class="inspection-badge">合规视检</span>
+      <strong>Apple 工业轻毛玻璃套件 (单文件独立运行)</strong>
+      <span style="color: #94a3b8; font-size: 11px;">遵循 APP-DEVELOPMENT-FRAMEWORK-AND-DATA-SUMMARY-2026-10-02</span>
+    </div>
+    <div class="inspection-controls">
+      <button id="btn-theme-auto" class="inspection-btn active" type="button">轻玻璃模式 (Auto)</button>
+      <button id="btn-theme-solid" class="inspection-btn" type="button">实色降级 (Solid F11)</button>
+      <button id="btn-width-phone" class="inspection-btn active" type="button">单列 (390px)</button>
+      <button id="btn-width-tablet" class="inspection-btn" type="button">响应式双列 (640px F15)</button>
+    </div>
+  </aside>
+
+  <div id="toast" class="toast-banner">操作成功</div>
+
+  <!-- 移动端视口容器 -->
+  <main id="mobile-viewport">
+    <!-- 1. 全机型自适应通用顶栏挂载点 -->
+    <header id="header-mount"></header>
+
+    <!-- 2. 主页面内容动态挂载点 -->
+    <section id="view-root"></section>
+
+    <!-- 3. 悬浮毛玻璃底栏挂载点 -->
+    <nav id="nav-mount"></nav>
+  </main>
+
+  <!-- 真正运行 apple-glass-standalone.js 核心代码 -->
+  <script type="module">
+    import {
+      injectAppleGlassStyles,
+      createUniversalHeader,
+      createHomeKitTile,
+      createDeviceListContainer,
+      createNativeFluidSlider,
+      createQuickControlSheet,
+      createDeviceDetailView,
+      createBottomNav,
+      createAiMessageList,
+      createCrystalAiComposer,
+      createBleScannerView,
+      createActivityStreamView
+    } from './apple-glass-standalone.js';
+
+    // 1. 注入自包含全套苹果微质感 CSS
+    injectAppleGlassStyles();
+
+    // 视检工具栏交互
+    const viewport = document.getElementById('mobile-viewport');
+    const btnAuto = document.getElementById('btn-theme-auto');
+    const btnSolid = document.getElementById('btn-theme-solid');
+    const btnPhone = document.getElementById('btn-width-phone');
+    const btnTablet = document.getElementById('btn-width-tablet');
+
+    btnAuto.onclick = () => {
+      document.body.classList.remove('glass-theme-solid');
+      btnAuto.classList.add('active');
+      btnSolid.classList.remove('active');
+      showToast('已切换至：Apple 轻毛玻璃材质 (Auto)');
+    };
+    btnSolid.onclick = () => {
+      document.body.classList.add('glass-theme-solid');
+      btnSolid.classList.add('active');
+      btnAuto.classList.remove('active');
+      showToast('已开启：实色模式 (Solid Mode F11 降级)');
+    };
+
+    btnPhone.onclick = () => {
+      viewport.style.maxWidth = '440px';
+      btnPhone.classList.add('active');
+      btnTablet.classList.remove('active');
+      showToast('视口宽度设为 440px (<612px 保持单列)');
+    };
+    btnTablet.onclick = () => {
+      viewport.style.maxWidth = '680px';
+      btnTablet.classList.add('active');
+      btnPhone.classList.remove('active');
+      showToast('视口宽度设为 680px (>=612px 响应式双列)');
+    };
+
+    // 辅助 Toast 提示 (纯 textContent，杜绝 XSS)
+    const toast = document.getElementById('toast');
+    let toastTimer = null;
+    function showToast(msg) {
+      toast.textContent = String(msg);
+      toast.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove('show'), 2200);
+    }
+
+    // 2. 挂载通用自适应顶栏
+    const headerMount = document.getElementById('header-mount');
+    const headerNode = createUniversalHeader({
+      siteName: 'Site A - 智能物联实验馆',
+      siteCode: 'SITE-ALPHA',
+      linkStatus: 'BLE 12ms',
+      weatherSummary: '室外 24.5°C · 湿度 52% (参考)',
+      onlineCount: 4,
+      totalCount: 6,
+      onSiteClick: () => showToast('站点切换：当前已在 SITE-ALPHA 实验园区'),
+      onScanClick: () => {
+        showToast('进入近场设备扫描');
+        switchTab('settings');
+      }
+    });
+    headerMount.appendChild(headerNode);
+
+    // 3. 挂载悬浮毛玻璃底栏
+    const navMount = document.getElementById('nav-mount');
+    const bottomNavNode = createBottomNav({
+      activeTab: 'devices',
+      onTabChange: (newTab) => switchTab(newTab)
+    });
+    navMount.appendChild(bottomNavNode);
+
+    // 4. 符合技术框架与契约的设备数据源 (严格分离 reportedState 与 desiredState)
+    const demoDevices = [
+      {
+        id: 'dev-101',
+        name: '精密恒温恒湿空调',
+        type: 'HVAC',
+        siteCode: 'SITE-ALPHA',
+        icon: '❄️',
+        status: 'ONLINE',
+        reportedState: { power: true, level: 23, temperature: 23.5, humidity: 48 },
+        desiredState: { power: true, level: 23 },
+        commandStatus: 'ACKNOWLEDGED',
+        capabilities: [{ controlType: 'switch', writable: true }, { controlType: 'range', min: 16, max: 30, step: 0.5, writable: true }]
+      },
+      {
+        id: 'dev-102',
+        name: '日光色谱调光筒灯',
+        type: 'LIGHT',
+        siteCode: 'SITE-ALPHA',
+        icon: '💡',
+        status: 'ONLINE',
+        reportedState: { power: true, level: 75 },
+        desiredState: { power: true, level: 75 },
+        commandStatus: 'ACKNOWLEDGED',
+        capabilities: [{ controlType: 'switch', writable: true }, { controlType: 'range', min: 0, max: 100, step: 1, writable: true }]
+      },
+      {
+        id: 'dev-103',
+        name: '洁净正压新风机',
+        type: 'VENTILATION',
+        siteCode: 'SITE-ALPHA',
+        icon: '🌀',
+        status: 'ONLINE',
+        reportedState: { power: true, level: 3 },
+        desiredState: { power: true, level: 3 },
+        commandStatus: 'ACKNOWLEDGED',
+        capabilities: [{ controlType: 'switch', writable: true }]
+      },
+      {
+        id: 'dev-104',
+        name: '循环水冷离心泵',
+        type: 'PUMP',
+        siteCode: 'SITE-ALPHA',
+        icon: '💧',
+        status: 'ONLINE',
+        reportedState: { power: true, level: 60, pressure: 0.45 },
+        desiredState: { power: true, level: 70 },
+        commandStatus: 'PENDING', // 演示 F03 待确认状态
+        capabilities: [{ controlType: 'switch', writable: true }, { controlType: 'range', min: 0, max: 100, step: 5, writable: true }]
+      },
+      {
+        id: 'dev-105',
+        name: '微气候综合环境仪',
+        type: 'SENSOR',
+        siteCode: 'SITE-ALPHA',
+        icon: '🌡️',
+        status: 'ONLINE',
+        reportedState: { temperature: 24.2, humidity: 50, tvoc: 0.04 },
+        desiredState: {},
+        commandStatus: 'ACKNOWLEDGED',
+        capabilities: [] // 监测仪表，无开闭控制
+      },
+      {
+        id: 'dev-106',
+        name: '备用柴油发电机组',
+        type: 'POWER',
+        siteCode: 'SITE-ALPHA',
+        icon: '⚡',
+        status: 'OFFLINE',
+        reportedState: { power: false, level: 0 },
+        desiredState: { power: false, level: 0 },
+        commandStatus: 'ACKNOWLEDGED',
+        capabilities: [{ controlType: 'switch', writable: true }]
+      }
+    ];
+
+    let currentTab = 'devices';
+    let searchQuery = '';
+    let activeFilter = 'ALL';
+
+    // AI 会话与草稿持久状态 (满足 F04: 导航切换不丢失)
+    let aiDraftText = '';
+    let aiIsBusy = false;
+    const aiMessages = [
+      {
+        role: 'ASSISTANT',
+        content: '您好！我是 Apple Intelligence 物联运维智能体。当前园区已连接 4 台受控设备，管网压力与温湿度保持在最优能效工况。'
+      }
+    ];
+
+    function switchTab(tabId) {
+      currentTab = tabId;
+      renderTabContent(tabId);
+    }
+
+    const viewRoot = document.getElementById('view-root');
+
+    function renderTabContent(tabId) {
+      viewRoot.replaceChildren();
+
+      if (tabId === 'devices') {
+        renderDevicesView();
+      } else if (tabId === 'ai') {
+        renderAiView();
+      } else if (tabId === 'activity') {
+        renderActivityView();
+      } else if (tabId === 'settings') {
+        renderSettingsView();
+      }
+    }
+
+    // ── Tab 1: 设备看板与快控抽屉 ──
+    function renderDevicesView() {
+      viewRoot.replaceChildren();
+
+      const filtered = demoDevices.filter(dev => {
+        const matchesSearch = !searchQuery || dev.name.toLowerCase().includes(searchQuery.toLowerCase());
+        let matchesFilter = true;
+        if (activeFilter === 'ONLINE' || activeFilter === '在线运行') {
+          matchesFilter = dev.status === 'ONLINE';
+        } else if (activeFilter === 'OFFLINE' || activeFilter === '离线/停机') {
+          matchesFilter = dev.status === 'OFFLINE';
+        } else if (activeFilter === 'PENDING' || activeFilter === '待回执') {
+          matchesFilter = dev.commandStatus === 'PENDING' || dev.commandStatus === 'SENT';
+        }
+        return matchesSearch && matchesFilter;
+      });
+
+      const listContainer = createDeviceListContainer({
+        devices: filtered,
+        activeFilter,
+        searchQuery,
+        onSearch: (val) => {
+          searchQuery = val;
+          renderDevicesView();
+        },
+        onFilterChange: (f) => {
+          activeFilter = f;
+          renderDevicesView();
+        },
+        onDeviceToggle: (id, targetPower) => {
+          const dev = demoDevices.find(d => d.id === id);
+          if (dev) {
+            dev.desiredState.power = targetPower;
+            dev.commandStatus = 'PENDING';
+            showToast(`${dev.name} 开关下发中 (PENDING)`);
+            renderDevicesView();
+
+            // 模拟 800ms 后收到硬件回执 (ACK)
+            setTimeout(() => {
+              dev.reportedState.power = targetPower;
+              dev.commandStatus = 'ACKNOWLEDGED';
+              showToast(`${dev.name} 硬件回执已确认 (ACK)`);
+              renderDevicesView();
+            }, 800);
+          }
+        },
+        onDeviceClick: (id) => {
+          const dev = demoDevices.find(d => d.id === id);
+          if (!dev) return;
+          if (dev.capabilities?.some(c => c.controlType === 'range')) {
+            openQuickControlSheet(dev);
+          } else {
+            openDeviceDetail(dev);
+          }
+        }
+      });
+
+      viewRoot.appendChild(listContainer);
+    }
+
+    // 打开控制抽屉
+    function openQuickControlSheet(dev) {
+      const sheet = createQuickControlSheet({
+        device: dev,
+        onCommitValue: (id, val) => {
+          dev.desiredState.level = val;
+          dev.commandStatus = 'PENDING';
+          showToast(`${dev.name} 目标强度已下发: ${val}% (等待确认)`);
+          renderDevicesView();
+
+          setTimeout(() => {
+            dev.reportedState.level = val;
+            dev.commandStatus = 'ACKNOWLEDGED';
+            showToast(`${dev.name} 事实状态已同步: ${val}%`);
+            renderDevicesView();
+          }, 800);
+        }
+      });
+      document.body.appendChild(sheet);
+    }
+
+    // 打开设备详情页
+    function openDeviceDetail(dev) {
+      viewRoot.replaceChildren();
+      const detailView = createDeviceDetailView({
+        device: dev,
+        onBack: () => renderDevicesView(),
+        onCommitControl: (id, val) => {
+          dev.desiredState.level = val;
+          showToast(`参数微调下发: ${val}`);
+        }
+      });
+      viewRoot.appendChild(detailView);
+    }
+
+    // ── Tab 2: Apple Intelligence 对话 ──
+    function renderAiView() {
+      viewRoot.replaceChildren();
+
+      const aiWrap = document.createElement('div');
+      aiWrap.style.display = 'flex';
+      aiWrap.style.flexDirection = 'column';
+      aiWrap.style.gap = '12px';
+
+      const messageStream = createAiMessageList({
+        messages: aiMessages,
+        onCopy: (txt) => showToast('已安全复制 AI 建议文本')
+      });
+
+      const composer = createCrystalAiComposer({
+        initialDraft: aiDraftText,
+        isBusy: aiIsBusy,
+        onDraftChange: (d) => {
+          aiDraftText = d; // 离开页面返回仍可恢复
+        },
+        onSend: (text) => {
+          aiMessages.push({ role: 'USER', content: text });
+          aiIsBusy = true;
+          aiDraftText = '';
+          renderAiView();
+
+          // 模拟智能体异步推演
+          setTimeout(() => {
+            aiIsBusy = false;
+            aiMessages.push({
+              role: 'ASSISTANT',
+              content: `已完成遥测核验：针对指令【${text}】，已生成最优调控策略，系统将在下个工况周期自适应微调。`
+            });
+            renderAiView();
+          }, 900);
+        }
+      });
+
+      aiWrap.append(messageStream, composer);
+      viewRoot.appendChild(aiWrap);
+    }
+
+    // ── Tab 3: 运维审计 ──
+    function renderActivityView() {
+      viewRoot.replaceChildren();
+      const events = [
+        {
+          id: 'ev-1',
+          type: 'CONTROL',
+          title: '循环泵频率调节指令回执',
+          time: '12:08',
+          desc: '下发设定值 70%，网关反馈 ACK 响应延时 14ms。'
+        },
+        {
+          id: 'ev-2',
+          type: 'ALERT',
+          title: '机房微气候相对湿度自适应平衡',
+          time: '11:45',
+          desc: '湿度达到 48%，正压新风机自动切换低噪模式。'
+        },
+        {
+          id: 'ev-3',
+          type: 'NETWORK',
+          title: 'BLE Mesh 自愈拓扑握手完成',
+          time: '11:20',
+          desc: '现场 6 个物联节点链路全连通，丢包率 0.00%。'
+        }
+      ];
+
+      const activityNode = createActivityStreamView({ events });
+      viewRoot.appendChild(activityNode);
+    }
+
+    // ── Tab 4: 近场感知与系统设置 ──
+    function renderSettingsView() {
+      viewRoot.replaceChildren();
+
+      const bleView = createBleScannerView({
+        isScanning: true,
+        candidates: [
+          { id: 'BLE-8821', name: 'DALI-2 智能网关节点', mac: 'C4:82:3F:01:A2', rssi: -48 },
+          { id: 'BLE-3310', name: '高精度管网压力传感器', mac: 'E2:15:9A:88:B1', rssi: -62 }
+        ],
+        onToggleScan: (isScan) => showToast(isScan ? '已启动雷达感知' : '已暂停扫描'),
+        onClaim: (cand) => showToast(`已认领设备入库: ${cand.name}`),
+        onQrScan: () => showToast('调起扫码模块 (模拟相机感知)')
+      });
+
+      viewRoot.appendChild(bleView);
+    }
+
+    // 初始化渲染看板
+    renderDevicesView();
+  </script>
+</body>
+</html>
