@@ -1,0 +1,5 @@
+# SHA-256 source-integrity digests, not credentials. These exact findings were
+# reported by generic-api-key in the provenance manifest's auth/API file paths.
+cba6c6b1663f87a080c9abb3d2408777bf4f0645:apps/client-glass-next/source-provenance.json:generic-api-key:85
+cba6c6b1663f87a080c9abb3d2408777bf4f0645:apps/client-glass-next/source-provenance.json:generic-api-key:118
+cba6c6b1663f87a080c9abb3d2408777bf4f0645:apps/client-glass-next/source-provenance.json:generic-api-key:156
