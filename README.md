@@ -16,8 +16,16 @@
   <img alt="Android API 36" src="https://img.shields.io/badge/Android-API%2036-3DDC84" />
   <img alt="PostgreSQL 16" src="https://img.shields.io/badge/PostgreSQL-16-4169E1" />
   <img alt="Docker Compose" src="https://img.shields.io/badge/Docker-Compose-2496ED" />
+  <img alt="App AI" src="https://img.shields.io/badge/App%20AI-Spring%20AI-7C3AED" />
   <img alt="Release status" src="https://img.shields.io/badge/Release-R1%20Pilot%20Candidate-orange" />
 </p>
+
+> [!TIP]
+> ### 🤖 App AI 助手：服务器托管、权限可控、性格可定制
+>
+> 在 Android/PDA 客户端内直接进入 AI 工作区，使用远程 Chat、会话历史和版本化 AI 性格。OWNER / ADMIN 可管理性格版本；模型请求通过 IoT Manager 后端和 Spring AI 发往当前 DeepSeek 兼容服务，供应商密钥只留在服务器，也可在服务器配置中更换兼容供应商。
+>
+> **当前边界：** AI Chat 是可选试点能力，`IOT_AI_ENABLED=false` 时默认关闭；知识库和 Embedding 也保持关闭。当前不宣称 AI 已通过正式生产审批或已能检索站点知识库。查看 [Glass Next App 介绍](apps/client-glass-next/README.md)与[App 验证记录](apps/client-glass-next/VERIFICATION.md)。
 
 > [!IMPORTANT]
 > **Current release status / 当前发布状态**
@@ -100,10 +108,11 @@ The platform provides a unified operational boundary for:
 - 明确用户触发的一次性定位；
 - 缓存、刷新限流和失败保留策略。
 
-### Mobile experience & optional AI / 移动体验与可选 AI
+### Mobile experience & App AI / 移动体验与 App AI
 
 - Capacitor Android/PDA 客户端包含设备、AI、动态、添加四个主入口；局部状态更新、手动下拉刷新、重连与减少动态效果支持旨在降低频繁重绘和闪屏；
 - AI 页面支持问答、会话历史、按角色管理的版本化性格及不重复提交的请求恢复；模型调用、密钥和权限检查均在后端；
+- [独立 Glass Next Android App](apps/client-glass-next/README.md)在保留设备、BLE、天气、登录和启动体验的同时提供 AI 工作区；
 - 生产环境默认 `IOT_AI_ENABLED=false`、`IOT_AI_KNOWLEDGE_ENABLED=false`。知识库/向量迁移代码已存在，但 Embedding 供应商与真实索引验收未完成，**不得将其描述为已上线功能**；
 - Android 16 模拟器已完成安装包专项验证；真机 GPS/BLE、完整原生 OIDC 与真实模型调用仍是验收项。
 

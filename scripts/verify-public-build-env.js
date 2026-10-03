@@ -5,8 +5,8 @@ const { join, relative, resolve } = require('node:path');
 const repositoryRoot = resolve(__dirname, '..');
 // Scan the full build inputs, not only src/: a Vite credential could also be
 // introduced through a local .env file, configuration file, or build script.
-const sourceRoots = ['frontend', 'console', 'client', 'shared'];
-const ignoredDirectories = new Set(['node_modules', 'dist', 'build', '.gradle', 'coverage', 'test-results']);
+const sourceRoots = ['frontend', 'console', 'client', 'apps/client-glass-next', 'shared'];
+const ignoredDirectories = new Set(['node_modules', 'dist', 'build', '.gradle', 'coverage', 'test-results', 'playwright-report', 'verification']);
 const publicSecretPattern = /\bVITE_[A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PRIVATE_KEY|API_KEY)[A-Z0-9_]*\b/g;
 
 function filesIn(directory) {

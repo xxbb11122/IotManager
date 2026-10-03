@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#1f6f78">
+  <meta name="description" content="企业现场设备运营客户端">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>设备运营 · Glass Next</title>
+  <style>
+    html, body { min-height: 100%; margin: 0; background: #f3f6f7; }
+    #startup-overlay {
+      position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center;
+      background: #f3f6f7; opacity: 1; transition: opacity 280ms ease-out;
+    }
+    #startup-overlay.startup-overlay--leaving { opacity: 0; }
+    .startup-visual { width: 160px; height: 160px; display: grid; place-items: center; }
+    .startup-icon {
+      width: 160px; height: 160px; object-fit: contain; border-radius: 50%;
+      background: #fff;
+    }
+    .startup-status { position: absolute; top: calc(50% + 100px); margin: 0; color: #607078; font: 13px/1.5 system-ui, sans-serif; text-align: center; }
+    .startup-retry {
+      position: absolute; top: calc(50% + 142px); padding: 10px 16px; border: 1px solid #bdcdd1;
+      border-radius: 8px; background: #fff; color: #14555d; font: 600 14px/1.3 system-ui, sans-serif;
+    }
+    [hidden] { display: none !important; }
+    @media (prefers-reduced-motion: reduce) {
+      #startup-overlay { transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app"><p role="status">正在准备设备运营界面…</p></div>
+  <div id="startup-overlay" aria-label="正在打开设备运营" role="status">
+    <div class="startup-visual" aria-hidden="true">
+      <img class="startup-icon" src="/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png" alt="">
+    </div>
+    <p id="startup-status" class="startup-status" hidden>正在准备设备运营界面…</p>
+    <button id="startup-retry" class="startup-retry" type="button" hidden>重新加载</button>
+  </div>
+  <noscript><style>#startup-overlay { display: none !important; }</style>设备运营需要启用 JavaScript。未发送任何设备操作，请启用后重新打开。</noscript>
+  <script src="/startup-watchdog.js"></script>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

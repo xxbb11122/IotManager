@@ -1,19 +1,17 @@
 /**
  * ============================================================================
- * Apple 轻毛玻璃与高对比工业标准全套组件库 (合规单文件完整版)
+ * Apple & Muse 极致晶体毛玻璃与高对比工业标准全套组件库 (合规单文件完整版)
  * File: client/apple-glass-standalone.js
  *
  * 严格遵循规范文档：
  * docs/APP-DEVELOPMENT-FRAMEWORK-AND-DATA-SUMMARY-2026-10-02.md
  * docs/CLIENT-APPLE-GLASS-STANDALONE-DEEP-REVIEW-2026-10-02.md (F01~F16 整改)
  *
- * 核心合规特性：
- * 1. 【F01 数据安全】：100% 杜绝 innerHTML 外部插值，全文本采用 DOM textContent/createTextNode 挂载，彻底阻绝 XSS；
- * 2. 【F02/F05 原生滑块与手势安全】：基于标准原生 <input type="range"> 实现流体触感，具备多指介入、取消(pointercancel)、DOM脱离守卫，支持小数与任意合法步长；
- * 3. 【F03 状态机与能力契约】：严格区分「已上报状态 (reportedState)」与「期望目标 (desiredState)」，命令生命周期经历 PENDING -> SENT -> ACKNOWLEDGED/FAILED/UNCONFIRMED，禁止虚构默认ACK；
- * 4. 【F04 AI 控制门禁与草稿】：支持 draft 状态持久保留，请求处理中阻断二次提交，IME 输入法 Composing Enter 防误发，快捷芯片只填入草稿；
- * 5. 【F11/F14 视觉与无障碍】：导航轻毛玻璃 (blur 14px)、内容稳固高对比 (4.5:1+ 比率，底色 #ffffff/#f3f6f7)，主触控面积 >= 48x48px，支持实色模式 (Solid) 与无障碍减弱动效；
- * 6. 【F15 响应式列宽】：内容区 <612px 严格单列，>=612px 且无放大时自适应双列。
+ * 视觉与交互升级特性：
+ * 1. 【极致 Apple 晶体质感】：基于 GitHub 最新 Liquid Glass / visionOS 规范，高透多层高斯模糊 (blur 28px saturate 190% contrast 102%)、双层精密镜面边缘包边高光 (inset 0 1.2px 1.5px)、立体弥散环境晕光；
+ * 2. 【一条只看一个设备 (单设备单行 Apple 横向卡片)】：严格遵循 Apple Home / iOS Settings 优雅单行规范，左侧晶体图标徽章与客观事实列，右侧状态胶囊与触控开关，杜绝拉伸空旷；
+ * 3. 【AI 对话框沉底固定】：对话流在上方自然滚动，Apple Intelligence 极光输入框吸底固定 (position: sticky/fixed)，不随消息上滚；
+ * 4. 【F01~F16 合规契约】：100% 杜绝 innerHTML 插值、原生 Range 取消守卫、区分 Reported 事实与 Desired 目标、IME Composing Enter 防误发、Solid 实色模式降级。
  *
  * 隔离说明：
  * 本文件保持完全独立，不修改现有生产代码 (client/src/ 与 backend/ 零侵入)。
@@ -21,40 +19,40 @@
  */
 
 /* ============================================================================
- * 一、 完整独立 CSS 样式表（导航轻毛玻璃 + 内容高对比 + 实色/无障碍降级）
+ * 一、 完整独立 CSS 样式表（Apple 晶体质感 + 单行单设备看板 + 沉底固定输入框）
  * ============================================================================ */
 export const APPLE_GLASS_CSS = `
-/* ── 1. 核心工业级视觉变量与别名 ── */
+/* ── 1. 核心工业级视觉变量与晶体光效 ── */
 :root {
-  --canvas-bg: #f3f6f7;
-  --surface-card: #ffffff;
-  --surface-subtle: #f8fafc;
+  --canvas-bg: #f2f5f8;
+  --surface-card: rgba(255, 255, 255, 0.88);
+  --surface-subtle: rgba(248, 250, 252, 0.75);
   --text-main: #0f172a;
   --text-muted: #475569;
   --text-tertiary: #64748b;
-  --border-card: rgba(226, 232, 240, 0.9);
+  --border-card: rgba(255, 255, 255, 0.85);
   --border-specular: 1px solid rgba(255, 255, 255, 0.95);
 
-  /* 导航层轻毛玻璃 (非大面积模糊，保证可读性) */
-  --nav-glass-bg: rgba(255, 255, 255, 0.88);
-  --nav-glass-blur: blur(14px) saturate(140%);
-  --nav-glass-border: 1px solid rgba(226, 232, 240, 0.75);
+  /* Apple / Muse 晶体多层轻毛玻璃 (含镜面边缘高光) */
+  --nav-glass-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.86) 0%, rgba(255, 255, 255, 0.70) 100%);
+  --nav-glass-blur: blur(28px) saturate(190%) contrast(102%);
+  --nav-glass-border: 1px solid rgba(255, 255, 255, 0.82);
 
   /* 兼容与映射别名 */
   --glass-surface: var(--surface-card);
   --glass-blur: var(--nav-glass-blur);
   --glass-border-specular: var(--border-specular);
 
-  /* 苹果语义色 (经过高对比度调校，对比度 >= 4.5:1) */
+  /* 苹果语义高饱和点睛色 (对比度 >= 4.5:1) */
   --apple-blue: #0066cc;
   --apple-green: #1a8238;
   --apple-amber: #b45309;
   --apple-red: #d32f2f;
 
-  /* 安全触控靶心与弹簧过渡 */
+  /* 触控靶心与弹簧过渡 */
   --touch-target: 48px;
   --apple-spring: cubic-bezier(0.32, 0.72, 0, 1);
-  --radius-card: 18px;
+  --radius-card: 20px;
   --radius-pill: 9999px;
 
   /* 安全区 */
@@ -69,6 +67,7 @@ export const APPLE_GLASS_CSS = `
   --nav-glass-bg: #ffffff !important;
   --nav-glass-blur: none !important;
   --nav-glass-border: 1px solid #cbd5e1 !important;
+  --surface-card: #ffffff !important;
 }
 
 /* ── 3. 减少动效模式 (Reduced Motion) ── */
@@ -91,7 +90,9 @@ export const APPLE_GLASS_CSS = `
   backdrop-filter: var(--nav-glass-blur);
   -webkit-backdrop-filter: var(--nav-glass-blur);
   border-bottom: var(--nav-glass-border);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  box-shadow: 0 4px 24px rgba(15, 23, 42, 0.04),
+              inset 0 1px 1.5px rgba(255, 255, 255, 0.95),
+              inset 0 -1px 0 rgba(0, 0, 0, 0.03);
   position: sticky;
   top: 0;
   z-index: 50;
@@ -112,16 +113,19 @@ export const APPLE_GLASS_CSS = `
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  background: transparent;
-  border: 0;
-  padding: 4px 8px;
-  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  padding: 4px 10px;
+  border-radius: 12px;
   text-align: left;
   min-height: var(--touch-target);
   min-width: var(--touch-target);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03), inset 0 1px 1px rgba(255, 255, 255, 0.9);
+  transition: all 0.2s var(--apple-spring);
 }
 .site-picker-trigger:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: rgba(255, 255, 255, 0.8);
+  transform: translateY(-1px);
 }
 
 .link-status-capsule {
@@ -133,8 +137,31 @@ export const APPLE_GLASS_CSS = `
   font-size: 12px;
   font-weight: 700;
   color: var(--apple-green);
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
+  background: rgba(240, 253, 244, 0.85);
+  border: 1px solid rgba(187, 247, 208, 0.9);
+  box-shadow: 0 2px 6px rgba(26, 130, 56, 0.08);
+}
+
+.header-scan-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: var(--text-main);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), inset 0 1px 1px rgba(255, 255, 255, 1);
+  transition: all 0.2s var(--apple-spring);
+}
+.header-scan-btn:hover {
+  transform: scale(1.05);
+  background: #ffffff;
 }
 
 .header-context-ribbon {
@@ -143,28 +170,48 @@ export const APPLE_GLASS_CSS = `
   justify-content: space-between;
   padding: 4px 10px;
   border-radius: 8px;
-  background: rgba(0, 0, 0, 0.03);
+  background: rgba(0, 0, 0, 0.025);
   font-size: 11px;
   font-weight: 550;
   color: var(--text-muted);
 }
 
-/* ── 5. 内容高对比设备卡片 (Content Card) ── */
+/* ── 5. 一条一个设备：Apple 质感单行横向卡片 (Horizontal Single-Device Card) ── */
 .device-tile-card {
-  background: var(--surface-card);
-  border: 1px solid var(--border-card);
-  border-radius: var(--radius-card);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
-  padding: 14px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.90) 0%, rgba(255, 255, 255, 0.72) 100%);
+  backdrop-filter: blur(28px) saturate(190%) contrast(102%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%) contrast(102%);
+  border: 1px solid rgba(255, 255, 255, 0.88);
+  border-radius: 18px;
+  box-shadow: 0 4px 18px -2px rgba(15, 23, 42, 0.06),
+              inset 0 1.2px 1.5px 0 rgba(255, 255, 255, 1),
+              inset 0 -1px 1px 0 rgba(0, 0, 0, 0.02);
+  padding: 12px 16px;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
   justify-content: space-between;
   position: relative;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-  min-height: 98px;
+  transition: transform 0.2s var(--apple-spring), box-shadow 0.2s var(--apple-spring), background 0.2s ease;
+  min-height: 72px;
+  cursor: pointer;
 }
 .device-tile-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  transform: translateY(-1.5px);
+  box-shadow: 0 8px 24px -4px rgba(15, 23, 42, 0.10),
+              inset 0 1.5px 1.5px 0 rgba(255, 255, 255, 1);
+  border-color: rgba(255, 255, 255, 0.98);
+}
+.device-tile-card:active {
+  transform: scale(0.985);
+}
+
+.device-card-left-group {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  flex: 1;
+  min-width: 0;
 }
 
 .device-touch-action-row {
@@ -174,26 +221,78 @@ export const APPLE_GLASS_CSS = `
 }
 
 .device-icon-wrapper {
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   border-radius: 12px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  font-size: 20px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), inset 0 1px 1px rgba(255, 255, 255, 1);
+}
+
+.device-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.device-card-title {
+  font-size: 14.5px;
+  font-weight: 650;
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+}
+
+.device-card-subtitle {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.device-card-right-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
+.device-card-chevron {
   font-size: 18px;
-  background: var(--surface-subtle);
-  border: 1px solid #e2e8f0;
+  color: #94a3b8;
+  font-weight: 600;
+  line-height: 1;
+  transition: transform 0.2s ease, color 0.2s ease;
+}
+.device-tile-card:hover .device-card-chevron {
+  transform: translateX(2px);
+  color: var(--apple-blue);
 }
 
 .device-interactive-switch {
-  width: 48px;
-  height: 28px;
-  border-radius: 14px;
+  width: 44px;
+  height: 26px;
+  border-radius: 13px;
   background: #cbd5e1;
   border: 0;
   cursor: pointer;
   position: relative;
-  transition: background-color 0.2s var(--apple-spring);
+  transition: background-color 0.25s var(--apple-spring), box-shadow 0.25s ease;
   padding: 2px;
   min-width: var(--touch-target);
   min-height: var(--touch-target);
@@ -202,42 +301,71 @@ export const APPLE_GLASS_CSS = `
 }
 .device-interactive-switch.active {
   background: var(--apple-green);
+  box-shadow: 0 2px 10px rgba(26, 130, 56, 0.35);
 }
 
 .device-interactive-switch-thumb {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   background: #ffffff;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-  transition: transform 0.2s var(--apple-spring);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.22);
+  transition: transform 0.25s var(--apple-spring);
   display: block;
 }
 .device-interactive-switch.active .device-interactive-switch-thumb {
-  transform: translateX(20px);
+  transform: translateX(18px);
 }
 
 /* 状态药丸胶囊 */
 .status-pill {
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
-  padding: 2px 8px;
+  padding: 2px 7px;
   border-radius: var(--radius-pill);
 }
 .status-pill.online {
-  background: #dcfce7;
+  background: rgba(220, 252, 231, 0.9);
   color: var(--apple-green);
 }
 .status-pill.offline {
-  background: #f1f5f9;
+  background: rgba(241, 245, 249, 0.9);
   color: var(--text-tertiary);
 }
 .status-pill.pending {
-  background: #fef3c7;
+  background: rgba(254, 243, 199, 0.95);
   color: var(--apple-amber);
 }
 
-/* ── 6. 响应式网格布局 (F15: <612px 单列, >=612px 双列) ── */
+/* 过滤药丸选择条 (Apple 轻毛玻璃触控胶囊) */
+.filter-pill {
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--text-muted);
+  min-height: 32px;
+  white-space: nowrap;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03), inset 0 1px 1px rgba(255, 255, 255, 1);
+  transition: all 0.2s var(--apple-spring);
+}
+.filter-pill:hover {
+  background: #ffffff;
+  color: var(--text-main);
+}
+.filter-pill.active {
+  background: var(--apple-blue);
+  border-color: var(--apple-blue);
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(0, 102, 204, 0.35);
+}
+
+/* ── 6. 响应式布局：一条只看一个设备 (Single-Device Per Row) ── */
 .device-grid-frame {
   container-type: inline-size;
   width: 100%;
@@ -245,18 +373,20 @@ export const APPLE_GLASS_CSS = `
 
 .device-grid-container {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 1fr;
+  gap: 10px;
 }
 
 @container (min-width: 612px) {
   .device-grid-container {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr;
+    gap: 12px;
   }
 }
 @media (min-width: 612px) {
   .device-grid-container {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr;
+    gap: 12px;
   }
 }
 
@@ -265,10 +395,13 @@ export const APPLE_GLASS_CSS = `
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: var(--surface-subtle);
-  border: 1px solid var(--border-card);
+  background: rgba(248, 250, 252, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.9);
   padding: 14px;
-  border-radius: 14px;
+  border-radius: 16px;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02), 0 2px 8px rgba(0, 0, 0, 0.03);
 }
 
 .range-slider-label-row {
@@ -302,7 +435,7 @@ export const APPLE_GLASS_CSS = `
 }
 .native-range-input::-webkit-slider-runnable-track {
   height: 12px;
-  background: #e2e8f0;
+  background: rgba(226, 232, 240, 0.9);
   border-radius: 6px;
 }
 .native-range-input::-webkit-slider-thumb {
@@ -311,7 +444,7 @@ export const APPLE_GLASS_CSS = `
   height: 28px;
   border-radius: 50%;
   background: #ffffff;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25);
   border: 1px solid rgba(0, 0, 0, 0.08);
   margin-top: -8px;
 }
@@ -326,7 +459,7 @@ export const APPLE_GLASS_CSS = `
   justify-content: space-between;
   font-size: 11px;
   color: var(--text-muted);
-  border-top: 1px dashed #cbd5e1;
+  border-top: 1px dashed rgba(203, 213, 225, 0.8);
   padding-top: 6px;
   margin-top: 2px;
 }
@@ -347,18 +480,20 @@ export const APPLE_GLASS_CSS = `
 
 .universal-bottom-nav-inner {
   pointer-events: auto;
-  background: var(--nav-glass-bg);
-  backdrop-filter: var(--nav-glass-blur);
-  -webkit-backdrop-filter: var(--nav-glass-blur);
-  border: var(--nav-glass-border);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.88) 0%, rgba(255, 255, 255, 0.70) 100%);
+  backdrop-filter: blur(32px) saturate(210%);
+  -webkit-backdrop-filter: blur(32px) saturate(210%);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 16px 48px -4px rgba(15, 23, 42, 0.16),
+              inset 0 1.5px 1px 0 rgba(255, 255, 255, 1),
+              inset 0 -1px 1px 0 rgba(0, 0, 0, 0.04);
   border-radius: var(--radius-pill);
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 10px;
+  padding: 5px 12px;
   max-width: 400px;
-  width: calc(100% - 28px);
+  width: calc(100% - 24px);
   justify-content: space-around;
 }
 
@@ -385,61 +520,87 @@ export const APPLE_GLASS_CSS = `
   background: rgba(0, 102, 204, 0.08);
 }
 
-/* ── 9. Apple Intelligence 对话气泡与门禁输入区 ── */
+/* ── 9. Apple Intelligence 对话气泡与沉底固定输入区 ── */
 .ai-bubble-user {
   align-self: flex-end;
-  background: var(--apple-blue);
+  background: linear-gradient(135deg, #007aff 0%, #0066cc 100%);
   color: #ffffff;
   padding: 10px 14px;
   border-radius: 18px 18px 4px 18px;
   max-width: 82%;
   font-size: 13.5px;
   line-height: 1.45;
-  box-shadow: 0 2px 6px rgba(0, 102, 204, 0.2);
+  box-shadow: 0 4px 14px rgba(0, 102, 204, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.3);
 }
 
 .ai-bubble-agent {
   align-self: flex-start;
-  background: #ffffff;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.80) 100%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   color: var(--text-main);
-  border: 1px solid #e2e8f0;
+  border: 1px solid rgba(255, 255, 255, 0.9);
   padding: 12px 14px;
   border-radius: 18px 18px 18px 4px;
   max-width: 88%;
   font-size: 13.5px;
   line-height: 1.5;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05), inset 0 1px 1px rgba(255, 255, 255, 1);
+}
+
+/* AI 输入区沉到底部并固定 (确保高出悬浮底栏，防重叠遮挡) */
+.ai-composer-container {
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 35;
+  padding: 8px 14px calc(74px + var(--safe-bottom)) 14px;
+  background: linear-gradient(180deg, rgba(242, 245, 248, 0) 0%, rgba(242, 245, 248, 0.88) 20%, rgba(242, 245, 248, 0.98) 100%);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .ai-composer-wrapper {
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
-  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  border-radius: 22px;
   padding: 6px 8px 6px 14px;
   display: flex;
   align-items: center;
   gap: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06), inset 0 1px 1.5px rgba(255, 255, 255, 1);
+  transition: all 0.25s var(--apple-spring);
 }
 .ai-composer-wrapper:focus-within {
-  border-color: var(--apple-blue);
-  box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.15);
+  border-color: rgba(0, 102, 204, 0.5);
+  box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.25), 0 8px 24px rgba(0, 102, 204, 0.12);
+  background: #ffffff;
 }
 
 .ai-chip-pill {
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.9);
   border-radius: var(--radius-pill);
   padding: 5px 12px;
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--text-muted);
   cursor: pointer;
   white-space: nowrap;
   min-height: 32px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03), inset 0 1px 1px rgba(255, 255, 255, 0.9);
+  transition: all 0.2s var(--apple-spring);
 }
 .ai-chip-pill:hover {
   border-color: var(--apple-blue);
   color: var(--apple-blue);
+  background: #ffffff;
+  transform: translateY(-1px);
 }
 
 /* 兼容类 */
@@ -533,12 +694,12 @@ export function createUniversalHeader({
 
   const siteTextWrap = createEl(doc, 'div');
   const siteTitle = createEl(doc, 'div', '', {
-    fontSize: '14px', fontWeight: '700', color: 'var(--text-main)', letterSpacing: '-0.01em'
+    fontSize: '13.5px', fontWeight: '700', color: 'var(--text-main)', letterSpacing: '-0.01em'
   }, siteName);
 
   const subText = siteSub || `${siteCode} · ${onlineCount}/${totalCount} 在线`;
   const siteSubEl = createEl(doc, 'div', '', {
-    fontSize: '10.5px', color: 'var(--text-muted)'
+    fontSize: '10px', color: 'var(--text-muted)'
   }, subText);
 
   siteTextWrap.append(siteTitle, siteSubEl);
@@ -554,11 +715,7 @@ export function createUniversalHeader({
   const capsuleText = createEl(doc, 'span', '', {}, linkStatus);
   capsule.append(dot, capsuleText);
 
-  const scanBtn = createEl(doc, 'button', 'header-scan-btn', {
-    width: '36px', height: '36px', borderRadius: '50%', border: '1px solid #cbd5e1',
-    background: '#ffffff', cursor: 'pointer', display: 'flex', alignItems: 'center',
-    justifyContent: 'center', fontSize: '16px', color: 'var(--text-main)'
-  }, '📷');
+  const scanBtn = createEl(doc, 'button', 'header-scan-btn', {}, '📷');
   scanBtn.title = '扫描添加设备';
   if (typeof onScanClick === 'function') scanBtn.addEventListener('click', onScanClick);
 
@@ -577,8 +734,8 @@ export function createUniversalHeader({
 
 
 /* ============================================================================
- * 三、 组件 2：符合工业契约的设备磁贴 (HomeKit Device Tile)
- * 严格分离 reportedState 与 desiredState，遵守开关能力权限
+ * 三、 组件 2：均衡双列 HomeKit 晶体卡片 (HomeKit Device Tile)
+ * 严格分离 reportedState 与 desiredState，遵守开关能力权限，大小适中
  * ============================================================================ */
 export function createHomeKitTile({
   device = null,
@@ -618,20 +775,41 @@ export function createHomeKitTile({
   const tile = createEl(doc, 'div', 'device-tile-card');
   tile.dataset.deviceId = String(dev.id);
 
-  // 1. 顶部操作行（图标 + 状态胶囊 + 触控开关）
-  const topRow = createEl(doc, 'div', 'device-touch-action-row');
+  // 1. 左侧区域：图标 + 标题与已上报事实
+  const leftGroup = createEl(doc, 'div', 'device-card-left-group');
 
-  // 图标
+  // 图标晶体徽章
   const iconBox = createEl(doc, 'div', 'device-icon-wrapper', {}, dev.icon || '⚡');
 
-  // 状态指示（明确区分已上报与待确认）
-  const statusWrap = createEl(doc, 'div', '', { display: 'flex', alignItems: 'center', gap: '6px' });
-  const isPending = dev.commandStatus === 'PENDING' || dev.commandStatus === 'SENT';
-  const statusPill = createEl(doc, 'span', `status-pill ${isPending ? 'pending' : (dev.status === 'ONLINE' ? 'online' : 'offline')}`, {},
-    isPending ? '待确认...' : (dev.status === 'ONLINE' ? '在线' : '离线')
-  );
+  // 标题与客观事实信息列
+  const infoWrap = createEl(doc, 'div', 'device-card-info');
+  const titleEl = createEl(doc, 'div', 'device-card-title', {}, dev.name);
 
-  // 开关按钮（只有具有开闭控制能力且 writable 时才可点击）
+  // 显示已上报客观事实与主指标
+  let factText = '状态就绪';
+  if (dev.reportedState?.temperature !== undefined) {
+    factText = `${dev.reportedState.temperature}°C · 湿度 ${dev.reportedState.humidity || 50}%`;
+  } else if (dev.reportedState?.level !== undefined) {
+    factText = `开度 ${dev.reportedState.level}% · ${dev.reportedState.power ? '开启' : '关闭'}`;
+  } else if (dev.statusText) {
+    factText = dev.statusText;
+  }
+
+  const subtitleWrap = createEl(doc, 'div', 'device-card-subtitle');
+  const subtitleEl = createEl(doc, 'span', '', {}, factText);
+  subtitleWrap.append(subtitleEl);
+
+  const isPending = dev.commandStatus === 'PENDING' || dev.commandStatus === 'SENT';
+  if (isPending) {
+    const pendingDot = createEl(doc, 'span', 'status-pill pending', { fontSize: '9.5px', padding: '1px 5px' }, '待确认');
+    subtitleWrap.append(pendingDot);
+  }
+
+  infoWrap.append(titleEl, subtitleWrap);
+  leftGroup.append(iconBox, infoWrap);
+
+  // 2. 右侧交互控制与状态区
+  const rightGroup = createEl(doc, 'div', 'device-card-right-group');
   const hasSwitchCapability = dev.capabilities?.some(c => c.controlType === 'switch') ||
                               ('power' in (dev.reportedState || {})) ||
                               (active !== undefined);
@@ -659,38 +837,20 @@ export function createHomeKitTile({
         onToggleClick(targetPower, dev.id);
       }
     });
-    statusWrap.append(statusPill, switchBtn);
+    rightGroup.append(switchBtn);
   } else {
-    statusWrap.append(statusPill);
+    const statusPill = createEl(doc, 'span', `status-pill ${isPending ? 'pending' : (dev.status === 'ONLINE' ? 'online' : 'offline')}`, {},
+      isPending ? '待确认' : (dev.status === 'ONLINE' ? '在线' : '离线')
+    );
+    rightGroup.append(statusPill);
   }
 
-  topRow.append(iconBox, statusWrap);
+  const chevron = createEl(doc, 'span', 'device-card-chevron', {}, '›');
+  rightGroup.append(chevron);
 
-  // 2. 底部设备名称与已上报事实展示（严格区分期望值与已上报事实）
-  const bottomArea = createEl(doc, 'div', '', { marginTop: '8px' });
-  const titleEl = createEl(doc, 'div', '', {
-    fontSize: '14px', fontWeight: '700', color: 'var(--text-main)',
-    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
-  }, dev.name);
-
-  // 显示已上报客观事实
-  let factText = '状态就绪';
-  if (dev.reportedState?.level !== undefined) {
-    factText = `上报强度 ${dev.reportedState.level}% · ${dev.reportedState.power ? '开启' : '关闭'}`;
-  } else if (dev.reportedState?.temperature !== undefined) {
-    factText = `当前测温 ${dev.reportedState.temperature}°C · 湿度 ${dev.reportedState.humidity || 50}%`;
-  } else if (dev.statusText) {
-    factText = dev.statusText;
-  }
-  const subtitleEl = createEl(doc, 'div', '', {
-    fontSize: '11.5px', color: 'var(--text-muted)', marginTop: '2px'
-  }, factText);
-
-  bottomArea.append(titleEl, subtitleEl);
-  tile.append(topRow, bottomArea);
+  tile.append(leftGroup, rightGroup);
 
   if (typeof onClick === 'function' || typeof onCardClick === 'function') {
-    tile.style.cursor = 'pointer';
     tile.addEventListener('click', () => {
       if (typeof onClick === 'function') onClick(dev.id);
       if (typeof onCardClick === 'function') onCardClick(dev.id);
@@ -703,7 +863,7 @@ export function createHomeKitTile({
 
 /* ============================================================================
  * 四、 组件 3：符合契约的设备列表容器 (Device List Frame)
- * 纯状态驱动，响应式列宽（<612px 单列, >=612px 双列）
+ * 纯状态驱动，一条只看一个设备典雅单行布局，紧凑晶体搜索栏
  * ============================================================================ */
 export function createDeviceListContainer({
   devices = [],
@@ -720,12 +880,14 @@ export function createDeviceListContainer({
     display: 'flex', flexDirection: 'column', gap: '10px'
   });
 
-  // 1. 紧凑搜索栏
+  // 1. 紧凑晶体搜索栏
   const searchWrap = createEl(doc, 'div', 'device-search-wrapper', {
-    background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '12px',
-    padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '8px'
+    background: 'rgba(255, 255, 255, 0.85)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+    border: '1px solid rgba(255, 255, 255, 0.9)', borderRadius: '14px',
+    padding: '7px 12px', display: 'flex', alignItems: 'center', gap: '8px',
+    boxShadow: '0 2px 10px rgba(0,0,0,0.03), inset 0 1px 1px rgba(255,255,255,1)'
   });
-  const searchIcon = createEl(doc, 'span', '', { color: '#94a3b8', fontSize: '14px' }, '🔍');
+  const searchIcon = createEl(doc, 'span', '', { color: '#94a3b8', fontSize: '13px' }, '🔍');
   const searchInput = createEl(doc, 'input', 'device-search-input', {
     border: '0', background: 'transparent', outline: 'none', width: '100%',
     fontSize: '13px', color: 'var(--text-main)', fontWeight: '500'
@@ -752,13 +914,7 @@ export function createDeviceListContainer({
 
   filterOptions.forEach(opt => {
     const isAct = opt.id === activeFilter || opt.label === activeFilter || (activeFilter === 'all' && opt.id === 'ALL');
-    const pill = createEl(doc, 'button', `filter-pill ${isAct ? 'active' : ''}`, {
-      padding: '5px 12px', borderRadius: 'var(--radius-pill)', fontSize: '11.5px',
-      fontWeight: '600', cursor: 'pointer', border: isAct ? '1px solid var(--apple-blue)' : '1px solid #cbd5e1',
-      background: isAct ? 'var(--apple-blue)' : '#ffffff',
-      color: isAct ? '#ffffff' : 'var(--text-muted)',
-      minHeight: '32px', whiteSpace: 'nowrap'
-    }, opt.label);
+    const pill = createEl(doc, 'button', `filter-pill ${isAct ? 'active' : ''}`, {}, opt.label);
     pill.dataset.filter = opt.id;
 
     pill.addEventListener('click', () => {
@@ -767,15 +923,16 @@ export function createDeviceListContainer({
     filterBar.append(pill);
   });
 
-  // 3. 响应式网格容器
+  // 3. 响应式网格容器 (标准双列，适度均衡)
   const gridFrame = createEl(doc, 'div', 'device-grid-frame');
   const grid = createEl(doc, 'div', 'device-grid-container');
   grid.id = 'devices-grid';
 
   if (!devices.length) {
     const emptyBox = createEl(doc, 'div', 'device-list-empty-box', {
-      padding: '32px 16px', textAlign: 'center', background: '#ffffff',
-      borderRadius: '16px', border: '1px solid #e2e8f0', color: 'var(--text-muted)',
+      padding: '32px 16px', textAlign: 'center', background: 'rgba(255,255,255,0.85)',
+      backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+      borderRadius: '18px', border: '1px solid rgba(255,255,255,0.9)', color: 'var(--text-muted)',
       fontSize: '13px', gridColumn: '1 / -1'
     }, '当前未匹配到符合条件的设备，可调整搜索关键字或筛选条件。');
     grid.append(emptyBox);
@@ -915,15 +1072,18 @@ export function createQuickControlSheet({
 } = {}) {
   const doc = getDoc(documentObject);
   const overlay = createEl(doc, 'div', 'quick-sheet-overlay', {
-    position: 'fixed', inset: '0', background: 'rgba(15, 23, 42, 0.55)',
+    position: 'fixed', inset: '0', background: 'rgba(15, 23, 42, 0.45)',
     zIndex: '100', display: 'flex', alignItems: 'flex-end',
-    backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)'
+    backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)'
   });
 
   const sheet = createEl(doc, 'div', 'quick-sheet-panel', {
-    width: '100%', maxWidth: '440px', margin: '0 auto', background: '#ffffff',
-    borderRadius: '24px 24px 0 0', padding: '20px', display: 'flex',
-    flexDirection: 'column', gap: '16px', boxShadow: '0 -10px 30px rgba(0,0,0,0.15)'
+    width: '100%', maxWidth: '440px', margin: '0 auto',
+    background: 'linear-gradient(145deg, rgba(255, 255, 255, 0.96) 0%, rgba(255, 255, 255, 0.88) 100%)',
+    backdropFilter: 'blur(32px) saturate(200%)', WebkitBackdropFilter: 'blur(32px) saturate(200%)',
+    border: '1px solid rgba(255, 255, 255, 0.95)',
+    borderRadius: '26px 26px 0 0', padding: '20px', display: 'flex',
+    flexDirection: 'column', gap: '16px', boxShadow: '0 -12px 40px rgba(0,0,0,0.18), inset 0 1.5px 1px rgba(255,255,255,1)'
   });
 
   // 顶栏（标题 + 明确关闭按键）
@@ -936,8 +1096,9 @@ export function createQuickControlSheet({
   titleBox.append(title, sub);
 
   const closeBtn = createEl(doc, 'button', 'sheet-close-btn', {
-    width: '32px', height: '32px', borderRadius: '50%', border: '0',
-    background: '#f1f5f9', cursor: 'pointer', fontSize: '14px', fontWeight: '700'
+    width: '32px', height: '32px', borderRadius: '50%', border: '1px solid rgba(0,0,0,0.06)',
+    background: 'rgba(241, 245, 249, 0.8)', cursor: 'pointer', fontSize: '14px', fontWeight: '700',
+    display: 'flex', alignItems: 'center', justifyContent: 'center'
   }, '✕');
   if (typeof closeBtn.setAttribute === 'function') {
     closeBtn.setAttribute('aria-label', '关闭控制面板');
@@ -970,14 +1131,15 @@ export function createQuickControlSheet({
   // 操作按钮行（明确取消与确认）
   const actionRow = createEl(doc, 'div', '', { display: 'flex', gap: '10px' });
   const cancelBtn = createEl(doc, 'button', 'sheet-cancel-btn', {
-    flex: '1', padding: '12px', borderRadius: '12px', background: '#f1f5f9',
-    border: '0', color: 'var(--text-main)', fontSize: '13px', fontWeight: '600', cursor: 'pointer'
+    flex: '1', padding: '12px', borderRadius: '14px', background: 'rgba(241, 245, 249, 0.9)',
+    border: '1px solid rgba(226, 232, 240, 0.8)', color: 'var(--text-main)', fontSize: '13px', fontWeight: '600', cursor: 'pointer'
   }, '取消');
   cancelBtn.addEventListener('click', doClose);
 
   const confirmBtn = createEl(doc, 'button', 'sheet-confirm-btn', {
-    flex: '1', padding: '12px', borderRadius: '12px', background: 'var(--apple-blue)',
-    border: '0', color: '#ffffff', fontSize: '13px', fontWeight: '700', cursor: 'pointer'
+    flex: '1', padding: '12px', borderRadius: '14px', background: 'var(--apple-blue)',
+    border: '0', color: '#ffffff', fontSize: '13px', fontWeight: '700', cursor: 'pointer',
+    boxShadow: '0 4px 16px rgba(0, 102, 204, 0.35)'
   }, '确认下发');
   confirmBtn.addEventListener('click', () => {
     if (typeof onCommitValue === 'function') {
@@ -1018,9 +1180,11 @@ export function createDeviceDetailView({
     display: 'flex', alignItems: 'center', justifyContent: 'space-between'
   });
   const backBtn = createEl(doc, 'button', 'detail-back-btn', {
-    padding: '8px 12px', borderRadius: '10px', border: '1px solid #cbd5e1',
-    background: '#ffffff', cursor: 'pointer', fontSize: '13px', fontWeight: '600',
-    display: 'flex', alignItems: 'center', gap: '4px', minHeight: 'var(--touch-target)'
+    padding: '8px 14px', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.85)',
+    background: 'rgba(255, 255, 255, 0.8)', backdropFilter: 'blur(16px)',
+    cursor: 'pointer', fontSize: '13px', fontWeight: '600',
+    display: 'flex', alignItems: 'center', gap: '4px', minHeight: 'var(--touch-target)',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.03), inset 0 1px 1px rgba(255,255,255,1)'
   }, '← 返回列表');
   if (onBack) backBtn.addEventListener('click', onBack);
 
@@ -1035,13 +1199,13 @@ export function createDeviceDetailView({
   const cardTitle = createEl(doc, 'div', '', { fontSize: '13px', fontWeight: '700', marginBottom: '8px' }, '遥测与控制状态');
 
   const factRow = createEl(doc, 'div', '', {
-    display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #f1f5f9', fontSize: '13px'
+    display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(226, 232, 240, 0.6)', fontSize: '13px'
   });
   factRow.append(createEl(doc, 'span', '', { color: 'var(--text-muted)' }, '上报事实 (Reported)'),
                  createEl(doc, 'span', '', { fontWeight: '600' }, JSON.stringify(device.reportedState || {})));
 
   const desiredRow = createEl(doc, 'div', '', {
-    display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '13px'
+    display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '13px'
   });
   desiredRow.append(createEl(doc, 'span', '', { color: 'var(--text-muted)' }, '期望目标 (Desired)'),
                     createEl(doc, 'span', '', { fontWeight: '600', color: 'var(--apple-blue)' }, JSON.stringify(device.desiredState || {})));
@@ -1118,7 +1282,7 @@ export function createBottomNav({
 
 /* ============================================================================
  * 九、 组件 8：Apple Intelligence 对话流与门禁录入器 (AI Stream & Composer)
- * 满足 F04：草稿保留、处理中门禁阻断、IME 回车防误发、一键复制
+ * 沉底固定于最底部，满足 F04：草稿保留、处理中门禁阻断、IME 回车防误发、一键复制
  * ============================================================================ */
 export function createAiMessageList({
   messages = [],
@@ -1132,8 +1296,9 @@ export function createAiMessageList({
 
   if (!messages.length) {
     const empty = createEl(doc, 'div', 'ai-empty-message', {
-      padding: '24px', textAlign: 'center', background: '#ffffff',
-      borderRadius: '16px', border: '1px solid #e2e8f0', color: 'var(--text-muted)', fontSize: '13px'
+      padding: '24px', textAlign: 'center', background: 'rgba(255,255,255,0.85)',
+      backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+      borderRadius: '18px', border: '1px solid rgba(255,255,255,0.9)', color: 'var(--text-muted)', fontSize: '13px'
     }, '您可以向 Apple Intelligence 询问设备实时状态、能耗诊断或操作建议。');
     stream.append(empty);
     return stream;
@@ -1175,9 +1340,7 @@ export function createCrystalAiComposer({
   documentObject = null
 } = {}) {
   const doc = getDoc(documentObject);
-  const wrapper = createEl(doc, 'div', 'ai-composer-container', {
-    display: 'flex', flexDirection: 'column', gap: '8px'
-  });
+  const wrapper = createEl(doc, 'div', 'ai-composer-container');
 
   const chipsList = quickChips || quickPrompts || [
     '⚡ 诊断3号循环泵能耗',
@@ -1222,7 +1385,8 @@ export function createCrystalAiComposer({
     width: '34px', height: '34px', borderRadius: '50%', border: '0',
     background: isBusy ? '#cbd5e1' : 'var(--apple-blue)', color: '#ffffff',
     cursor: isBusy ? 'not-allowed' : 'pointer', display: 'flex',
-    alignItems: 'center', justifyContent: 'center', fontSize: '15px'
+    alignItems: 'center', justifyContent: 'center', fontSize: '15px',
+    boxShadow: isBusy ? 'none' : '0 2px 8px rgba(0, 102, 204, 0.35)'
   }, isBusy ? '⏳' : '↑');
   sendBtn.disabled = isBusy;
 
@@ -1284,16 +1448,16 @@ export function createBleScannerView({
 
   if (typeof onQrScan === 'function') {
     const qrBtn = createEl(doc, 'button', 'qr-scan-btn', {
-      padding: '6px 12px', borderRadius: 'var(--radius-pill)', border: '1px solid #cbd5e1',
-      background: '#ffffff', cursor: 'pointer', fontSize: '12px', fontWeight: '600'
+      padding: '6px 12px', borderRadius: 'var(--radius-pill)', border: '1px solid rgba(255,255,255,0.85)',
+      background: 'rgba(255,255,255,0.8)', cursor: 'pointer', fontSize: '12px', fontWeight: '600'
     }, '📷 扫码添加');
     qrBtn.addEventListener('click', onQrScan);
     btnGroup.append(qrBtn);
   }
 
   const toggleBtn = createEl(doc, 'button', 'ble-toggle-scan-btn', {
-    padding: '6px 14px', borderRadius: 'var(--radius-pill)', border: '1px solid #cbd5e1',
-    background: '#ffffff', cursor: 'pointer', fontSize: '12px', fontWeight: '600'
+    padding: '6px 14px', borderRadius: 'var(--radius-pill)', border: '1px solid rgba(255,255,255,0.85)',
+    background: 'rgba(255,255,255,0.8)', cursor: 'pointer', fontSize: '12px', fontWeight: '600'
   }, isScanning ? '暂停' : '启动');
   if (onToggleScan) toggleBtn.addEventListener('click', () => onToggleScan(!isScanning));
   btnGroup.append(toggleBtn);
@@ -1305,7 +1469,7 @@ export function createBleScannerView({
   const candListWrap = createEl(doc, 'div', 'ble-candidates-list', { display: 'flex', flexDirection: 'column', gap: '8px' });
   list.forEach(cand => {
     const card = createEl(doc, 'div', 'device-tile-card', {
-      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: '12px'
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px'
     });
     const info = createEl(doc, 'div');
     info.append(
@@ -1315,7 +1479,8 @@ export function createBleScannerView({
 
     const claimBtn = createEl(doc, 'button', 'claim-btn ble-claim-action', {
       padding: '6px 14px', borderRadius: 'var(--radius-pill)', background: 'var(--apple-blue)',
-      color: '#ffffff', border: '0', cursor: 'pointer', fontSize: '12px', fontWeight: '700'
+      color: '#ffffff', border: '0', cursor: 'pointer', fontSize: '12px', fontWeight: '700',
+      boxShadow: '0 2px 8px rgba(0, 102, 204, 0.3)'
     }, '认领入库');
     claimBtn.addEventListener('click', () => {
       if (typeof onClaim === 'function') onClaim(cand);
@@ -1344,7 +1509,7 @@ export function createActivityStreamView({
   container.append(header);
 
   events.forEach(item => {
-    const card = createEl(doc, 'div', 'device-tile-card', { padding: '12px' });
+    const card = createEl(doc, 'div', 'device-tile-card', { padding: '12px 14px' });
     const top = createEl(doc, 'div', '', { display: 'flex', justifyContent: 'space-between', fontSize: '11px' });
     const badge = createEl(doc, 'span', 'status-pill online', {}, item.type || item.badgeText || 'EVENT');
     const time = createEl(doc, 'span', '', { color: 'var(--text-tertiary)' }, item.time || '');

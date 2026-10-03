@@ -1,0 +1,161 @@
+{
+	# The integration CA is intentionally local to the Compose volume. Runtime
+	# verification exports its root certificate and passes it explicitly to curl.
+	auto_https disable_redirects
+	# IP-address clients do not send SNI. Select the matching LAN certificate.
+	default_sni {$DOMAIN}
+	skip_install_trust
+}
+
+(common_security) {
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "geolocation=(self), bluetooth=(self), camera=()"
+	}
+}
+
+(static_security) {
+	import common_security
+	header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' wss://{$DOMAIN}"
+}
+
+# The integration ingress applies the same explicit browser-origin policy as
+# the backend. This makes CORS testable through the actual TLS proxy path.
+(api_cors) {
+	@api_cors_origin header Origin {args[0]}
+	header @api_cors_origin Access-Control-Allow-Origin "{args[0]}"
+	header @api_cors_origin Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+	header @api_cors_origin Access-Control-Allow-Headers "Authorization, Content-Type, X-Request-Id, X-Trace-Id, If-Match, Idempotency-Key, X-Requested-With, X-Iot-Agent-Credential, X-Iot-Agent-Token"
+	header @api_cors_origin Access-Control-Expose-Headers "X-Request-Id, X-Trace-Id, Retry-After"
+	header @api_cors_origin Access-Control-Max-Age "600"
+	header @api_cors_origin +Vary "Origin"
+}
+
+# Reject known oversized and chunked API bodies at the public ingress. The
+# request_body guard below still covers bodies read by the downstream service.
+(api_body_guard) {
+	@api_content_length_over_limit header_regexp Content-Length ^0*(?:100000[1-9]|10000[1-9][0-9]|1000[1-9][0-9]{2}|100[1-9][0-9]{3}|10[1-9][0-9]{4}|1[1-9][0-9]{5}|[2-9][0-9]{6}|[1-9][0-9]{7,})$
+	respond @api_content_length_over_limit 413
+	@api_chunked_body header Transfer-Encoding *chunked*
+	respond @api_chunked_body 413
+}
+
+# The only plaintext file is the public CA used to bootstrap phone trust.
+http://{$DOMAIN} {
+	@phoneBootstrap path /mobile/ /mobile/index.html /mobile/caddy-root-ca.cer
+	handle @phoneBootstrap {
+		root * /srv/phone
+		@caDownload path /mobile/caddy-root-ca.cer
+		header @caDownload Content-Type application/x-x509-ca-cert
+		file_server
+	}
+	handle {
+		redir https://{$DOMAIN}{uri} 308
+	}
+}
+
+# Previously shared computer links now lead to the phone-capable origin.
+http://iot-manager.localhost {
+	redir https://{$DOMAIN}{uri} 308
+}
+https://iot-manager.localhost {
+	tls internal
+	redir https://{$DOMAIN}{uri} 308
+}
+
+https://{$DOMAIN} {
+	tls internal
+	encode zstd gzip
+
+	route {
+		@identity path /auth /auth/*
+		handle @identity {
+			import common_security
+			reverse_proxy keycloak:8080 {
+				header_up X-Forwarded-Proto https
+				header_up X-Real-IP {remote_host}
+			}
+		}
+
+		@aiUpload {
+			method POST
+			path_regexp ^/api/v1/sites/[0-9]+/ai/knowledge-bases/[0-9a-f-]+/documents$
+		}
+		handle @aiUpload {
+			import common_security
+			import api_cors https://{$DOMAIN}
+			request_body {
+				max_size 6MB
+			}
+			reverse_proxy backend:8080 {
+				header_up X-Forwarded-Proto https
+				header_up X-Real-IP {remote_host}
+			}
+		}
+
+		@platform path /api /api/* /ws /ws/*
+		handle @platform {
+			import common_security
+			import api_cors https://{$DOMAIN}
+			import api_body_guard
+			request_body {
+				max_size 1MB
+			}
+			reverse_proxy backend:8080 {
+				header_up X-Forwarded-Proto https
+				header_up X-Real-IP {remote_host}
+			}
+		}
+
+		@privateRuntime path /h2-console /h2-console/* /actuator /actuator/*
+		respond @privateRuntime 404
+
+		@glassRoot path /glass
+		redir @glassRoot /glass/ permanent
+		handle_path /glass/* {
+			import static_security
+			root * /srv/phone/glass
+			try_files {path} /index.html
+			file_server
+		}
+
+		handle_path /mobile/* {
+			import common_security
+			root * /srv/phone/mobile
+			@caDownload path /caddy-root-ca.cer
+			header @caDownload Content-Type application/x-x509-ca-cert
+			file_server
+		}
+
+		@consoleRoot path /console
+		@appRoot path /app
+		redir @appRoot /app/ permanent
+
+		handle_path /app/* {
+			import static_security
+			root * /srv/client
+			try_files {path} /index.html
+			file_server
+		}
+
+		redir @consoleRoot /console/ permanent
+
+		handle_path /console/* {
+			import static_security
+			root * /srv/console
+			try_files {path} /index.html
+			file_server
+		}
+
+		handle {
+			import static_security
+			root * /srv/frontend
+			try_files {path} /index.html
+			file_server
+		}
+	}
+}

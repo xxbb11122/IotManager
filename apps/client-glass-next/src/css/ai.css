@@ -1,0 +1,28 @@
+.bottom-nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.ai-workspace { padding: 20px; border: 1px solid var(--border, #dbe5df); border-radius: 20px; background: var(--surface, #fff); display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.ai-header, .ai-actions, .ai-history-item, .ai-pending { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.ai-header { justify-content: space-between; }
+.ai-title { font-size: 1.3rem; margin: 0; }
+.ai-subtitle, .ai-history-title { font-size: 1rem; margin: 0; }
+.ai-caption, .ai-count { color: var(--muted, #55645c); font-size: .85rem; margin: 0; }
+.ai-notice { margin: 0; padding: 12px; border-radius: 12px; background: #edf5ef; color: #345342; overflow-wrap: anywhere; }
+.ai-notice--error { background: #fff0ed; color: #8b3024; }
+.ai-messages { max-height: 44dvh; min-height: 120px; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 12px; padding: 4px; }
+.ai-empty { color: #63716a; padding: 12px; }
+.ai-message { flex-shrink: 0; max-width: 95%; border-radius: 16px; padding: 14px; background: #f0f4f1; }
+.ai-message--user { align-self: flex-end; background: #e3f1e8; }
+.ai-message--assistant { align-self: flex-start; }
+.ai-message-text, .ai-persona-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0; }
+.ai-field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.ai-field-label { font-weight: 600; }
+.ai-input { box-sizing: border-box; width: 100%; border: 1px solid #cad9cf; border-radius: 12px; background: #fff; color: #20382b; padding: 12px; font: inherit; resize: vertical; }
+.ai-input:focus { outline: 2px solid #4d8a67; outline-offset: 2px; }
+.ai-composer { display: flex; flex-direction: column; gap: 12px; }
+.ai-composer > button { align-self: flex-end; }
+.ai-history-item { border-bottom: 1px solid #e3eae5; padding: 12px 0; }
+.ai-history-text { flex: 1; min-width: 100px; overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .ai-workspace { padding: 14px; border-radius: 16px; }
+  .ai-messages { max-height: 38dvh; }
+  .ai-message { max-width: 100%; }
+}

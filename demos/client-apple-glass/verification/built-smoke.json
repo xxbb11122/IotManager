@@ -1,6 +1,7 @@
 {
-  "verifiedAt": "2026-10-02T02:55:59.611Z",
+  "verifiedAt": "2026-10-02T14:17:31.277Z",
   "browser": "151.0.7922.34",
+  "baseURL": "http://127.0.0.1:5188",
   "target": "dependency-free static build",
   "checks": [
     {
@@ -24,6 +25,10 @@
       "passed": true
     },
     {
+      "name": "Built weather shows wind and saves an expanded manual location",
+      "passed": true
+    },
+    {
       "name": "No production source or module folder is exposed by the static server",
       "passed": true
     },
@@ -37,14 +42,14 @@
   "external": [],
   "assets": [
     {
-      "file": "index-8YwybLPP.css",
-      "bytes": 47907,
-      "sha256": "26fef7cc1f20eb54f123693f8e195f6b3478d749dc9a359194acff91d54665d1"
+      "file": "index-CC4U4usW.js",
+      "bytes": 273588,
+      "sha256": "4bf099ae050bb4c132cdf4a5a485bdf44dbbe164fac8217b31e6a47fb3116320"
     },
     {
-      "file": "index-BG-9otDW.js",
-      "bytes": 192905,
-      "sha256": "db329920a966d3cb05a8aec915dbd73c7e6070e5b5385645dca02b37af226323"
+      "file": "index-CgsSVuMc.css",
+      "bytes": 71091,
+      "sha256": "5770f5af58e3d4e4a53f51f1966bbb6f6e0fee8a3bd6ca0e0f3ef9fedcdbb5a5"
     }
   ]
 }

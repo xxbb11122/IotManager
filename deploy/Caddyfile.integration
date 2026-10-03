@@ -93,6 +93,16 @@ https://iot-manager.localhost {
 		respond @privateRuntime 404
 
 		@consoleRoot path /console
+		@appRoot path /app
+		redir @appRoot /app/ permanent
+
+		handle_path /app/* {
+			import static_security
+			root * /srv/client
+			try_files {path} /index.html
+			file_server
+		}
+
 		redir @consoleRoot /console/ permanent
 
 		handle_path /console/* {

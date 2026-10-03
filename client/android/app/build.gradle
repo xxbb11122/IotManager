@@ -22,7 +22,7 @@ def releaseSigningConfigured = [releaseStoreFile, releaseStorePassword, releaseK
 
 def configuredVersionCode = releaseSetting('IOT_RELEASE_VERSION_CODE')
 def configuredVersionName = releaseSetting('IOT_RELEASE_VERSION_NAME')
-def resolvedVersionCode = 5
+def resolvedVersionCode = 6
 if (configuredVersionCode != null) {
     try {
         resolvedVersionCode = Integer.parseInt(configuredVersionCode)
@@ -33,7 +33,7 @@ if (configuredVersionCode != null) {
         throw new GradleException('IOT_RELEASE_VERSION_CODE must be a positive integer.')
     }
 }
-def resolvedVersionName = configuredVersionName ?: '1.1.3'
+def resolvedVersionName = configuredVersionName ?: '1.1.4'
 
 android {
     namespace = "com.iot.manager.client"

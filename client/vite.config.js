@@ -20,6 +20,7 @@ const buildInfo = {
 
 export default defineConfig({
   root: '.',
+  base: process.env.IOT_CLIENT_ASSET_BASE ?? '/',
   define: { __IOT_BUILD_INFO__: JSON.stringify(buildInfo) },
   plugins: [motionPreviewPlugin(), {
     name: 'public-build-identity',

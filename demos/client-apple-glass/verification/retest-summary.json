@@ -1,0 +1,57 @@
+{
+  "verifiedAt": "2026-10-02T14:19:48.339Z",
+  "localTime": "2026-10-02 22:19",
+  "timezone": "Asia/Shanghai",
+  "target": "demos/client-apple-glass production build served at http://127.0.0.1:5188/",
+  "unit": {
+    "tests": 45,
+    "passed": 45,
+    "failed": 0,
+    "skipped": 0
+  },
+  "browser": {
+    "startTime": "2026-10-02T14:17:21.631Z",
+    "duration": 75498.453,
+    "expected": 43,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0,
+    "tests": 43,
+    "retries": 0
+  },
+  "build": {
+    "passed": true,
+    "assets": [
+      {
+        "file": "index-CC4U4usW.js",
+        "bytes": 273588,
+        "sha256": "4bf099ae050bb4c132cdf4a5a485bdf44dbbe164fac8217b31e6a47fb3116320"
+      },
+      {
+        "file": "index-CgsSVuMc.css",
+        "bytes": 71091,
+        "sha256": "5770f5af58e3d4e4a53f51f1966bbb6f6e0fee8a3bd6ca0e0f3ef9fedcdbb5a5"
+      }
+    ]
+  },
+  "builtSmoke": {
+    "passed": 8,
+    "errors": [],
+    "externalRequests": []
+  },
+  "sourceIsolation": {
+    "checked": 16,
+    "allUnchanged": true
+  },
+  "visualReview": {
+    "screenshots": [
+      "mobile-state.png",
+      "mobile-device.png",
+      "mobile-weather.png",
+      "desktop-device.png",
+      "desktop-weather.png"
+    ],
+    "findings": "No visible text clipping or misaligned control layout in reviewed screenshots."
+  },
+  "scope": "Independent browser demo with simulated data. Android/PDA native runtime was not tested."
+}

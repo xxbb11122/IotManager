@@ -23,6 +23,9 @@ try {
   await page.waitForTimeout(250); await page.evaluate(() => document.activeElement?.blur());
   await page.screenshot({ animations: 'disabled', path: path.join(output, 'mobile-home.png') });
   await page.locator('[data-action=open-device]').first().click();
+  await page.locator('[data-region=device-state]').scrollIntoViewIfNeeded();
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.screenshot({ animations: 'disabled', path: path.join(output, 'mobile-state.png') });
   await check('Built range command waits and displays confirmed mock ACK', async () => {
     const range = page.locator('[data-field=capability-range]');
     await range.focus(); await range.press('ArrowRight');
@@ -57,6 +60,25 @@ try {
   await expect(page.locator('[data-action=open-device]')).toHaveCount(4);
   await page.waitForTimeout(250); await page.evaluate(() => document.activeElement?.blur());
   await page.screenshot({ animations: 'disabled', path: path.join(output, 'desktop-home.png') });
+  await page.locator('[data-action=open-device]').first().click();
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.screenshot({ animations: 'disabled', path: path.join(output, 'desktop-device.png') });
+  await page.locator('[data-action=open-weather]').first().click();
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.screenshot({ animations: 'disabled', path: path.join(output, 'desktop-weather.png') });
+  await page.setViewportSize({ width: 390, height: 844 }); await page.goto(base);
+  await page.locator('[data-action=open-weather]').first().click();
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.screenshot({ animations: 'disabled', path: path.join(output, 'mobile-weather.png') });
+  await check('Built weather shows wind and saves an expanded manual location', async () => {
+    await expect(page.locator('.weather-metrics')).toContainText('2.4 m/s');
+    await page.locator('.weather-location__manual-title').click();
+    await page.locator('[data-field=weatherLatitude]').fill('22.5431');
+    await page.locator('[data-field=weatherLongitude]').fill('114.0579');
+    await page.locator('[data-action=save-manual-weather-location]').click();
+    await expect(page.locator('.weather-location__summary')).toContainText('22.54310, 114.05790');
+    await expect(page.locator('[data-region=weather-coordinate-details]')).toHaveAttribute('open', '');
+  });
   await check('No production source or module folder is exposed by the static server', async () => {
     expect((await page.request.get(base + '/src/main.js')).status()).toBe(404);
     expect((await page.request.get(base + '/client/src/js/main.js')).status()).toBe(404);
@@ -69,7 +91,7 @@ finally {
     const bytes = await fs.readFile(path.join(root, 'dist/assets', name));
     assets.push({ file: name, bytes: bytes.length, sha256: crypto.createHash('sha256').update(bytes).digest('hex') });
   }
-  const result = { verifiedAt: new Date().toISOString(), browser: browser.version(), target: 'dependency-free static build', checks, failure, errors, external, assets };
+  const result = { verifiedAt: new Date().toISOString(), browser: browser.version(), baseURL: base, target: 'dependency-free static build', checks, failure, errors, external, assets };
   await fs.writeFile(path.join(output, 'built-smoke.json'), JSON.stringify(result, null, 2) + '\n');
   console.log(JSON.stringify({ passed: checks.length, failure, errors, external })); await browser.close();
 }

@@ -48,9 +48,11 @@ const DEMO_CONTEXT = Object.freeze({
 // build-time variables; OIDC owns them in the secure runtime session store.
 const nativeBuildEnv = import.meta.env ?? {};
 function defaultOidcFields({ native = false } = {}) {
-  const issuerUrl = native
+  const issuerValue = native
     ? nativeBuildEnv.VITE_NATIVE_OIDC_ISSUER_URL ?? nativeBuildEnv.VITE_OIDC_ISSUER_URL
     : nativeBuildEnv.VITE_OIDC_ISSUER_URL;
+  const issuerUrl = !native && String(issuerValue ?? '').startsWith('/') && !String(issuerValue).startsWith('//')
+    ? new URL(issuerValue, globalThis.location.origin).href : issuerValue;
   const clientId = native
     ? nativeBuildEnv.VITE_NATIVE_OIDC_CLIENT_ID ?? nativeBuildEnv.VITE_OIDC_CLIENT_ID
     : nativeBuildEnv.VITE_OIDC_CLIENT_ID;
@@ -186,6 +188,9 @@ const ui = createClientUi(document.getElementById('app'), {
     organizationCode: clientState.context.organizationCode,
     siteCode: clientState.context.siteCode,
     accessToken: draft?.accessToken,
+    oidcIssuerUrl: draft?.oidcIssuerUrl,
+    oidcClientId: draft?.oidcClientId,
+    oidcRedirectUri: draft?.oidcRedirectUri,
     verifyWebSocket: true
   }),
   openBleAppSettings: () => ble.openAppSettings?.(),
@@ -334,6 +339,7 @@ async function aiAction({ action, id }) {
       if (ai.getState().pending?.state === 'UNKNOWN' && !window.confirm('原请求结果及费用无法确认，再次生成可能重复计费。确定重新提问？')) return;
       return ai.retry();
     case 'ai-reload': return ai.reload();
+    case 'ai-suggest': return ai.setDraft(String(id ?? ''));
     case 'ai-history-more': return ai.loadHistory(true);
     case 'ai-messages-more': return ai.loadMessages(true);
     case 'ai-select':
@@ -800,7 +806,7 @@ async function switchEndpoint(profile) {
 
 async function signIn() {
   if (!authSession?.isConfigured()) {
-    throw new Error('当前端点尚未配置 OIDC。请在“互联网远程”连接设置中填写 Keycloak 地址、客户端 ID 和回调地址。');
+    throw new Error('当前端点尚未配置登录服务。请在连接设置中填写 Issuer、客户端 ID 和回调地址。');
   }
   const manager = authSession;
   setClientState({ auth: { ...clientState.auth, status: 'redirecting', error: null } });
@@ -1779,8 +1785,12 @@ function handleDocumentVisibility() {
   }
 }
 
+function handleAiNetworkChange() { void ai.networkChanged(); }
+
 renderCoordinator.setVisibility(document.visibilityState !== 'hidden');
 document.addEventListener('visibilitychange', handleDocumentVisibility);
+window.addEventListener('online', handleAiNetworkChange);
+window.addEventListener('offline', handleAiNetworkChange);
 if (import.meta.env.DEV) {
   globalThis.__iotUiMetrics = () => ({ ...renderMetrics.snapshot(), store: store.diagnostics() });
 }
@@ -1790,6 +1800,8 @@ window.addEventListener('beforeunload', () => {
   if (browserCloseTimer !== null) clearTimeout(browserCloseTimer);
   startupTransition.dispose();
   document.removeEventListener('visibilitychange', handleDocumentVisibility);
+  window.removeEventListener('online', handleAiNetworkChange);
+  window.removeEventListener('offline', handleAiNetworkChange);
   renderCoordinator.destroy();
   weatherRefreshCooldown.clear();
   for (const unsubscribe of platformUnsubscribers) unsubscribe();

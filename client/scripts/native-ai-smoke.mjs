@@ -149,6 +149,11 @@ try {
   await screenshot('native-ai-bottom-navigation');
   record('native bottom navigation aligns, survives interrupted taps and respects reduced motion');
 
+  await page.getByRole('button', { name: '解释温度传感器', exact: true }).click();
+  await expect(page.locator('#ai-question')).toHaveValue('用一句话解释温度传感器。');
+  assert.equal(mock.calls.filter(row => row.pathname.endsWith('/chat')).length, 0);
+  record('example question fills a draft without submitting a Chat request');
+
   await page.locator('#ai-question').fill('MQTT-native');
   await page.getByRole('button', { name: '发送', exact: true }).click();
   await expect(page.locator('.ai-message--assistant')).toContainText('原生模拟回答：MQTT-native');
@@ -158,6 +163,15 @@ try {
   assert.ok(mock.calls.some(row => row.pathname === '/api/v1/me'));
   await screenshot('native-ai-chat');
   record('native HTTP roundtrip, one POST and safe answer text');
+
+  await page.locator('#ai-question').fill('未发送的原生草稿');
+  if (keyboardShown()) adb('shell', 'input', 'keyevent', 'KEYCODE_BACK');
+  await page.getByRole('button', { name: '检查连接', exact: true }).click();
+  await expect(page.locator('#ai-question')).toHaveValue('未发送的原生草稿');
+  await expect(page.locator('.ai-message')).toHaveCount(2);
+  assert.equal(mock.calls.filter(row => row.pathname.endsWith('/chat')).length, 1);
+  await page.locator('#ai-question').fill('');
+  record('connection recheck preserves native conversation and draft without a repeated POST');
 
   await page.locator('#ai-question').click();
   await expect.poll(keyboardShown).toBe(true);
@@ -200,6 +214,9 @@ try {
   await page.locator('#ai-question').fill('native-recovery-进程重启');
   await page.getByRole('button', { name: '发送', exact: true }).click();
   await expect(page.getByRole('button', { name: '查询本次结果' })).toBeVisible();
+  // The pending UI is rendered before Preferences and the HTTP POST finish.
+  // Compare metadata only after the mock has registered this request.
+  await expect.poll(() => mock.requests.size).toBe(2);
   const metadata = await page.evaluate(async () => JSON.parse((await window.Capacitor.Plugins.Preferences.get({ key: 'iot-manager.ai-recovery.v1' })).value));
   const pending = Object.values(metadata).find(row => row.clientRequestId === [...mock.requests.keys()].at(-1));
   assert.ok(pending);

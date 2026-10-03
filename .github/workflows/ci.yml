@@ -80,6 +80,7 @@ jobs:
             frontend/package-lock.json
             console/package-lock.json
             client/package-lock.json
+            apps/client-glass-next/package-lock.json
       - name: Install Playwright Chromium
         working-directory: client
         run: |
@@ -148,6 +149,61 @@ jobs:
           path: |
             client/android/app/build/outputs/apk/debug/app-debug.apk
             client/android/app/build/outputs/apk/debug/app-debug.apk.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  android-glass-debug:
+    name: Glass Android debug APK (JDK 23, API 36)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: apps/client-glass-next
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/client-glass-next/package-lock.json
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "23"
+          cache: gradle
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          packages: ''
+      - name: Install Android API 36
+        run: |
+          java -version
+          sdkmanager --version
+          yes | sdkmanager --licenses > /dev/null
+          sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          sdkmanager --list_installed | grep -E 'platform-tools|platforms;android-36|build-tools;36.0.0'
+      - name: Build Glass debug APK
+        run: |
+          npm ci
+          chmod +x android/gradlew
+          npm run android:debug
+      - name: Verify Glass APK and write checksum
+        shell: bash
+        working-directory: .
+        run: |
+          set -euo pipefail
+          apk=apps/client-glass-next/android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$apk"
+          sha256sum "$apk" > "$apk.sha256"
+      - name: Upload Glass debug APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: iot-manager-glass-debug-apk-${{ github.sha }}
+          path: |
+            apps/client-glass-next/android/app/build/outputs/apk/debug/app-debug.apk
+            apps/client-glass-next/android/app/build/outputs/apk/debug/app-debug.apk.sha256
           if-no-files-found: error
           retention-days: 14
 

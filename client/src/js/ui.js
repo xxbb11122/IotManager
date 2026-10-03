@@ -1940,11 +1940,12 @@ class ClientUi {
       }));
     }
     surface.append(modes);
-    surface.append(this.textField('API 地址', 'endpoint-api-url', this.local.endpointDraft.apiBaseUrl, '真机示例：http://192.168.1.100:8080/api/v1', 'endpointApiUrl'));
-    surface.append(this.textField('WebSocket 地址', 'endpoint-ws-url', this.local.endpointDraft.wsUrl, '真机示例：ws://192.168.1.100:8080/ws/devices', 'endpointWsUrl'));
+    surface.append(this.textField('API 地址', 'endpoint-api-url', this.local.endpointDraft.apiBaseUrl, '正式服务器示例：https://iot.example.com/api/v1', 'endpointApiUrl'));
+    surface.append(this.textField('WebSocket 地址', 'endpoint-ws-url', this.local.endpointDraft.wsUrl, '正式服务器示例：wss://iot.example.com/ws/devices', 'endpointWsUrl'));
     if (this.local.endpointDraft.accessRoute === 'SITE_API') {
-      surface.append(this.buildNotice('请先在电脑 IDEA 中启动后端，并确保手机与电脑连接同一 Wi-Fi；保存前必须先通过“测试连接”。', 'info', null, '真机连接要求'));
-    } else {
+      surface.append(this.buildNotice('手机需能访问现场服务器，HTTPS 证书需受信任。启用鉴权的现场服务器也需要填写下方登录配置。', 'info', null, '现场连接要求'));
+    }
+    {
       const fields = [
         this.textField('OIDC Issuer URL', 'endpoint-oidc-issuer-url', this.local.endpointDraft.oidcIssuerUrl ?? '', '例如：https://iot.example.com/auth/realms/iot-manager', 'endpointOidcIssuerUrl'),
         this.textField('OIDC Client ID', 'endpoint-oidc-client-id', this.local.endpointDraft.oidcClientId ?? '', 'Keycloak 中创建的 public client，例如 iot-mobile。', 'endpointOidcClientId'),
@@ -1955,7 +1956,7 @@ class ClientUi {
         surface.append(field);
       }
       this.revealOidcFields = false;
-      surface.append(this.buildNotice('远程生产连接使用 Authorization Code + PKCE 登录。此处只保存公开的 Issuer、Client ID 与回调地址，不会保存 Access Token 或 Refresh Token。', 'info', null, '安全登录'));
+      surface.append(this.buildNotice('需要账号权限的服务器使用安全登录。填写三个登录字段后，保存会打开登录页；没有鉴权的开发服务器可留空。', 'info', null, '账号登录'));
     }
     surface.append(actionButton(this.isBusy('test-endpoint') ? '测试中…' : '测试连接', 'test-endpoint', {
       className: 'button button--secondary',
@@ -1964,9 +1965,9 @@ class ClientUi {
     if (this.local.endpointTest) {
       const result = this.buildNotice(
         this.local.endpointTest.message,
-        this.local.endpointTest.partial ? 'warning' : this.local.endpointTest.ok ? 'success' : 'danger',
+        this.local.endpointTest.partial ? 'warning' : this.local.endpointTest.loginRequired ? 'info' : this.local.endpointTest.ok ? 'success' : 'danger',
         null,
-        this.local.endpointTest.partial ? '部分连接可用' : this.local.endpointTest.ok ? '连接正常' : '连接失败'
+        this.local.endpointTest.partial ? '部分连接可用' : this.local.endpointTest.loginRequired ? '需要登录' : this.local.endpointTest.ok ? '连接正常' : '连接失败'
       );
       result.dataset.region = 'endpoint-test-result';
       if (this.revealEndpointTest) result.classList.add('motion-reveal');
@@ -2709,12 +2710,15 @@ class ClientUi {
         this.render(this.model);
         break;
       case 'test-endpoint':
-        if (!this.validateEndpointDraft(false)) break;
+        if (!this.validateEndpointDraft(true)) break;
         this.local.endpointTest = null;
         this.invoke('testEndpoint', {
           accessRoute: this.local.endpointDraft.accessRoute,
           apiBaseUrl: this.local.endpointDraft.apiBaseUrl,
-          wsUrl: this.local.endpointDraft.wsUrl
+          wsUrl: this.local.endpointDraft.wsUrl,
+          oidcIssuerUrl: this.local.endpointDraft.oidcIssuerUrl,
+          oidcClientId: this.local.endpointDraft.oidcClientId,
+          oidcRedirectUri: this.local.endpointDraft.oidcRedirectUri
         }, {
           busy: 'test-endpoint',
           onResolved: (result) => {
@@ -3021,7 +3025,7 @@ class ClientUi {
     checkUrl('endpointWsUrl', draft.wsUrl, ['ws:', 'wss:', 'http:', 'https:'], '请输入有效的 WS/WSS 地址（也可由 HTTP/HTTPS 转换）。');
     // Preserve the existing all-empty local/development compatibility mode.
     // Once any OIDC detail is entered, require the complete public config.
-    if (includeOidc && draft.accessRoute === 'CLOUD_API'
+    if (includeOidc
       && [draft.oidcIssuerUrl, draft.oidcClientId, draft.oidcRedirectUri].some(value => value?.trim())) {
       checkUrl('endpointOidcIssuerUrl', draft.oidcIssuerUrl, ['https:', 'http:'], '请输入 HTTPS Issuer 地址；仅 localhost 允许 HTTP。', { secure: true });
       if (!draft.oidcClientId?.trim()) this.fieldErrors.endpointOidcClientId = '请输入公开客户端 Client ID。';

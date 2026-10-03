@@ -103,6 +103,8 @@ test('power and mode have real mock command receipts', async ({ page }) => {
   await expect.poll(async () => (await model(page)).devices[0].reportedState.power).toBe(false);
   await page.locator('[data-action=command-capability-select]').filter({ hasText: '节能' }).click();
   await expect.poll(async () => (await model(page)).devices[0].reportedState.mode).toBe('eco');
+  await expect(page.locator('[data-state-kind=reported] [data-state-field=mode] .state-row__value')).toHaveText('节能');
+  await expect(page.locator('[data-state-kind=desired] [data-state-field=mode] .state-row__value')).toHaveText('节能');
   expect((await stats(page)).commandSubmits).toBe(2);
   await nav(page, 'activity'); await expect(page.locator('[data-region=screen-content]')).toContainText('模拟回执已确认');
 });
@@ -223,11 +225,13 @@ test('panel exports real counters and reset clears accepted pending work', async
   await page.locator('#demo-reset').click(); await expect(page.locator('#demo-command-count')).toHaveText('0'); await page.locator('#demo-return').click();
   expect((await model(page)).devices[0].reportedState.level).toBe(42); expect((await model(page)).commandsById).toEqual({});
 });
-for (const width of [320, 390, 414, 768, 820, 1024, 1440]) test('responsive layout ' + width + 'px, including detail and AI', async ({ page }) => {
+for (const width of [320, 390, 414, 768, 820, 1024, 1440]) test('responsive layout ' + width + 'px, including detail, AI and weather', async ({ page }) => {
   await page.setViewportSize({ width, height: 900 }); await assertNoOverflow(page);
   await openLamp(page); await assertNoOverflow(page);
   await page.locator((width >= 820 ? '.primary-nav' : '.bottom-nav') + ' [data-screen=ai]').click(); await expect(page.locator('[data-field=ai-question]')).toBeVisible();
   await assertNoOverflow(page);
+  await page.locator('[data-action=open-weather]').first().click(); await assertNoOverflow(page);
+  await page.locator('.weather-location__manual-title').click(); await assertNoOverflow(page);
 });
 test('200% text and simulated safe areas fit a 320px screen', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 900 }); await panel(page); await page.locator('#demo-text-scale').selectOption('200'); await page.locator('#demo-safe-area').selectOption('1');
@@ -235,6 +239,8 @@ test('200% text and simulated safe areas fit a 320px screen', async ({ page }) =
   await openLamp(page); await assertNoOverflow(page);
   await nav(page, 'ai'); await assertNoOverflow(page); await page.locator('[data-field=ai-question]').fill('测试大字体');
   await page.locator('[data-action=ai-send]').scrollIntoViewIfNeeded(); await expect(page.locator('[data-action=ai-send]')).toBeInViewport();
+  await page.locator('[data-action=open-weather]').first().click(); await assertNoOverflow(page);
+  await page.locator('.weather-location__manual-title').click(); await assertNoOverflow(page);
 });
 test('forced colors keeps a system-colored range track and crystal focus', async ({ page }) => {
   await page.emulateMedia({ forcedColors: 'active', reducedMotion: 'reduce' }); await openLamp(page); await page.locator(rangeSelector).focus();
@@ -285,9 +291,12 @@ test('AI site switch during generation clears the draft and suppresses the old a
 test('weather refresh and manual location are functional local operations', async ({ page }) => {
   await page.locator('[data-action=open-weather]').first().click();
   await expect(page.locator('[data-region=screen-content]')).toContainText('多云 · 模拟');
+  await expect(page.locator('.weather-metrics')).toContainText('2.4 m/s');
+  await page.locator('.weather-location__manual-title').click();
   await page.locator('[data-field=weatherLatitude]').fill('22.5431'); await page.locator('[data-field=weatherLongitude]').fill('114.0579');
   await page.locator('[data-field=weatherTimezone]').fill('Asia/Shanghai'); await page.locator('[data-action=save-manual-weather-location]').click();
   expect((await model(page)).weatherSettings.latitude).toBe(22.5431);
   await page.locator('[data-action=refresh-weather]').click(); await expect(page.locator('[data-region=weather-update-stamp]')).toContainText('更新于');
+  await expect(page.locator('[data-region=weather-coordinate-details]')).toHaveAttribute('open', '');
   expect((await model(page)).weather.current.temperatureC).toBe(24.6); expect((await stats(page)).commandSubmits).toBe(0);
 });

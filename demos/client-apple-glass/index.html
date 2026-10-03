@@ -11,10 +11,43 @@
   <body>
     <div class="demo-strip">
       <a class="demo-wordmark" href="./" aria-label="重新打开演示首页">GLASS <span>LAB / 1.2</span></a>
-      <p>独立功能演示 <span>· 全部数据与回执均为模拟</span></p>
+      <p><span id="glass-mode-label">轻毛玻璃 + 液态玻璃</span> <span>· 模拟数据</span></p>
+      <button type="button" id="open-material-preview" aria-haspopup="dialog">材质对比</button>
       <button type="button" class="demo-panel-trigger" id="open-demo-panel" aria-haspopup="dialog">演示测试台 <span aria-hidden="true">↗</span></button>
     </div>
     <div id="app" data-material="auto"></div>
+    <dialog id="material-preview" aria-labelledby="material-preview-title">
+      <div class="material-heading">
+        <div><span class="demo-eyebrow">GLASS MATERIALS</span><h2 id="material-preview-title">看见玻璃的层次</h2></div>
+        <button type="button" id="close-material-preview" aria-label="关闭材质对比">×</button>
+      </div>
+      <p class="material-intro">相同背景下对比柔和模糊与玻璃折射。切换材质后，返回 App 查看导航的选中效果。</p>
+      <div class="material-options" role="group" aria-label="演示材质">
+        <button type="button" data-glass-choice="frosted" aria-pressed="false">轻毛玻璃</button>
+        <button type="button" data-glass-choice="liquid" aria-pressed="true">液态玻璃</button>
+        <button type="button" data-glass-choice="solid" aria-pressed="false">实色</button>
+      </div>
+      <div class="material-comparison">
+        <section class="material-card">
+          <div class="material-stage">
+            <div class="material-scene" aria-hidden="true"><span>IOT</span></div>
+            <div class="material-surface material-frosted"><div class="material-content"><strong>南区 · 装配车间</strong><span>● 设备已连接</span></div></div>
+          </div>
+          <div class="material-caption"><h3>原版 · 轻毛玻璃</h3><p>柔和背景模糊，平面轮廓。</p></div>
+        </section>
+        <section class="material-card">
+          <div class="material-stage">
+            <div class="material-scene" id="liquid-material-backdrop" aria-hidden="true"><span>IOT</span></div>
+            <liquid-glass id="liquid-material-sample" class="material-surface" renderer="webgl" backdrop-selector="#liquid-material-backdrop" lens-profile="player" strength="0.18" radius="26" scale="160" blur="0.3" frost="0.12" dispersion="12" saturation="110" border-color="rgba(255,255,255,0.9)" effect-mode="off">
+              <div class="material-content"><strong>南区 · 装配车间</strong><span>● 设备已连接</span></div>
+            </liquid-glass>
+          </div>
+          <div class="material-caption"><h3>新版 · 液态玻璃</h3><p>边缘折射与细腻高光，文字保持清晰。</p></div>
+        </section>
+      </div>
+      <p class="material-status" id="material-renderer" role="status">正在准备玻璃材质…</p>
+      <button type="button" id="material-preview-return">返回 App 查看效果</button>
+    </dialog>
     <dialog id="demo-panel" aria-labelledby="demo-panel-title">
       <div class="demo-panel-heading"><div><span class="demo-eyebrow">SCENARIO LAB</span><h2 id="demo-panel-title">演示测试台</h2></div><button type="button" id="close-demo-panel" aria-label="关闭测试台">×</button></div>
       <p class="demo-panel-intro">选择场景后返回页面操作，观察目标值、上报值和回执变化。</p>

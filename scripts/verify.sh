@@ -185,12 +185,13 @@ tap_count() {
   printf '%s' "$value"
 }
 
-run_client_unit_tests() {
+run_app_unit_tests() {
+  local app="$1"
   local report
   report="$(mktemp "${TMPDIR:-/tmp}/iot-manager-node-tests.XXXXXX")"
   if ! npm test -- --test-reporter=tap | tee "$report"; then
     rm -f "$report"
-    printf 'client Node unit tests failed.\n' >&2
+    printf '%s Node unit tests failed.\n' "$app" >&2
     exit 1
   fi
   local tests failures cancelled skipped
@@ -201,16 +202,16 @@ run_client_unit_tests() {
   rm -f "$report"
 
   if [ "$tests" -eq 0 ]; then
-    printf 'client Node tests reported zero executed tests.\n' >&2
+    printf '%s Node tests reported zero executed tests.\n' "$app" >&2
     exit 1
   fi
-  record_summary 'node:client' "$tests" "$failures" "$cancelled" "$skipped"
+  record_summary "node:$app" "$tests" "$failures" "$cancelled" "$skipped"
   if [ "$failures" -ne 0 ] || [ "$cancelled" -ne 0 ]; then
-    printf 'client Node tests contain failures or cancellations.\n' >&2
+    printf '%s Node tests contain failures or cancellations.\n' "$app" >&2
     exit 1
   fi
   if [ "$skipped" -ne 0 ]; then
-    register_skip "client Node tests contain $skipped skipped test(s)"
+    register_skip "$app Node tests contain $skipped skipped test(s)"
   fi
 }
 
@@ -266,10 +267,20 @@ run_web_playwright_tests() {
   local app="$1"
   local report
   report="$(mktemp "${TMPDIR:-/tmp}/iot-manager-${app}-playwright.XXXXXX")"
+  local -a playwright_args=(playwright test --reporter=json)
+
+  if [ "$strict_mode" = true ] && [ "$app" = glass-next ]; then
+    playwright_args+=(e2e/ai-chat-panel.spec.js e2e/ai-workspace.spec.js
+      e2e/bottom-navigation-motion.spec.js e2e/glass-client.spec.js e2e/mobile-client.spec.js
+      e2e/mobile-offline-recovery.spec.js e2e/motion-interruptions.spec.js
+      e2e/motion-preview-visuals.spec.js e2e/motion-preview.spec.js
+      e2e/motion-render-integrity.spec.js e2e/motion-states.spec.js
+      e2e/refresh-stability.spec.js e2e/startup-animation.spec.js)
+  fi
 
   # The caller has already changed into the application's directory, so this
   # deliberately uses that package's pinned Playwright runner and config.
-  if ! npx playwright test --reporter=json > "$report"; then
+  if ! npx "${playwright_args[@]}" > "$report"; then
     cat "$report" >&2 || true
     rm -f "$report"
     printf '%s Playwright tests failed.\n' "$app" >&2
@@ -326,14 +337,17 @@ if [ "$skip_web" = false ]; then
   verify_node
   printf '==> Security: public Vite environment policy\n'
   node "$repository_root/scripts/verify-public-build-env.js"
-  for app in frontend console client; do
+  for app in frontend console client apps/client-glass-next; do
     printf '==> %s: install and build\n' "$app"
     (
       cd "$repository_root/$app"
       npm ci
       if [ "$app" = client ]; then
-        run_client_unit_tests
+        run_app_unit_tests client
         run_client_playwright_tests
+      elif [ "$app" = apps/client-glass-next ]; then
+        run_app_unit_tests glass-next
+        run_web_playwright_tests glass-next
       else
         run_web_playwright_tests "$app"
       fi

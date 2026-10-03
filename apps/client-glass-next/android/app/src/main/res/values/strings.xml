@@ -1,0 +1,10 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">IoT Manager Glass</string>
+    <string name="title_activity_main">IoT Manager Glass</string>
+    <string name="package_name">com.iot.manager.glassnext</string>
+    <string name="custom_url_scheme">com.iot.manager.glassnext</string>
+    <string name="startup_recovery_icon">设备运营图标</string>
+    <string name="startup_recovery_message">界面启动未完成，请重新加载。</string>
+    <string name="startup_recovery_retry">重新加载</string>
+</resources>

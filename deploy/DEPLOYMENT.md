@@ -13,6 +13,7 @@ Redis、mTLS、多实例、工单/报表或真实设备 Gate 3 验收已经完�
 | --- | --- |
 | 监控端 | `https://<DOMAIN>/` |
 | 控制台 | `https://<DOMAIN>/console/` |
+| App 网页端 | `https://<DOMAIN>/app/` |
 | REST API | `https://<DOMAIN>/api/v1` |
 | 设备 WebSocket | `wss://<DOMAIN>/ws/devices` |
 | Edge Agent WebSocket | `wss://<DOMAIN>/ws/edge/v1` |
@@ -21,6 +22,32 @@ Redis、mTLS、多实例、工单/报表或真实设备 Gate 3 验收已经完�
 宿主机只发布 Caddy 的 `80/443`。PostgreSQL、Keycloak 管理端口 `9000`、Backend
 端口 `8080`、H2 Console 和 Actuator 均不通过 Caddy 暴露；公网访问
 `/h2-console`、`/actuator/**` 必须是 `404`。
+
+App 网页构建随 Caddy 镜像部署，使用 `/app/` 资源路径；`IOT_WEB_ORIGIN` 与
+`KEYCLOAK_REALM` 作为公开构建参数配置登录服务。调整域名后应重建 Caddy 并运行
+Keycloak realm 对账，使 `/app/` 登录及退出回调与新域名一致。本机集成入口为
+`https://iot-manager.localhost/app/`；手机仍需可访问的 HTTPS 域名与受信任证书，
+不能使用手机自身的 localhost。Android 公开客户端为 `iot-mobile`，回调为
+`com.iot.manager.client://oauth/callback`，供应商密钥只放服务器。
+
+最新 App 配置、连接恢复、安装包和验收范围见
+[Glass Next App 说明](../apps/client-glass-next/README.md)。
+
+## Android 手机局域网接入
+
+同一网络的手机可以使用可选 `docker-compose.phone-lan.yml`、`Caddyfile.phone-lan`
+和本机私有的 `phone-lan.env`，将手机 API、WSS 与 OIDC 指向部署主机的局域网地址。
+使用部署方提供的 HTTPS 接入页安装证书并打开 App。当前 Windows 环境恢复命令：
+
+```powershell
+.\scripts\runtime\start-phone-lan.ps1
+```
+
+脚本复用本机已配置的数据库、CA 与镜像；首次安装仍需常规初始化和 public client
+登记。网络地址改变时须同步服务器、回调及公开构建配置。局域网地址、证书和安装包
+由部署环境提供，不应写入公共文档。非默认 Docker 安装可通过进程环境变量
+`IOT_DOCKER_CLI_PATH`、`IOT_DOCKER_DESKTOP_EXE` 和
+`IOT_DOCKER_DESKTOP_LOCALAPPDATA` 指定本机路径；这些值应留在本机配置中。
 
 ## R1 observability profile / R1 可观测性
 

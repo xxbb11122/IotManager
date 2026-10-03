@@ -1,0 +1,27 @@
+{
+  "clientId": "iot-glass-next",
+  "name": "IoT Manager Glass Next",
+  "enabled": true,
+  "protocol": "openid-connect",
+  "publicClient": true,
+  "standardFlowEnabled": true,
+  "implicitFlowEnabled": false,
+  "directAccessGrantsEnabled": false,
+  "serviceAccountsEnabled": false,
+  "redirectUris": [
+    "com.iot.manager.glassnext://oauth/callback",
+    "http://127.0.0.1:5190/"
+  ],
+  "webOrigins": [
+    "capacitor://localhost",
+    "http://localhost",
+    "https://localhost",
+    "http://127.0.0.1:5190"
+  ],
+  "defaultClientScopes": ["basic", "web-origins", "acr", "roles", "profile", "email"],
+  "optionalClientScopes": ["address", "phone", "offline_access", "microprofile-jwt"],
+  "attributes": {
+    "pkce.code.challenge.method": "S256",
+    "post.logout.redirect.uris": "com.iot.manager.glassnext://oauth/callback##http://127.0.0.1:5190/"
+  }
+}

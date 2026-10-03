@@ -1,0 +1,245 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { CHANGE_DOMAIN, createClientStore } from '../src/js/store.js';
+
+function seededStore() {
+  return createClientStore({
+    devices: [{
+      id: 7,
+      publicId: 'device-7',
+      deviceId: 'lan-field-01',
+      name: 'Field sensor',
+      reportedState: { power: false },
+      desiredState: { power: false },
+      connections: []
+    }]
+  });
+}
+
+test('context clearing atomically removes platform receipts without dropping local BLE history', () => {
+  const store = createClientStore({
+    devices: [{ id: 'server', reportedState: { power: false } }, { id: 'local', localOnly: true }],
+    activeDeviceId: 'server', weather: { status: 'FRESH' }, weatherForecast: { hourly: [] },
+    commandsById: {
+      old: { commandId: 'old', deviceId: 'server', status: 'ACKNOWLEDGED', reportedState: { power: true }, accessRoute: 'SITE_API' },
+      ble: { commandId: 'ble', deviceId: 'local', accessRoute: 'BLE_LOCAL', status: 'UNCONFIRMED' }
+    },
+    activitiesByDeviceId: { server: [{ id: 'old-event' }], local: [{ id: 'ble-event' }] },
+    alertsByDeviceId: { server: [{ id: 'old-alert' }] }
+  });
+  const notifications = [];
+  store.subscribe((state, metadata) => notifications.push(metadata));
+  store.clearPlatformData();
+  const state = store.getState();
+  assert.deepEqual(state.devices.map(device => device.id), ['local']);
+  assert.deepEqual(Object.keys(state.commandsById), ['ble']);
+  assert.deepEqual(Object.keys(state.activitiesByDeviceId), ['local']);
+  assert.deepEqual(state.alertsByDeviceId, {});
+  assert.equal(state.activeDeviceId, null);
+  assert.equal(state.weather, null);
+  assert.equal(state.weatherForecast, null);
+  assert.equal(state.runtime.stale, true);
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0].structural, true);
+  store.setDevices([{ id: 'server', reportedState: { power: false } }]);
+  assert.equal(store.getState().devices[0].reportedState.power, false);
+});
+
+test('store publishes a new immutable snapshot without changing the prior snapshot', () => {
+  const store = seededStore();
+  const before = store.getState();
+  const notifications = [];
+  const unsubscribe = store.subscribe((next) => notifications.push(next));
+
+  store.upsertDevice({ id: 7, name: 'Renamed field sensor', status: 'ONLINE' });
+  const after = store.getState();
+  unsubscribe();
+
+  assert.equal(before.devices[0].name, 'Field sensor');
+  assert.equal(after.devices[0].name, 'Renamed field sensor');
+  assert.notStrictEqual(before, after);
+  assert.notStrictEqual(before.devices[0], after.devices[0]);
+  assert.equal(notifications.length, 1);
+  assert.throws(() => after.devices.push({ id: 8 }), TypeError);
+});
+
+test('realtime reducer bridges backend device identifiers across connection, command, activity, alert, and telemetry events', () => {
+  const store = seededStore();
+
+  store.applyRealtimeEvent({
+    type: 'connection_update',
+    version: 1,
+    timestamp: 1,
+    payload: {
+      deviceId: 'lan-field-01',
+      transport: 'LAN_AGENT',
+      profileId: 'lan-agent-v1',
+      externalId: 'lan-demo-sensor-01',
+      status: 'CONNECTED',
+      metadata: { ipAddress: '192.168.10.21' }
+    }
+  });
+  store.applyRealtimeEvent({
+    type: 'command_update',
+    version: 1,
+    timestamp: 2,
+    payload: {
+      commandId: 'command-1',
+      deviceId: 7,
+      type: 'set_power',
+      status: 'ACKNOWLEDGED',
+      reportedState: { power: true }
+    }
+  });
+  store.applyRealtimeEvent({
+    type: 'activity_update',
+    version: 1,
+    timestamp: 3,
+    payload: { id: 9, deviceId: 'lan-field-01', eventType: 'command_acknowledged' }
+  });
+  store.applyRealtimeEvent({
+    type: 'alert_update',
+    version: 1,
+    timestamp: 4,
+    payload: { id: 4, devicePublicId: 'device-7', level: 'WARNING', resolved: false }
+  });
+  store.applyRealtimeEvent({
+    type: 'telemetry_update',
+    version: 1,
+    timestamp: 5,
+    payload: [{ deviceId: 'lan-field-01', temperature: 23.5, signalStrength: -47 }]
+  });
+  store.applyRealtimeEvent({
+    type: 'device_updates',
+    version: 1,
+    timestamp: 6,
+    payload: [{ id: 7, name: 'must not replace the singular device state' }]
+  });
+
+  const next = store.getState();
+  const device = next.devices[0];
+
+  assert.equal(device.connections[0].status, 'CONNECTED');
+  assert.deepEqual(device.reportedState, { power: true });
+  assert.equal(next.commandsById['command-1'].status, 'ACKNOWLEDGED');
+  assert.equal(next.activitiesByDeviceId['7'][0].eventType, 'command_acknowledged');
+  assert.equal(next.alertsByDeviceId['7'][0].level, 'WARNING');
+  assert.equal(device.temperature, 23.5);
+  assert.equal(device.name, 'Field sensor');
+});
+
+test('store ignores unsupported realtime protocol versions', () => {
+  const store = seededStore();
+  const before = store.getState();
+
+  const accepted = store.applyRealtimeEvent({
+    type: 'device_update',
+    version: 2,
+    timestamp: 1,
+    payload: { id: 7, name: 'unexpected version' }
+  });
+
+  assert.equal(accepted, false);
+  assert.strictEqual(store.getState(), before);
+});
+
+test('store applies an early command event when its device later arrives from REST', () => {
+  const store = createClientStore();
+
+  store.applyRealtimeEvent({
+    type: 'command_update',
+    version: 1,
+    timestamp: 1,
+    payload: {
+      commandId: 'command-early',
+      deviceId: 7,
+      status: 'ACKNOWLEDGED',
+      reportedState: { power: true }
+    }
+  });
+  store.setDevices([{
+    id: 7,
+    deviceId: 'lan-field-01',
+    desiredState: { power: false },
+    reportedState: { power: false },
+    connections: []
+  }]);
+
+  assert.deepEqual(store.getState().devices[0].reportedState, { power: true });
+  assert.equal(store.getState().devices[0].commandStatus, 'ACKNOWLEDGED');
+});
+
+test('store rekeys early activity and alert events when their device later arrives from REST', () => {
+  const store = createClientStore();
+
+  store.applyRealtimeEvent({
+    type: 'activity_update',
+    version: 1,
+    timestamp: 1,
+    payload: { id: 9, deviceId: 'lan-field-01', eventType: 'device_claimed' }
+  });
+  store.applyRealtimeEvent({
+    type: 'alert_update',
+    version: 1,
+    timestamp: 2,
+    payload: { id: 4, deviceId: 'lan-field-01', level: 'WARNING', resolved: false }
+  });
+  store.setDevices([{ id: 7, deviceId: 'lan-field-01', connections: [] }]);
+
+  const next = store.getState();
+  assert.equal(next.activitiesByDeviceId['7'][0].eventType, 'device_claimed');
+  assert.equal(next.alertsByDeviceId['7'][0].level, 'WARNING');
+  assert.equal(next.activitiesByDeviceId['lan-field-01'], undefined);
+  assert.equal(next.alertsByDeviceId['lan-field-01'], undefined);
+});
+
+test('stores access route separately from device transport and stale state', () => {
+  const store = createClientStore();
+  store.setRuntimeContext({ accessRoute: 'CLOUD_API', endpointId: 'cloud', stale: true, lastSyncedAt: 10 });
+  store.setDevices([{ id: 7, connections: [{ transport: 'LAN_AGENT', status: 'CONNECTED' }] }]);
+  assert.equal(store.getState().runtime.accessRoute, 'CLOUD_API');
+  assert.equal(store.getState().devices[0].connections[0].transport, 'LAN_AGENT');
+  assert.equal(store.getState().runtime.stale, true);
+});
+
+test('weather realtime updates are site-scoped and retain the server-computed status level', () => {
+  const store = createClientStore();
+  store.setRuntimeContext({ siteCode: 'demo-site' });
+
+  const rejected = store.applyRealtimeEvent({
+    type: 'weather_update', version: 1, timestamp: 1,
+    payload: { siteCode: 'other-site', status: 'FRESH' }
+  });
+  const accepted = store.applyRealtimeEvent({
+    type: 'weather_update', version: 1, timestamp: 2,
+    payload: {
+      siteCode: 'demo-site', status: 'FRESH',
+      indicators: { temperature: { level: 'SUITABLE', label: '适宜' } }
+    }
+  });
+
+  assert.equal(rejected, false);
+  assert.equal(accepted, true);
+  assert.equal(store.getState().weather.indicators.temperature.level, 'SUITABLE');
+});
+
+test('store emits stable change metadata for device, weather, command, runtime, and connection updates', () => {
+  const store = seededStore();
+  const metadata = [];
+  store.subscribe((_snapshot, change) => metadata.push(change));
+
+  store.patchDevice('lan-field-01', { temperature: 25.1 });
+  store.setWeather({ siteCode: 'demo-site', status: 'FRESH' });
+  store.upsertCommand({ commandId: 'command-metadata', deviceId: 7, status: 'SENT' });
+  store.setConnectionHealth({ state: 'connected', stale: false });
+  store.setRuntimeContext({ stale: false, lastSyncedAt: 1 });
+
+  assert.deepEqual(metadata[0].domains, [CHANGE_DOMAIN.DEVICES]);
+  assert.ok(metadata[0].entityRefs.includes('lan-field-01'));
+  assert.equal(metadata[0].structural, false);
+  assert.deepEqual(metadata[1].domains, [CHANGE_DOMAIN.WEATHER]);
+  assert.deepEqual(metadata[2].domains, [CHANGE_DOMAIN.COMMANDS, CHANGE_DOMAIN.DEVICES]);
+  assert.deepEqual(metadata[3].domains, [CHANGE_DOMAIN.CONNECTION, CHANGE_DOMAIN.RUNTIME]);
+  assert.deepEqual(metadata[4].domains, [CHANGE_DOMAIN.RUNTIME]);
+});

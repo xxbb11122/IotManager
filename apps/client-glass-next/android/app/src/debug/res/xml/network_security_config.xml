@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+    <!-- Local phone testing keeps TLS verification and trusts this CA only
+         in Debug builds. Browser login also needs the CA installed on phone. -->
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="@raw/iot_lan_ca" />
+        </trust-anchors>
+    </debug-overrides>
+</network-security-config>

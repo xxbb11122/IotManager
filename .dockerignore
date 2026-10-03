@@ -16,3 +16,12 @@ client/android/**/build
 **/test-results
 **/playwright-report
 deploy/.env
+deploy/.env.*
+deploy/.runtime
+artifacts
+apps
+demos
+**/.env.local
+**/.env.*.local
+**/*.jks
+**/*.keystore

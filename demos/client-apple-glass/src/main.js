@@ -7,6 +7,7 @@ import { createAiController } from './framework/ai/ai-controller.js';
 import { resolveAiQuickPrompt } from './framework/ai/ai-quick-prompts.js';
 import { createDemoStore } from './demo-store.js';
 import { createMockAi } from './mock-ai.js';
+import { createLiquidGlassDemo } from './liquid-glass.js';
 
 const store = createDemoStore();
 const recoveryData = new Map();
@@ -17,6 +18,7 @@ const recovery = {
   async clear() { recoveryData.clear(); }
 };
 let ui;
+let liquidDemo;
 const mockAi = createMockAi({ getModel: store.getModel, note: store.noteAi });
 const ai = createAiController({
   contextProvider: () => {
@@ -138,21 +140,24 @@ async function resetDemo() {
   document.getElementById('demo-safe-area').value = '0'; document.documentElement.style.fontSize = '';
   for (const edge of ['top', 'bottom', 'left', 'right']) document.documentElement.style.removeProperty('--safe-area-inset-' + edge);
   ui.root.dataset.material = 'auto'; ui.setMotionDegraded(false); ui.navigate('devices', { kind: 'replace' }); ui.render(store.getModel());
+  liquidDemo.reset();
   await ai.syncContext(); renderPanel();
 }
 document.getElementById('demo-reset').addEventListener('click', () => { void resetDemo(); });
 document.getElementById('demo-export').addEventListener('click', () => {
   const result = { demoVersion: '1.2.0', exportedAt: new Date().toISOString(),
-    ...store.getDiagnostics(), aiMode: mockAi.getMode(), material: ui.root.dataset.material,
+    ...store.getDiagnostics(), aiMode: mockAi.getMode(), material: ui.root.dataset.material, glass: ui.root.dataset.glass,
     viewport: { width: innerWidth, height: innerHeight }, textScale: document.documentElement.style.fontSize || '100%' };
   const url = URL.createObjectURL(new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' }));
   const link = document.createElement('a'); link.href = url; link.download = 'glass-demo-test-record.json'; link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
 document.addEventListener('visibilitychange', () => ai.setForeground(!document.hidden));
-window.addEventListener('pagehide', () => { ai.destroy(); ui.destroy(); store.destroy(); }, { once: true });
+window.addEventListener('pagehide', () => { liquidDemo.destroy(); ai.destroy(); ui.destroy(); store.destroy(); }, { once: true });
 // Explicit test entry only; the normal page exposes no controller globals.
 if (new URLSearchParams(location.search).has('test')) {
   globalThis.__glassDemo = Object.freeze({ store, ai, ui, mockAi, reset: resetDemo });
 }
 ui.render(store.getModel()); renderPanel(); void ai.syncContext();
+liquidDemo = createLiquidGlassDemo(ui.root);
+ui.root.addEventListener('glass-material-change', () => ui.render(store.getModel()));

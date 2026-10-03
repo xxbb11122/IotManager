@@ -1,280 +1,57 @@
-TAP version 13
-# Subtest: question UTF-16 length, empty input, cooldown and pending state gate sending
-ok 1 - question UTF-16 length, empty input, cooldown and pending state gate sending
-  ---
-  duration_ms: 1.7616
-  type: 'test'
-  ...
-# Subtest: double click submits exactly once with a UUID and creates one message pair
-ok 2 - double click submits exactly once with a UUID and creates one message pair
-  ---
-  duration_ms: 5.3112
-  type: 'test'
-  ...
-# Subtest: a delayed reply from a previous site never appears in the new site
-ok 3 - a delayed reply from a previous site never appears in the new site
-  ---
-  duration_ms: 4.1681
-  type: 'test'
-  ...
-# Subtest: failure to persist recovery metadata sends no HTTP POST
-ok 4 - failure to persist recovery metadata sends no HTTP POST
-  ---
-  duration_ms: 0.8724
-  type: 'test'
-  ...
-# Subtest: 202 polls with backoff, honors Retry-After and stops in background without repeating POST
-ok 5 - 202 polls with backoff, honors Retry-After and stops in background without repeating POST
-  ---
-  duration_ms: 3.9682
-  type: 'test'
-  ...
-# Subtest: local timeout remains recoverable even if native transport ignores AbortSignal
-ok 6 - local timeout remains recoverable even if native transport ignores AbortSignal
-  ---
-  duration_ms: 1.7552
-  type: 'test'
-  ...
-# Subtest: cold restore uses IDs only and obtains the original successful result using GET
-ok 7 - cold restore uses IDs only and obtains the original successful result using GET
-  ---
-  duration_ms: 1.633
-  type: 'test'
-  ...
-# Subtest: identity and API endpoint partitions are stable across login refresh but isolated from other scopes
-ok 8 - identity and API endpoint partitions are stable across login refresh but isolated from other scopes
-  ---
-  duration_ms: 0.2965
-  type: 'test'
-  ...
-# Subtest: AI entered before site startup automatically restores a saved result when the site arrives
-ok 9 - AI entered before site startup automatically restores a saved result when the site arrives
-  ---
-  duration_ms: 0.9148
-  type: 'test'
-  ...
-# Subtest: context initialization queries a pending request only once and respects background state
-ok 10 - context initialization queries a pending request only once and respects background state
-  ---
-  duration_ms: 0.872
-  type: 'test'
-  ...
-# Subtest: visible history reloads for the new site after its context finishes initialization
-ok 11 - visible history reloads for the new site after its context finishes initialization
-  ---
-  duration_ms: 1.2934
-  type: 'test'
-  ...
-# Subtest: new conversation during a slow startup preference read never restores the discarded request
-ok 12 - new conversation during a slow startup preference read never restores the discarded request
-  ---
-  duration_ms: 0.7399
-  type: 'test'
-  ...
-# Subtest: 24 hour metadata expires and recovery never reads a foreign scope
-ok 13 - 24 hour metadata expires and recovery never reads a foreign scope
-  ---
-  duration_ms: 0.2965
-  type: 'test'
-  ...
-# Subtest: UNKNOWN requires explicit retry with a new key and never automatically resends
-ok 14 - UNKNOWN requires explicit retry with a new key and never automatically resends
-  ---
-  duration_ms: 1.3403
-  type: 'test'
-  ...
-# Subtest: 403 during history reading clears all AI messages, draft and role information
-ok 15 - 403 during history reading clears all AI messages, draft and role information
-  ---
-  duration_ms: 1.0171
-  type: 'test'
-  ...
-# Subtest: persona save and activation send independent expected versions and preserve the conversation version
-ok 16 - persona save and activation send independent expected versions and preserve the conversation version
-  ---
-  duration_ms: 2.5429
-  type: 'test'
-  ...
-# Subtest: older server capability 404 permits only legacy chat
-ok 17 - older server capability 404 permits only legacy chat
-  ---
-  duration_ms: 0.5602
-  type: 'test'
-  ...
-# Subtest: 403 while saving persona revokes all AI data and management permissions
-ok 18 - 403 while saving persona revokes all AI data and management permissions
-  ---
-  duration_ms: 0.8189
-  type: 'test'
-  ...
-# Subtest: overlapping older-message pages never duplicate stored message IDs
-ok 19 - overlapping older-message pages never duplicate stored message IDs
-  ---
-  duration_ms: 0.6865
-  type: 'test'
-  ...
-# Subtest: 410 on an in-flight follow-up clears the deleted conversation and its local contents
-ok 20 - 410 on an in-flight follow-up clears the deleted conversation and its local contents
-  ---
-  duration_ms: 0.5906
-  type: 'test'
-  ...
-# Subtest: acknowledgement commits the confirmed reported state
-ok 21 - acknowledgement commits the confirmed reported state
-  ---
-  duration_ms: 2.2058
-  type: 'test'
-  ...
-# Subtest: pending command leaves the reported state untouched while recording the desired target
-ok 22 - pending command leaves the reported state untouched while recording the desired target
-  ---
-  duration_ms: 0.4371
-  type: 'test'
-  ...
-# Subtest: pending backend view prefers its desired state over its stale reported state
-ok 23 - pending backend view prefers its desired state over its stale reported state
-  ---
-  duration_ms: 0.2217
-  type: 'test'
-  ...
-# Subtest: unconfirmed BLE delivery never changes reported state
-ok 24 - unconfirmed BLE delivery never changes reported state
-  ---
-  duration_ms: 1.2299
-  type: 'test'
-  ...
-# Subtest: PENDING and SENT only change desired; ACK changes reported from the receipt
-ok 25 - PENDING and SENT only change desired; ACK changes reported from the receipt
-  ---
-  duration_ms: 129.1789
-  type: 'test'
-  ...
-# Subtest: failed preserves reported state without automatic retransmission
-ok 26 - failed preserves reported state without automatic retransmission
-  ---
-  duration_ms: 152.8484
-  type: 'test'
-  ...
-# Subtest: unconfirmed preserves reported state without automatic retransmission
-ok 27 - unconfirmed preserves reported state without automatic retransmission
-  ---
-  duration_ms: 154.064
-  type: 'test'
-  ...
-# Subtest: pending blocks duplicate submission and captures selected outcome
-ok 28 - pending blocks duplicate submission and captures selected outcome
-  ---
-  duration_ms: 125.3214
-  type: 'test'
-  ...
-# Subtest: switching site retires old wait and cannot update the new site
-ok 29 - switching site retires old wait and cannot update the new site
-  ---
-  duration_ms: 157.4861
-  type: 'test'
-  ...
-# Subtest: reset cancels an accepted command and clears data without a late update
-ok 30 - reset cancels an accepted command and clears data without a late update
-  ---
-  duration_ms: 153.7466
-  type: 'test'
-  ...
-# Subtest: controller rejects every readonly and invalid scenario, independent of UI
-ok 31 - controller rejects every readonly and invalid scenario, independent of UI
-  ---
-  duration_ms: 1.7236
-  type: 'test'
-  ...
-# Subtest: raw bad ranges remain invalid after capability normalization
-ok 32 - raw bad ranges remain invalid after capability normalization
-  ---
-  duration_ms: 0.9098
-  type: 'test'
-  ...
-# Subtest: LAN claim validates site and registers exactly one local device
-ok 33 - LAN claim validates site and registers exactly one local device
-  ---
-  duration_ms: 1.0778
-  type: 'test'
-  ...
-# Subtest: mock AI idempotent send and recovery use the original request
-ok 34 - mock AI idempotent send and recovery use the original request
-  ---
-  duration_ms: 27.4848
-  type: 'test'
-  ...
-# Subtest: mock AI stores history and persona in independent site scopes
-ok 35 - mock AI stores history and persona in independent site scopes
-  ---
-  duration_ms: 15.5873
-  type: 'test'
-  ...
-# Subtest: manual weather validates coordinates and updates only simulated location
-ok 36 - manual weather validates coordinates and updates only simulated location
-  ---
-  duration_ms: 16.1364
-  type: 'test'
-  ...
-# Subtest: backend Profile envelopes drive arbitrary client controls without legacy defaults
-ok 37 - backend Profile envelopes drive arbitrary client controls without legacy defaults
-  ---
-  duration_ms: 3.4334
-  type: 'test'
-  ...
-# Subtest: connection Profile capabilities remain usable when a DeviceView has no top-level envelope
-ok 38 - connection Profile capabilities remain usable when a DeviceView has no top-level envelope
-  ---
-  duration_ms: 0.7133
-  type: 'test'
-  ...
-# Subtest: command metadata fills state and parameter mappings omitted by the control
-ok 39 - command metadata fills state and parameter mappings omitted by the control
-  ---
-  duration_ms: 0.5765
-  type: 'test'
-  ...
-# Subtest: motion policy responds to live preference and hidden changes, without duplicate notifications
-ok 40 - motion policy responds to live preference and hidden changes, without duplicate notifications
-  ---
-  duration_ms: 1.9688
-  type: 'test'
-  ...
-# Subtest: degradation is reversible and destroy removes all listeners/subscribers
-ok 41 - degradation is reversible and destroy removes all listeners/subscribers
-  ---
-  duration_ms: 0.4517
-  type: 'test'
-  ...
-# Subtest: policy supports older MediaQueryList listeners and non-browser unit environments
-ok 42 - policy supports older MediaQueryList listeners and non-browser unit environments
-  ---
-  duration_ms: 0.2712
-  type: 'test'
-  ...
-# Subtest: task registry deduplicates a business action across view changes without cancelling it
-ok 43 - task registry deduplicates a business action across view changes without cancelling it
-  ---
-  duration_ms: 1.136
-  type: 'test'
-  ...
-# Subtest: a late finish cannot remove a newer request or a different context
-ok 44 - a late finish cannot remove a newer request or a different context
-  ---
-  duration_ms: 0.2978
-  type: 'test'
-  ...
-# Subtest: task scope and key cannot collide through delimiter text
-ok 45 - task scope and key cannot collide through delimiter text
-  ---
-  duration_ms: 0.281
-  type: 'test'
-  ...
-1..45
-# tests 45
-# suites 0
-# pass 45
-# fail 0
-# cancelled 0
-# skipped 0
-# todo 0
-# duration_ms 1062.3074
+
+> iot-apple-glass-standalone-demo@1.2.0 test
+> node --test --test-timeout=15000 test/*.test.mjs
+
+✔ question UTF-16 length, empty input, cooldown and pending state gate sending (1.8259ms)
+✔ double click submits exactly once with a UUID and creates one message pair (3.9633ms)
+✔ a delayed reply from a previous site never appears in the new site (4.1176ms)
+✔ failure to persist recovery metadata sends no HTTP POST (0.8333ms)
+✔ 202 polls with backoff, honors Retry-After and stops in background without repeating POST (4.7393ms)
+✔ local timeout remains recoverable even if native transport ignores AbortSignal (1.5142ms)
+✔ cold restore uses IDs only and obtains the original successful result using GET (1.6229ms)
+✔ identity and API endpoint partitions are stable across login refresh but isolated from other scopes (0.3277ms)
+✔ AI entered before site startup automatically restores a saved result when the site arrives (1.1508ms)
+✔ context initialization queries a pending request only once and respects background state (1.1346ms)
+✔ visible history reloads for the new site after its context finishes initialization (1.2272ms)
+✔ new conversation during a slow startup preference read never restores the discarded request (0.9953ms)
+✔ 24 hour metadata expires and recovery never reads a foreign scope (0.5351ms)
+✔ UNKNOWN requires explicit retry with a new key and never automatically resends (1.2386ms)
+✔ 403 during history reading clears all AI messages, draft and role information (0.7603ms)
+✔ persona save and activation send independent expected versions and preserve the conversation version (2.4115ms)
+✔ older server capability 404 permits only legacy chat (0.6764ms)
+✔ 403 while saving persona revokes all AI data and management permissions (1.3976ms)
+✔ overlapping older-message pages never duplicate stored message IDs (0.9744ms)
+✔ 410 on an in-flight follow-up clears the deleted conversation and its local contents (0.8562ms)
+✔ acknowledgement commits the confirmed reported state (1.895ms)
+✔ pending command leaves the reported state untouched while recording the desired target (0.2655ms)
+✔ pending backend view prefers its desired state over its stale reported state (0.1671ms)
+✔ unconfirmed BLE delivery never changes reported state (1.0919ms)
+✔ PENDING and SENT only change desired; ACK changes reported from the receipt (134.0509ms)
+✔ failed preserves reported state without automatic retransmission (152.7982ms)
+✔ unconfirmed preserves reported state without automatic retransmission (155.4634ms)
+✔ pending blocks duplicate submission and captures selected outcome (124.7428ms)
+✔ switching site retires old wait and cannot update the new site (157.8226ms)
+✔ reset cancels an accepted command and clears data without a late update (155.6404ms)
+✔ controller rejects every readonly and invalid scenario, independent of UI (1.6307ms)
+✔ raw bad ranges remain invalid after capability normalization (0.5503ms)
+✔ LAN claim validates site and registers exactly one local device (0.7608ms)
+✔ mock AI idempotent send and recovery use the original request (28.0502ms)
+✔ mock AI stores history and persona in independent site scopes (16.0756ms)
+✔ manual weather validates coordinates and updates only simulated location (14.5823ms)
+✔ backend Profile envelopes drive arbitrary client controls without legacy defaults (2.9968ms)
+✔ connection Profile capabilities remain usable when a DeviceView has no top-level envelope (0.533ms)
+✔ command metadata fills state and parameter mappings omitted by the control (0.5528ms)
+✔ motion policy responds to live preference and hidden changes, without duplicate notifications (1.5465ms)
+✔ degradation is reversible and destroy removes all listeners/subscribers (0.4848ms)
+✔ policy supports older MediaQueryList listeners and non-browser unit environments (0.3364ms)
+✔ task registry deduplicates a business action across view changes without cancelling it (2.3978ms)
+✔ a late finish cannot remove a newer request or a different context (0.6008ms)
+✔ task scope and key cannot collide through delimiter text (0.2871ms)
+ℹ tests 45
+ℹ suites 0
+ℹ pass 45
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1075.986

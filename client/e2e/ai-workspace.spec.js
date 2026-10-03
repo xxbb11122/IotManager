@@ -2,22 +2,25 @@ import { expect, test } from '@playwright/test';
 
 // This harness imports production UI and controller modules with an in-memory
 // API. It never logs in to or requests data from the deployed environment.
-async function harness(page, { roles = ['OWNER'], pending = false } = {}) {
+async function harness(page, { roles = ['OWNER'], pending = false, authRequired = false } = {}) {
   await page.goto('/src/js/ai/ai-controller.js');
   await page.setContent('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/src/css/style.css"><link rel="stylesheet" href="/src/css/ai.css"></head><body><div id="app"></div></body></html>');
-  await page.evaluate(async ({ roles, pending }) => {
+  await page.evaluate(async ({ roles, pending, authRequired }) => {
     const { createClientUi } = await import('/src/js/ui.js');
     const { createAiController } = await import('/src/js/ai/ai-controller.js');
     const { createAiRecoveryStore } = await import('/src/js/ai/ai-state.js');
     const values = new Map(), calls = [], versions = [];
     let active = { version: 0, name: '默认性格', instructions: '' }, done = !pending, ai, model = {
-      context: { organizationCode: 'test-org', siteCode: 'test-site', siteName: '测试站点' }, auth: { configured: true, authenticated: true },
+      context: { organizationCode: 'test-org', siteCode: 'test-site', siteName: '测试站点' }, auth: { configured: !authRequired, authenticated: !authRequired },
       startup: { phase: 'ready' }, devices: [], loading: {}, runtime: {}
     };
     const answer = '<img src=x onerror="window.aiInjected=1">模拟回答';
     const result = { requestId: 'r1', conversationId: 'c1', answer, personaVersion: 0, citations: [] };
     const api = { baseUrl: 'https://mock.example.test/api/v1',
-      getCurrentUser: async () => ({ subject: 'user-1', roles, sites: [{ id: 1 }] }),
+      getCurrentUser: async () => {
+        if (authRequired) throw Object.assign(new Error('Unauthorized'), { status: 401 });
+        return { subject: 'user-1', roles, sites: [{ id: 1 }] };
+      },
       getAiStatus: async () => ({ enabled: true }),
       getAiCapabilities: async () => ({ contractVersion: 1, features: { history: true, pagedMessages: true, requestRecovery: true, idempotency: true, personaActivationGuard: true } }),
       getAiPersona: async () => active, listAiPersonas: async () => versions,
@@ -42,16 +45,18 @@ async function harness(page, { roles = ['OWNER'], pending = false } = {}) {
         if (action === 'ai-delete') { if (window.confirm('删除？')) await ai.deleteConversation(id); }
         if (action === 'ai-persona-save') await ai.savePersona();
         if (action === 'ai-persona-activate') await ai.activatePersona(Number(id));
+        if (action === 'ai-suggest') ai.setDraft(id);
+        if (action === 'ai-reload') await ai.reload();
       }
     });
-    ai = createAiController({ contextProvider: () => ({ api, siteId: 1, organization: 'test-org', auth: model.auth, endpoint: {} }),
+    ai = createAiController({ contextProvider: () => ({ api, siteId: authRequired ? null : 1, organization: 'test-org', auth: model.auth, endpoint: {} }),
       recovery: createAiRecoveryStore({ get: async ({ key }) => ({ value: values.get(key) }), set: async ({ key, value }) => values.set(key, value), remove: async ({ key }) => values.delete(key) }),
       onChange: (state) => { model = { ...model, ai: state }; ui.patchAi(model); } });
     ui.render(model);
     window.aiWorkspaceHarness = { calls, ai, ui, done: () => { done = true; }, refreshDevices: () => ui.patchRuntime({ ...model, devices: [] }) };
-  }, { roles, pending });
+  }, { roles, pending, authRequired });
   await page.getByRole('button', { name: 'AI', exact: true }).click();
-  await expect(page.locator('#ai-question')).toBeVisible();
+  if (!authRequired) await expect(page.locator('#ai-question')).toBeVisible();
 }
 
 test('AI navigation, safe text rendering and device refresh preserve the focused question', async ({ page }) => {
@@ -79,6 +84,28 @@ test('history opens the full message pair and supports explicit deletion', async
   await page.getByRole('button', { name: '历史', exact: true }).click();
   page.once('dialog', dialog => dialog.accept()); await page.getByRole('button', { name: '删除', exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.aiWorkspaceHarness.calls.some(row => row.deleted === 'c1'))).toBe(true);
+});
+
+test('a protected server without login configuration gives setup instead of an empty site picker', async ({ page }) => {
+  await harness(page, { authRequired: true });
+  await expect(page.getByText('服务器要求登录。请先在连接设置中填写登录服务、客户端 ID 和回调地址，再登录账号。')).toBeVisible();
+  await expect(page.getByRole('button', { name: '连接设置', exact: true }).last()).toBeVisible();
+  await expect(page.getByRole('button', { name: '选择站点', exact: true })).toHaveCount(0);
+  await expect(page.locator('#ai-question')).toHaveCount(0);
+});
+
+test('example questions require explicit sending and recheck preserves the next draft', async ({ page }) => {
+  await harness(page);
+  await page.getByRole('button', { name: '解释温度传感器', exact: true }).click();
+  await expect(page.locator('#ai-question')).toHaveValue('用一句话解释温度传感器。');
+  expect(await page.evaluate(() => window.aiWorkspaceHarness.calls.length)).toBe(0);
+  await page.getByRole('button', { name: '发送', exact: true }).click();
+  await expect(page.locator('.ai-message')).toHaveCount(2);
+  await page.locator('#ai-question').fill('还未发送的草稿');
+  await page.getByRole('button', { name: '检查连接', exact: true }).click();
+  await expect(page.locator('#ai-question')).toHaveValue('还未发送的草稿');
+  await expect(page.locator('.ai-message')).toHaveCount(2);
+  expect(await page.evaluate(() => window.aiWorkspaceHarness.calls.length)).toBe(1);
 });
 
 test('persona saves 4000 characters and activation has a separate expected version', async ({ page }) => {

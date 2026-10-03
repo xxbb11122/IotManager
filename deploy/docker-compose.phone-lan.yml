@@ -1,0 +1,10 @@
+# Optional, same-network phone access. Keep the integration CA and database.
+# Append phone-lan.env after the regular integration and runtime env files.
+services:
+  keycloak:
+    volumes:
+      - ./keycloak/reconcile-glass-client.sh:/opt/keycloak/bin/reconcile-glass-client.sh:ro
+  caddy:
+    volumes:
+      - ./Caddyfile.phone-lan:/etc/caddy/Caddyfile:ro
+      - ./.runtime/iot-manager-p0/phone-web:/srv/phone:ro

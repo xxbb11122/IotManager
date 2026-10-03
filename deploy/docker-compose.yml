@@ -569,6 +569,9 @@ services:
     build:
       context: ..
       dockerfile: deploy/Caddy.Dockerfile
+      args:
+        IOT_WEB_ORIGIN: ${IOT_WEB_ORIGIN:?set IOT_WEB_ORIGIN}
+        KEYCLOAK_REALM: ${KEYCLOAK_REALM:-iot-manager}
     image: iot-manager-caddy:local
     restart: unless-stopped
     stop_grace_period: 30s

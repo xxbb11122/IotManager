@@ -2,10 +2,10 @@
   "config": {
     "argv": [
       "C:\\Program Files\\nodejs\\node.exe",
-      "E:\\CC_testP\\iot-manager\\demos\\client-apple-glass\\node_modules\\@playwright\\test\\cli.js",
+      "<workspace>\\demos\\client-apple-glass\\node_modules\\@playwright\\test\\cli.js",
       "test"
     ],
-    "configFile": "E:\\CC_testP\\iot-manager\\demos\\client-apple-glass\\playwright.config.js",
+    "configFile": "<workspace>\\demos\\client-apple-glass\\playwright.config.js",
     "rootDir": "E:/CC_testP/iot-manager/demos/client-apple-glass/e2e",
     "failOnFlakyTests": false,
     "forbidOnly": false,
@@ -98,12 +98,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 3061,
+                  "duration": 2149,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-10-02T02:47:14.528Z",
+                  "startTime": "2026-10-02T14:17:22.164Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -132,12 +132,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 2199,
+                  "duration": 2298,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-10-02T02:47:18.098Z",
+                  "startTime": "2026-10-02T14:17:24.786Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -166,12 +166,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 1036,
+                  "duration": 1203,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-10-02T02:47:20.307Z",
+                  "startTime": "2026-10-02T14:17:27.094Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -200,12 +200,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 904,
+                  "duration": 1026,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-10-02T02:47:21.356Z",
+                  "startTime": "2026-10-02T14:17:28.306Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -234,12 +234,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 2090,
+                  "duration": 2287,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-10-02T02:47:22.271Z",
+                  "startTime": "2026-10-02T14:17:29.341Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -268,12 +268,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 1653,
+                  "duration": 1683,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-10-02T02:47:24.374Z",
+                  "startTime": "2026-10-02T14:17:31.638Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -302,12 +302,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 2944,
+                  "duration": 3072,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-10-02T02:47:26.041Z",
+                  "startTime": "2026-10-02T14:17:33.329Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -336,12 +336,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 753,
+                  "duration": 813,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-10-02T02:47:28.996Z",
+                  "startTime": "2026-10-02T14:17:36.410Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -351,7 +351,7 @@
           ],
           "id": "e55eebcb6d281b4de51c-abff1e8b946df317dd15",
           "file": "demo.spec.js",
-          "line": 109,
+          "line": 111,
           "column": 57
         },
         {
@@ -370,12 +370,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 749,
+                  "duration": 806,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-10-02T02:47:29.764Z",
+                  "startTime": "2026-10-02T14:17:37.232Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -385,657 +385,11 @@
           ],
           "id": "e55eebcb6d281b4de51c-d4241f57906ddb5f261a",
           "file": "demo.spec.js",
-          "line": 109,
+          "line": 111,
           "column": 57
         },
         {
           "title": "unknown scene has no executable controls",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 20000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "",
-              "projectName": "",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 750,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-10-02T02:47:30.526Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "e55eebcb6d281b4de51c-7e9826c3e43303cd9e37",
-          "file": "demo.spec.js",
-          "line": 109,
-          "column": 57
-        },
-        {
-          "title": "invalid range disables control and explains why",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 20000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "",
-              "projectName": "",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 746,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-10-02T02:47:31.288Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "e55eebcb6d281b4de51c-6ac41274c44d42c8b0bd",
-          "file": "demo.spec.js",
-          "line": 116,
-          "column": 53
-        },
-        {
-          "title": "unknown-value range disables control and explains why",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 20000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "",
-              "projectName": "",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 773,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-10-02T02:47:32.046Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "e55eebcb6d281b4de51c-4bddfea6002b5784f5fe",
-          "file": "demo.spec.js",
-          "line": 116,
-          "column": 53
-        },
-        {
-          "title": "site change during accepted command suppresses late receipt in the new scope",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 20000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "",
-              "projectName": "",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 969,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-10-02T02:47:32.832Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "e55eebcb6d281b4de51c-e61ee6526882f0ca6369",
-          "file": "demo.spec.js",
-          "line": 122,
-          "column": 1
-        },
-        {
-          "title": "quick AI prompt fills stable draft and never sends until explicit action",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 20000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "",
-              "projectName": "",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 2098,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-10-02T02:47:33.816Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "e55eebcb6d281b4de51c-2ea2d3b0ea100db03a95",
-          "file": "demo.spec.js",
-          "line": 129,
-          "column": 1
-        },
-        {
-          "title": "AI processing recovers the original request without a second send",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 20000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "",
-              "projectName": "",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 4222,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-10-02T02:47:35.928Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "e55eebcb6d281b4de51c-8e1f5b0993a651c9a1cf",
-          "file": "demo.spec.js",
-          "line": 142,
-          "column": 1
-        },
-        {
-          "title": "AI stopped local wait can query its result without sending again",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 20000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "",
-              "projectName": "",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 1885,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-10-02T02:47:40.160Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "e55eebcb6d281b4de51c-a5402fdf5118a3f27cd3",
-          "file": "demo.spec.js",
-          "line": 149,
-          "column": 1
-        },
-        {
-          "title": "AI failed request requires explicit retry and preserves draft contract",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 20000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "",
-              "projectName": "",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 2578,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-10-02T02:47:42.058Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "e55eebcb6d281b4de51c-a3445a7c3402de20d40b",
-          "file": "demo.spec.js",
-          "line": 158,
-          "column": 1
-        },
-        {
-          "title": "AI cooldown allows drafting, blocks sending and can then resume",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 20000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "",
-              "projectName": "",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 7266,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-10-02T02:47:44.646Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "e55eebcb6d281b4de51c-2ad31d323e47d3248c89",
-          "file": "demo.spec.js",
-          "line": 166,
-          "column": 1
-        },
-        {
-          "title": "AI history opens and deletes actual mock conversations",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 20000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "",
-              "projectName": "",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 3626,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-10-02T02:47:51.922Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "e55eebcb6d281b4de51c-b8df552c2deb9bae6f71",
-          "file": "demo.spec.js",
-          "line": 175,
-          "column": 1
-        },
-        {
-          "title": "AI persona saves and activates for new conversations",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 20000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "",
-              "projectName": "",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 958,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-10-02T02:47:55.561Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "e55eebcb6d281b4de51c-e7c44a8b8966d33e99b9",
-          "file": "demo.spec.js",
-          "line": 183,
-          "column": 1
-        },
-        {
-          "title": "logout blocks controls and AI, login restores independent demo access",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 20000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "",
-              "projectName": "",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 852,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-10-02T02:47:56.531Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "e55eebcb6d281b4de51c-b47820adfb6980d8b530",
-          "file": "demo.spec.js",
-          "line": 190,
-          "column": 1
-        },
-        {
-          "title": "LAN discover and claim changes the local device list",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 20000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "",
-              "projectName": "",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 1875,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-10-02T02:47:57.397Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "e55eebcb6d281b4de51c-4a735d6482da337c957d",
-          "file": "demo.spec.js",
-          "line": 197,
-          "column": 1
-        },
-        {
-          "title": "mock BLE disconnect and reconnect are functional without hardware",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 20000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "",
-              "projectName": "",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 965,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-10-02T02:47:59.283Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "e55eebcb6d281b4de51c-8ac3d5ac27cd333420ac",
-          "file": "demo.spec.js",
-          "line": 203,
-          "column": 1
-        },
-        {
-          "title": "material and motion switches are independent and survive navigation",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 20000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "",
-              "projectName": "",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 1047,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-10-02T02:48:00.256Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "e55eebcb6d281b4de51c-3baffb7bf301ba41fa8d",
-          "file": "demo.spec.js",
-          "line": 209,
-          "column": 1
-        },
-        {
-          "title": "panel exports real counters and reset clears accepted pending work",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 20000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "",
-              "projectName": "",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 1304,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-10-02T02:48:01.314Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "e55eebcb6d281b4de51c-34b4220c4ecd492cfe47",
-          "file": "demo.spec.js",
-          "line": 219,
-          "column": 1
-        },
-        {
-          "title": "responsive layout 320px, including detail and AI",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 20000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "",
-              "projectName": "",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 678,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-10-02T02:48:02.630Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "e55eebcb6d281b4de51c-2e1b0478e74d5e540907",
-          "file": "demo.spec.js",
-          "line": 226,
-          "column": 60
-        },
-        {
-          "title": "responsive layout 390px, including detail and AI",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 20000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "",
-              "projectName": "",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 655,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-10-02T02:48:03.321Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "e55eebcb6d281b4de51c-21a47fffe11331e7c2ac",
-          "file": "demo.spec.js",
-          "line": 226,
-          "column": 60
-        },
-        {
-          "title": "responsive layout 414px, including detail and AI",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 20000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "",
-              "projectName": "",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 662,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-10-02T02:48:03.988Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "e55eebcb6d281b4de51c-b99403ae1ac7caddfa23",
-          "file": "demo.spec.js",
-          "line": 226,
-          "column": 60
-        },
-        {
-          "title": "responsive layout 768px, including detail and AI",
           "ok": true,
           "tags": [],
           "tests": [
@@ -1055,7 +409,7 @@
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-10-02T02:48:04.665Z",
+                  "startTime": "2026-10-02T14:17:38.046Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -1063,13 +417,13 @@
               "status": "expected"
             }
           ],
-          "id": "e55eebcb6d281b4de51c-94eff4aa42c10559ce8f",
+          "id": "e55eebcb6d281b4de51c-7e9826c3e43303cd9e37",
           "file": "demo.spec.js",
-          "line": 226,
-          "column": 60
+          "line": 111,
+          "column": 57
         },
         {
-          "title": "responsive layout 820px, including detail and AI",
+          "title": "invalid range disables control and explains why",
           "ok": true,
           "tags": [],
           "tests": [
@@ -1084,12 +438,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 707,
+                  "duration": 758,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-10-02T02:48:05.437Z",
+                  "startTime": "2026-10-02T14:17:38.815Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -1097,13 +451,13 @@
               "status": "expected"
             }
           ],
-          "id": "e55eebcb6d281b4de51c-9ed5db4041972cde075f",
+          "id": "e55eebcb6d281b4de51c-6ac41274c44d42c8b0bd",
           "file": "demo.spec.js",
-          "line": 226,
-          "column": 60
+          "line": 118,
+          "column": 53
         },
         {
-          "title": "responsive layout 1024px, including detail and AI",
+          "title": "unknown-value range disables control and explains why",
           "ok": true,
           "tags": [],
           "tests": [
@@ -1118,12 +472,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 736,
+                  "duration": 755,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-10-02T02:48:06.156Z",
+                  "startTime": "2026-10-02T14:17:39.581Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -1131,13 +485,13 @@
               "status": "expected"
             }
           ],
-          "id": "e55eebcb6d281b4de51c-d11c1a664aed9001615b",
+          "id": "e55eebcb6d281b4de51c-4bddfea6002b5784f5fe",
           "file": "demo.spec.js",
-          "line": 226,
-          "column": 60
+          "line": 118,
+          "column": 53
         },
         {
-          "title": "responsive layout 1440px, including detail and AI",
+          "title": "site change during accepted command suppresses late receipt in the new scope",
           "ok": true,
           "tags": [],
           "tests": [
@@ -1152,12 +506,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 805,
+                  "duration": 791,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-10-02T02:48:06.905Z",
+                  "startTime": "2026-10-02T14:17:40.344Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -1165,9 +519,655 @@
               "status": "expected"
             }
           ],
-          "id": "e55eebcb6d281b4de51c-00c853c5eb8fafbc04c2",
+          "id": "e55eebcb6d281b4de51c-e61ee6526882f0ca6369",
           "file": "demo.spec.js",
-          "line": 226,
+          "line": 124,
+          "column": 1
+        },
+        {
+          "title": "quick AI prompt fills stable draft and never sends until explicit action",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2093,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T14:17:41.144Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e55eebcb6d281b4de51c-2ea2d3b0ea100db03a95",
+          "file": "demo.spec.js",
+          "line": 131,
+          "column": 1
+        },
+        {
+          "title": "AI processing recovers the original request without a second send",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4294,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T14:17:43.245Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e55eebcb6d281b4de51c-8e1f5b0993a651c9a1cf",
+          "file": "demo.spec.js",
+          "line": 144,
+          "column": 1
+        },
+        {
+          "title": "AI stopped local wait can query its result without sending again",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1933,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T14:17:47.549Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e55eebcb6d281b4de51c-a5402fdf5118a3f27cd3",
+          "file": "demo.spec.js",
+          "line": 151,
+          "column": 1
+        },
+        {
+          "title": "AI failed request requires explicit retry and preserves draft contract",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2816,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T14:17:49.493Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e55eebcb6d281b4de51c-a3445a7c3402de20d40b",
+          "file": "demo.spec.js",
+          "line": 160,
+          "column": 1
+        },
+        {
+          "title": "AI cooldown allows drafting, blocks sending and can then resume",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 7484,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T14:17:52.318Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e55eebcb6d281b4de51c-2ad31d323e47d3248c89",
+          "file": "demo.spec.js",
+          "line": 168,
+          "column": 1
+        },
+        {
+          "title": "AI history opens and deletes actual mock conversations",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3727,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T14:17:59.811Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e55eebcb6d281b4de51c-b8df552c2deb9bae6f71",
+          "file": "demo.spec.js",
+          "line": 177,
+          "column": 1
+        },
+        {
+          "title": "AI persona saves and activates for new conversations",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1072,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T14:18:03.546Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e55eebcb6d281b4de51c-e7c44a8b8966d33e99b9",
+          "file": "demo.spec.js",
+          "line": 185,
+          "column": 1
+        },
+        {
+          "title": "logout blocks controls and AI, login restores independent demo access",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 951,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T14:18:04.626Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e55eebcb6d281b4de51c-b47820adfb6980d8b530",
+          "file": "demo.spec.js",
+          "line": 192,
+          "column": 1
+        },
+        {
+          "title": "LAN discover and claim changes the local device list",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1866,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T14:18:05.585Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e55eebcb6d281b4de51c-4a735d6482da337c957d",
+          "file": "demo.spec.js",
+          "line": 199,
+          "column": 1
+        },
+        {
+          "title": "mock BLE disconnect and reconnect are functional without hardware",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 921,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T14:18:07.460Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e55eebcb6d281b4de51c-8ac3d5ac27cd333420ac",
+          "file": "demo.spec.js",
+          "line": 205,
+          "column": 1
+        },
+        {
+          "title": "material and motion switches are independent and survive navigation",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1063,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T14:18:08.389Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e55eebcb6d281b4de51c-3baffb7bf301ba41fa8d",
+          "file": "demo.spec.js",
+          "line": 211,
+          "column": 1
+        },
+        {
+          "title": "panel exports real counters and reset clears accepted pending work",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1316,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T14:18:09.461Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e55eebcb6d281b4de51c-34b4220c4ecd492cfe47",
+          "file": "demo.spec.js",
+          "line": 221,
+          "column": 1
+        },
+        {
+          "title": "responsive layout 320px, including detail, AI and weather",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1008,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T14:18:10.785Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e55eebcb6d281b4de51c-8ade133c0ca3a9273bc3",
+          "file": "demo.spec.js",
+          "line": 228,
+          "column": 60
+        },
+        {
+          "title": "responsive layout 390px, including detail, AI and weather",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1109,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T14:18:11.801Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e55eebcb6d281b4de51c-3c35df7252609dc24dd8",
+          "file": "demo.spec.js",
+          "line": 228,
+          "column": 60
+        },
+        {
+          "title": "responsive layout 414px, including detail, AI and weather",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1118,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T14:18:12.919Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e55eebcb6d281b4de51c-ca342cf2a8fca9342eca",
+          "file": "demo.spec.js",
+          "line": 228,
+          "column": 60
+        },
+        {
+          "title": "responsive layout 768px, including detail, AI and weather",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1321,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T14:18:14.047Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e55eebcb6d281b4de51c-e67c1e98b93faa1318a8",
+          "file": "demo.spec.js",
+          "line": 228,
+          "column": 60
+        },
+        {
+          "title": "responsive layout 820px, including detail, AI and weather",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1190,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T14:18:15.376Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e55eebcb6d281b4de51c-9d6c5c4338df2b883e7b",
+          "file": "demo.spec.js",
+          "line": 228,
+          "column": 60
+        },
+        {
+          "title": "responsive layout 1024px, including detail, AI and weather",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1614,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T14:18:16.574Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e55eebcb6d281b4de51c-9a8af98af6d9b2bd13eb",
+          "file": "demo.spec.js",
+          "line": 228,
+          "column": 60
+        },
+        {
+          "title": "responsive layout 1440px, including detail, AI and weather",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1523,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T14:18:18.196Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e55eebcb6d281b4de51c-53878896878dcefd1f57",
+          "file": "demo.spec.js",
+          "line": 228,
           "column": 60
         },
         {
@@ -1186,12 +1186,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 937,
+                  "duration": 1416,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-10-02T02:48:07.724Z",
+                  "startTime": "2026-10-02T14:18:19.730Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -1201,7 +1201,7 @@
           ],
           "id": "e55eebcb6d281b4de51c-8fe1cfccfd0bfb2eac9f",
           "file": "demo.spec.js",
-          "line": 232,
+          "line": 236,
           "column": 1
         },
         {
@@ -1220,12 +1220,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 708,
+                  "duration": 617,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-10-02T02:48:08.674Z",
+                  "startTime": "2026-10-02T14:18:21.157Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -1235,7 +1235,7 @@
           ],
           "id": "e55eebcb6d281b4de51c-9b6451bb0f71d26956f6",
           "file": "demo.spec.js",
-          "line": 239,
+          "line": 245,
           "column": 1
         },
         {
@@ -1254,12 +1254,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 2009,
+                  "duration": 2013,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-10-02T02:48:09.394Z",
+                  "startTime": "2026-10-02T14:18:21.781Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -1269,7 +1269,7 @@
           ],
           "id": "e55eebcb6d281b4de51c-8b3d03c70250acac55a0",
           "file": "demo.spec.js",
-          "line": 253,
+          "line": 259,
           "column": 1
         },
         {
@@ -1288,12 +1288,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 596,
+                  "duration": 585,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-10-02T02:48:11.415Z",
+                  "startTime": "2026-10-02T14:18:23.802Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -1303,7 +1303,7 @@
           ],
           "id": "e55eebcb6d281b4de51c-08048aaa3d225b359a09",
           "file": "demo.spec.js",
-          "line": 258,
+          "line": 264,
           "column": 1
         },
         {
@@ -1322,12 +1322,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 912,
+                  "duration": 941,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-10-02T02:48:12.023Z",
+                  "startTime": "2026-10-02T14:18:24.394Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -1337,7 +1337,7 @@
           ],
           "id": "e55eebcb6d281b4de51c-a174ee412fcf1a40a3ca",
           "file": "demo.spec.js",
-          "line": 272,
+          "line": 278,
           "column": 1
         },
         {
@@ -1356,12 +1356,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 2117,
+                  "duration": 2276,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-10-02T02:48:12.950Z",
+                  "startTime": "2026-10-02T14:18:25.343Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -1371,7 +1371,7 @@
           ],
           "id": "e55eebcb6d281b4de51c-3d0d4bae3b227291ebb4",
           "file": "demo.spec.js",
-          "line": 278,
+          "line": 284,
           "column": 1
         },
         {
@@ -1390,12 +1390,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 2159,
+                  "duration": 1091,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-10-02T02:48:15.085Z",
+                  "startTime": "2026-10-02T14:18:27.627Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -1405,7 +1405,151 @@
           ],
           "id": "e55eebcb6d281b4de51c-8f5304d11d8e722b68c7",
           "file": "demo.spec.js",
-          "line": 285,
+          "line": 291,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "liquid-glass.spec.js",
+      "file": "liquid-glass.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "material comparison renders a real WebGL surface and releases it on close",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1421,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T14:18:28.751Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "4c907d8a5df0717564bd-99186a5979ab5f517cc6",
+          "file": "liquid-glass.spec.js",
+          "line": 8,
+          "column": 1
+        },
+        {
+          "title": "comparison settings survive navigation and existing automatic material restores optics",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2447,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T14:18:30.179Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "4c907d8a5df0717564bd-c5f0652f2f2dd6b0359a",
+          "file": "liquid-glass.spec.js",
+          "line": 25,
+          "column": 1
+        },
+        {
+          "title": "reduced motion remains static and high contrast uses solid surfaces",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1099,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T14:18:32.637Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "4c907d8a5df0717564bd-a6214f7e3d55b6035246",
+          "file": "liquid-glass.spec.js",
+          "line": 50,
+          "column": 1
+        },
+        {
+          "title": "comparison fits a narrow screen with enlarged text and remains keyboard dismissible",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 20000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 804,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-02T14:18:33.756Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "4c907d8a5df0717564bd-7e3c3f7ffffbbb2b16ec",
+          "file": "liquid-glass.spec.js",
+          "line": 65,
           "column": 1
         }
       ]
@@ -1413,9 +1557,9 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-10-02T02:47:13.881Z",
-    "duration": 66023.535,
-    "expected": 39,
+    "startTime": "2026-10-02T14:17:21.631Z",
+    "duration": 75498.453,
+    "expected": 43,
     "skipped": 0,
     "unexpected": 0,
     "flaky": 0

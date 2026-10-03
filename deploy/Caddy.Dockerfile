@@ -76,6 +76,20 @@ COPY shared/ ../shared/
 RUN npm run build -- --base=/console/
 
 # Distroless provides only the static runtime prerequisites and CA roots.
+# Build the App web entry with the same API and public identity metadata.
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS client-build
+WORKDIR /workspace/client
+COPY client/package.json client/package-lock.json ./
+RUN npm ci
+COPY client/ ./
+COPY shared/ ../shared/
+ARG IOT_WEB_ORIGIN
+ARG KEYCLOAK_REALM=iot-manager
+ENV IOT_CLIENT_ASSET_BASE=/app/ \
+    VITE_OIDC_ISSUER_URL=${IOT_WEB_ORIGIN}/auth/realms/${KEYCLOAK_REALM} \
+    VITE_OIDC_CLIENT_ID=iot-web
+RUN npm run build
+
 # Caddy only writes persisted state; the compose volume initializer assigns
 # these locations to the unprivileged runtime UID.
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
@@ -86,6 +100,7 @@ COPY --chown=65534:65534 --from=caddy-build /runtime/srv /srv
 COPY --chown=65534:65534 deploy/Caddyfile /etc/caddy/Caddyfile
 COPY --chown=65534:65534 --from=frontend-build /workspace/frontend/dist /srv/frontend
 COPY --chown=65534:65534 --from=console-build /workspace/console/dist /srv/console
+COPY --chown=65534:65534 --from=client-build /workspace/client/dist /srv/client
 
 # The official Caddy image supplies these locations. Declare them explicitly
 # because the distroless runtime intentionally has no inherited shell profile

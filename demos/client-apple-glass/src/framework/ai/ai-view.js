@@ -1,10 +1,11 @@
 import { createAiState, aiCanSend } from './ai-state.js';
+import { addGlassSurface } from '../../glass-surfaces.js';
 
 function node(tag, className, text) {
   const value = document.createElement(tag);
   value.className = className;
   if (text !== undefined) value.textContent = String(text);
-  return value;
+  return addGlassSurface(value);
 }
 function button(label, action, { id, screen, disabled = false, primary = false } = {}) {
   const value = node('button', 'button button--small ' + (primary ? 'button--primary' : 'button--secondary'), label);

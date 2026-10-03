@@ -2,6 +2,8 @@
 
 日期：2026-10-01。依据：[审核后的开发方案](APP-AI-DEVELOPMENT-PLAN-2026-10-01.md)、[方案审核记录](APP-AI-PLAN-REVIEW-2026-10-01.md)。
 
+最新增量交付为 2026-10-03 的 1.1.4 / versionCode 6：登录与连接引导、联网恢复、App 网页部署和新 APK 验收见[功能完善记录](APP-AI-READINESS-IMPLEMENTATION-2026-10-03.md)。本文下方保留 10 月 1 日历史验收数据。
+
 同日更新：已合入最新底栏动效，交付版本更新为 1.1.1 / versionCode 3；详见[动效更新与回归验收](CLIENT-AI-MOTION-UPDATE-2026-10-01.md)。
 
 ## 1. 本次实现

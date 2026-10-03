@@ -7,6 +7,11 @@ test('mobile client exposes devices, activity, add, and connection settings with
   page.on('console', (message) => {
     if (message.type() === 'error') runtimeErrors.push(message.text());
   });
+  await page.route('**/api/v1/me', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ subject: 'mobile-ui-test', roles: ['VIEWER'], sites: [] })
+  }));
   await page.route('**/api/v1/sites', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -138,6 +143,9 @@ test('mobile client exposes devices, activity, add, and connection settings with
   await expect(page.getByRole('heading', { name: '连接设置' })).toBeVisible();
   await expect(page.getByRole('button', { name: '现场 LAN' })).toBeVisible();
   await expect(page.getByRole('button', { name: '互联网远程' })).toBeVisible();
+  await expect(page.locator('#endpoint-oidc-issuer-url')).toBeVisible();
+  await expect(page.locator('#endpoint-oidc-client-id')).toBeVisible();
+  await expect(page.locator('#endpoint-oidc-redirect-uri')).toBeVisible();
   await page.getByRole('button', { name: '测试连接' }).click();
   await expect(page.getByText(/连接成功/)).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.activeElement?.dataset?.action)).toBe('test-endpoint');

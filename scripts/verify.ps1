@@ -239,6 +239,8 @@ function Get-TapCount {
 }
 
 function Invoke-ClientUnitTests {
+    param([string]$App = 'client')
+
     $report = [System.IO.Path]::GetTempFileName()
     $previousErrorActionPreference = $ErrorActionPreference
     [int]$exitCode = 0
@@ -252,7 +254,7 @@ function Invoke-ClientUnitTests {
     }
     try {
         if ($exitCode -ne 0) {
-            throw "client Node unit tests failed with exit code $exitCode."
+            throw "$App Node unit tests failed with exit code $exitCode."
         }
         $content = [System.IO.File]::ReadAllText($report)
         $tests = Get-TapCount $content 'tests'
@@ -260,14 +262,14 @@ function Invoke-ClientUnitTests {
         $cancelled = Get-TapCount $content 'cancelled'
         $skipped = Get-TapCount $content 'skipped'
         if ($tests -eq 0) {
-            throw 'client Node tests reported zero executed tests.'
+            throw "$App Node tests reported zero executed tests."
         }
-        Write-VerificationSummary 'node:client' $tests $failures $cancelled $skipped
+        Write-VerificationSummary "node:$App" $tests $failures $cancelled $skipped
         if ($failures -ne 0 -or $cancelled -ne 0) {
-            throw 'client Node tests contain failures or cancellations.'
+            throw "$App Node tests contain failures or cancellations."
         }
         if ($skipped -ne 0) {
-            Register-Skip "client Node tests contain $skipped skipped test(s)"
+            Register-Skip "$App Node tests contain $skipped skipped test(s)"
         }
     }
     finally {
@@ -335,11 +337,20 @@ function Invoke-WebPlaywrightTests {
     param([string]$App)
 
     $report = [System.IO.Path]::GetTempFileName()
+    $arguments = @('playwright', 'test', '--reporter=json')
+    if ($script:strictMode -and $App -eq 'glass-next') {
+        $arguments += @('e2e/ai-chat-panel.spec.js', 'e2e/ai-workspace.spec.js',
+            'e2e/bottom-navigation-motion.spec.js', 'e2e/glass-client.spec.js', 'e2e/mobile-client.spec.js',
+            'e2e/mobile-offline-recovery.spec.js', 'e2e/motion-interruptions.spec.js',
+            'e2e/motion-preview-visuals.spec.js', 'e2e/motion-preview.spec.js',
+            'e2e/motion-render-integrity.spec.js', 'e2e/motion-states.spec.js',
+            'e2e/refresh-stability.spec.js', 'e2e/startup-animation.spec.js')
+    }
     $previousErrorActionPreference = $ErrorActionPreference
     [int]$exitCode = 0
     try {
         $ErrorActionPreference = 'Continue'
-        & npx playwright test '--reporter=json' 1> $report
+        & npx @arguments 1> $report
         $exitCode = $LASTEXITCODE
     }
     finally {
@@ -400,13 +411,17 @@ if (-not $SkipWeb) {
     Invoke-NodeCheck
     Write-Host '==> Security: public Vite environment policy'
     Invoke-Native 'Public Vite environment policy' { node (Join-Path $repositoryRoot 'scripts/verify-public-build-env.js') }
-    foreach ($app in @('frontend', 'console', 'client')) {
+    foreach ($app in @('frontend', 'console', 'client', 'apps/client-glass-next')) {
         Write-Host "==> ${app}: install and build"
         Invoke-InDirectory $app {
             Invoke-Native "$app npm ci" { npm ci }
             if ($app -eq 'client') {
                 Invoke-ClientUnitTests
                 Invoke-ClientPlaywrightTests
+            }
+            elseif ($app -eq 'apps/client-glass-next') {
+                Invoke-ClientUnitTests -App 'glass-next'
+                Invoke-WebPlaywrightTests -App 'glass-next'
             }
             else {
                 Invoke-WebPlaywrightTests -App $app

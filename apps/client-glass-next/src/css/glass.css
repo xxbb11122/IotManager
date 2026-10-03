@@ -1,0 +1,225 @@
+:root {
+  --safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --safe-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+  --safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  --safe-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+  --glass-solid: #ffffff;
+  --glass-navigation: rgba(255, 255, 255, 0.90);
+  --glass-filter: blur(12px) saturate(115%);
+  --glass-line: rgba(21, 33, 39, 0.14);
+  --glass-shadow: 0 4px 16px rgba(21, 33, 39, 0.06);
+  --radius-card: 18px;
+}
+
+/* 默认即可读；不支持滤镜的浏览器保持此背景。 */
+.app-header--glass,
+.bottom-nav--glass {
+  background: var(--glass-solid);
+  border-color: var(--glass-line);
+  box-shadow: var(--glass-shadow);
+}
+
+.app-header.app-header--glass {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: calc(10px + var(--safe-top)) calc(12px + var(--safe-right))
+    10px calc(12px + var(--safe-left));
+  position: sticky;
+  top: 0;
+  z-index: 20; /* 低于现有 toast 的 50；需再核对覆盖层。 */
+}
+
+.header-main-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+.app-header--glass .app-brand { min-width: 0; }
+.app-header--glass .site-picker-trigger {
+  min-width: 0;
+  min-height: 48px;
+  max-width: 100%;
+}
+.site-picker-trigger > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-header--glass .header-actions { margin-left: 0; flex-wrap: wrap; }
+.app-header--glass .header-actions .button { min-width: 48px; min-height: 48px; }
+.header-context-ribbon {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+  color: var(--ink-muted);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.app-header--glass .header-context-ribbon .header-status {
+  display: inline-flex;
+  background: var(--surface-muted);
+  /* 作为导航材质内部的平面覆盖，不再次加 backdrop-filter。 */
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .app-header--glass,
+  .bottom-nav--glass {
+    background: var(--glass-navigation);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
+  }
+}
+
+/* reduced 控制动画；solid 独立控制材质。 */
+#app[data-material='solid'] .app-header--glass,
+#app[data-material='solid'] .bottom-nav--glass {
+  background: var(--glass-solid);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+@media (prefers-contrast: more), (forced-colors: active) {
+  .app-header--glass,
+  .bottom-nav--glass {
+    background: Canvas;
+    color: CanvasText;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+}
+
+.device-list--cards {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  border-top: 0;
+}
+.device-row--card {
+  min-height: 96px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+@media (min-width: 768px) {
+  .device-list--cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.range-input--fluid {
+  --range-fill: 0%;
+  --range-accent: var(--teal);
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  padding: 0;
+  background: transparent;
+}
+.range-input--fluid:disabled { --range-accent: var(--amber); opacity: 1; }
+.range-input--fluid::-webkit-slider-runnable-track {
+  height: 12px;
+  border-radius: 999px;
+  background: linear-gradient(to right,
+    var(--range-accent) 0%, var(--range-accent) var(--range-fill),
+    var(--surface-strong) var(--range-fill), var(--surface-strong) 100%);
+}
+.range-input--fluid::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 28px;
+  height: 28px;
+  margin-top: -8px;
+  border: 2px solid var(--range-accent);
+  border-radius: 50%;
+  background: var(--surface);
+}
+.range-input--fluid::-moz-range-track {
+  height: 12px;
+  border-radius: 999px;
+  background: var(--surface-strong);
+}
+.range-input--fluid::-moz-range-progress {
+  height: 12px;
+  border-radius: 999px;
+  background: var(--range-accent);
+}
+.range-input--fluid::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--range-accent);
+  border-radius: 50%;
+  background: var(--surface);
+}
+.range-validation-message {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+/* 渐变可能被系统移除，轨道必须另有可见的实线边界。 */
+@media (prefers-contrast: more), (forced-colors: active) {
+  .range-input--fluid::-webkit-slider-runnable-track {
+    box-sizing: border-box;
+    background: Canvas;
+    border: 1px solid CanvasText;
+  }
+  .range-input--fluid::-webkit-slider-thumb {
+    background: ButtonFace;
+    border-color: ButtonText;
+  }
+  .range-input--fluid:disabled::-webkit-slider-thumb { border-color: GrayText; }
+  .range-input--fluid::-moz-range-track {
+    box-sizing: border-box;
+    background: Canvas;
+    border: 1px solid CanvasText;
+  }
+  .range-input--fluid::-moz-range-progress { background: Highlight; }
+  .range-input--fluid::-moz-range-thumb {
+    background: ButtonFace;
+    border-color: ButtonText;
+  }
+  .range-input--fluid:disabled::-moz-range-thumb { border-color: GrayText; }
+  .range-input--fluid:focus-visible { outline: 2px solid Highlight; outline-offset: 3px; }
+  .range-validation-message { color: CanvasText; }
+}
+
+.ai-quick-chips {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 4px 0 8px;
+  scrollbar-width: thin;
+}
+.ai-chip {
+  flex: 0 0 auto;
+  min-height: 48px;
+  padding: 8px 14px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.ai-composer--crystal .ai-field {
+  padding: 12px;
+  border: 2px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+.ai-composer--crystal .ai-field:focus-within {
+  border-color: transparent;
+  background: linear-gradient(var(--surface), var(--surface)) padding-box,
+    linear-gradient(120deg, #1f6f78, #2563a8, #8657b7) border-box;
+}
+.ai-composer--busy .ai-field { border-color: var(--blue); }
+@media (prefers-contrast: more), (forced-colors: active) {
+  .ai-composer--crystal .ai-field,
+  .ai-composer--crystal .ai-field:focus-within {
+    border-color: CanvasText;
+    background: Canvas;
+  }
+}

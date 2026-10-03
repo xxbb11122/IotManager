@@ -112,11 +112,11 @@ EOF
   "implicitFlowEnabled": false,
   "directAccessGrantsEnabled": false,
   "serviceAccountsEnabled": false,
-  "redirectUris": ["$IOT_DASHBOARD_REDIRECT_URI", "$IOT_CONSOLE_REDIRECT_URI"],
+  "redirectUris": ["$IOT_DASHBOARD_REDIRECT_URI", "$IOT_CONSOLE_REDIRECT_URI", "$IOT_WEB_ORIGIN/app/"],
   "webOrigins": ["$IOT_WEB_ORIGIN"],
   "attributes": {
     "pkce.code.challenge.method": "S256",
-    "post.logout.redirect.uris": "$IOT_DASHBOARD_REDIRECT_URI##$IOT_CONSOLE_REDIRECT_URI"
+    "post.logout.redirect.uris": "$IOT_DASHBOARD_REDIRECT_URI##$IOT_CONSOLE_REDIRECT_URI##$IOT_WEB_ORIGIN/app/"
   }
 }
 EOF

@@ -4,10 +4,22 @@ This project has one release baseline. Before merging or publishing it, verify
 the Java services, all Vite applications, the Capacitor Android package, and
 the deployment configuration from the same commit.
 
-The current Spring AI phase is documented in
-[DeepSeek mock integration](SPRING-AI-DEEPSEEK-MOCK-INTEGRATION-2026-09-30.md):
-Chat uses a local HTTP substitute, the knowledge base and production AI remain
-disabled, and no real provider request is claimed. When a real pilot is planned,
+The mock contract baseline is documented in
+[DeepSeek mock integration](SPRING-AI-DEEPSEEK-MOCK-INTEGRATION-2026-09-30.md).
+Remote Chat can be enabled by deployment configuration; production defaults
+keep AI and the knowledge base disabled. The standalone Glass Next App's
+historical glass.2 baseline and current glass.4/code8 delivery are recorded in
+the [Glass Next verification record](../apps/client-glass-next/VERIFICATION.md).
+The current Glass release passed 220 unit checks, two focused browser checks
+and 13 verified-TLS real protocol checks using the App session/API modules,
+including Android/web PKCE, authorized API/WSS, remote Chat and revoked refresh
+tokens after logout. These do not certify a physical phone or its system
+browser trust/callback. The current
+installed APK passed 13 isolated mock checks and six real login/Chat/history/
+logout checks with only Browser.open replaced; it received the real callback
+through an Android intent. A separate real native login/logout check passed
+four checks without Chat. No physical phone or system-browser trust is certified.
+When a new pilot is planned,
 verify pgvector 0.8.6 is installed in the
 live and restored IoT databases before Flyway V27, then run the PostgreSQL
 Testcontainers migration and site-isolation tests. Exercise the Caddy upload
@@ -169,7 +181,29 @@ Physical WAL/PITR evidence is
 separate: `.github/workflows/recovery-drill.yml` runs only on the protected
 self-hosted recovery runner and never uses the filesystem integration store.
 
-## App AI implementation, October 1, 2026
+## App AI readiness update, October 3, 2026
+
+The existing client is version 1.1.4 / Android versionCode 6. Client Node tests
+passed 230 cases with zero skips. Thirteen focused browser cases and thirteen
+installed Debug APK mock checks passed. The APK hash and signing identity match
+the local delivery manifest. Login guidance, identity-scoped draft retention,
+Retry-After retention and network restoration have regression coverage.
+
+Caddy now serves the App web build at `/app/` with public OIDC configuration.
+The external startup watchdog works under the existing script CSP. Certificate
+and hostname validation passed for the App entry, scripts/styles, version and
+OIDC discovery; unauthenticated API access remains denied. Keycloak App callback
+reconciliation proved idempotent, and runtime smoke passed after deployment.
+One direct provider request returned HTTP 200 and a nonempty response; no
+Embedding or site data was sent. This is separate from authenticated App Chat.
+
+See [the Glass App implementation and evidence boundaries](../apps/client-glass-next/VERIFICATION.md).
+The changes preserve the latest client startup and navigation motion. This turn
+did not change backend business code or repeat the earlier 189 backend tests.
+The working-tree Debug package and local runtime evidence are not a clean-commit
+CI release or physical-phone acceptance.
+
+## App AI implementation, October 1, 2026 (historical)
 
 See the [public project status and evidence boundary](PROJECT-STATUS-2026-10-01.md).
 The backend has passed 189 tests with Docker available and zero skips, including

@@ -30,12 +30,13 @@ function notice(parent, text, danger = false) {
 function unavailable(parent, state) {
   const text = { login: '登录后可使用当前站点的 AI。', site: '请选择账号有权访问的站点。',
     unconfigured: '请先配置服务器连接。', offline: '当前网络不可用，联网后可继续查询。',
-    disabled: '服务器尚未启用 AI。', loading: '正在核验账号及服务器 AI 功能。',
+    auth_required: '服务器要求登录。请先在连接设置中填写登录服务、客户端 ID 和回调地址，再登录账号。',
+    disabled: '服务器尚未启用 AI，启用后可重新检查。', loading: '正在核验账号及服务器 AI 功能。',
     failed: '连接未完成，请检查服务器与登录状态。' }[state.status];
   if (text) notice(parent, text);
   const actions = node('div', 'ai-actions');
   if (state.status === 'login') actions.append(button('登录', 'sign-in'));
-  if (['site', 'unconfigured', 'failed', 'offline'].includes(state.status))
+  if (['site', 'unconfigured', 'failed', 'offline', 'auth_required', 'disabled', 'login'].includes(state.status))
     actions.append(button('连接设置', 'navigate', { screen: 'connections' }), button('重新检查', 'ai-reload', { disabled: state.loading }));
   if (state.status === 'site') actions.append(button('选择站点', 'navigate', { screen: 'sites' }));
   parent.append(actions);
@@ -50,10 +51,13 @@ export function buildAiView(value, { screen = 'ai' } = {}) {
   if (screen !== 'ai') actions.append(button('返回聊天', 'navigate', { screen: 'ai' }));
   else actions.append(button('历史', 'navigate', { screen: 'ai-history', disabled: !state.features.history }),
     button('性格', 'navigate', { screen: 'ai-persona', disabled: !state.enabled || state.legacy }),
-    button('新会话', 'ai-new', { disabled: !state.enabled }));
+    button('新会话', 'ai-new', { disabled: !state.enabled }),
+    button('检查连接', 'ai-reload', { disabled: state.busy || state.loading }));
   header.append(actions); root.append(header);
   notice(root, state.error, true); notice(root, state.notice);
-  if (!state.enabled) { unavailable(root, state); return root; }
+  if (!state.enabled || ['offline', 'auth_required', 'login', 'site', 'unconfigured'].includes(state.status)) {
+    unavailable(root, state); return root;
+  }
   if (screen === 'ai-history') { buildHistory(root, state); return root; }
   if (screen === 'ai-persona') { buildPersona(root, state); return root; }
   const persona = state.conversationId ? (state.personaVersion == null || state.personaVersion === 0 ? '默认性格' : '性格版本 ' + state.personaVersion)
@@ -72,6 +76,12 @@ export function buildAiView(value, { screen = 'ai' } = {}) {
     log.append(article);
   }
   root.append(log);
+  if (!state.messages.length && !state.pending) {
+    const suggestions = node('div', 'ai-actions'); suggestions.setAttribute('aria-label', '示例问题');
+    suggestions.append(button('解释温度传感器', 'ai-suggest', { id: '用一句话解释温度传感器。' }),
+      button('排查设备离线', 'ai-suggest', { id: '设备离线时，通常应按什么顺序检查？' }));
+    root.append(suggestions);
+  }
   if (state.pending) {
     const pending = node('div', 'ai-pending');
     pending.append(node('p', 'ai-caption', '请求编号：' + state.pending.clientRequestId));

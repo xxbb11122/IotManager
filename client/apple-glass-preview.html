@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>Apple 轻毛玻璃与高对比工业物联标准预览 (合规独立运行版)</title>
+  <title>Apple & Muse 极致晶体毛玻璃物联系统 (独立视检版)</title>
   <style>
     * {
       box-sizing: border-box;
@@ -14,19 +14,64 @@
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "PingFang SC", "Segoe UI", Roboto, sans-serif;
-      background: #e2e8f0;
+      background: #0b0f19;
       color: #0f172a;
       min-height: 100vh;
       display: flex;
       flex-direction: column;
       align-items: center;
+      position: relative;
+      overflow-x: hidden;
       padding: 0;
     }
 
-    /* 顶层工程视检工具条 (便于评测人员直接切换材质模式与响应式宽度) */
+    /* ── 背景 Muse / Apple 弥散折射光环层 ── */
+    /* 这是产生真实晶体折射的核心：毛玻璃必须有背部环境光才能呈现高折射率景深 */
+    .ambient-glow-layer {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      overflow: hidden;
+    }
+    .glow-orb-1 {
+      position: absolute;
+      width: 420px;
+      height: 420px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(0, 122, 255, 0.40) 0%, rgba(0, 122, 255, 0) 70%);
+      top: -80px;
+      left: 15%;
+      filter: blur(60px);
+    }
+    .glow-orb-2 {
+      position: absolute;
+      width: 480px;
+      height: 480px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(175, 82, 222, 0.35) 0%, rgba(255, 45, 85, 0) 70%);
+      bottom: 80px;
+      right: 10%;
+      filter: blur(70px);
+    }
+    .glow-orb-3 {
+      position: absolute;
+      width: 360px;
+      height: 360px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(48, 176, 199, 0.30) 0%, rgba(52, 199, 89, 0) 70%);
+      top: 40%;
+      left: 25%;
+      filter: blur(65px);
+    }
+
+    /* 顶层工程视检工具条 */
     .inspection-toolbar {
       width: 100%;
-      background: #0f172a;
+      background: rgba(15, 23, 42, 0.88);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
       color: #f8fafc;
       padding: 8px 16px;
       display: flex;
@@ -36,7 +81,6 @@
       gap: 10px;
       font-size: 12px;
       z-index: 1000;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
     }
 
     .inspection-title-group {
@@ -46,12 +90,13 @@
     }
 
     .inspection-badge {
-      background: #0066cc;
+      background: #007aff;
       color: #ffffff;
       padding: 2px 8px;
       border-radius: 9999px;
       font-weight: 700;
       font-size: 11px;
+      box-shadow: 0 2px 8px rgba(0, 122, 255, 0.4);
     }
 
     .inspection-controls {
@@ -61,38 +106,45 @@
     }
 
     .inspection-btn {
-      background: #1e293b;
+      background: rgba(255, 255, 255, 0.1);
       color: #e2e8f0;
-      border: 1px solid #334155;
-      padding: 4px 10px;
-      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      padding: 5px 12px;
+      border-radius: 8px;
       font-size: 11.5px;
       cursor: pointer;
       font-weight: 500;
       transition: all 0.15s ease;
     }
     .inspection-btn:hover {
-      background: #334155;
+      background: rgba(255, 255, 255, 0.2);
       color: #ffffff;
     }
     .inspection-btn.active {
-      background: #0066cc;
-      border-color: #0066cc;
+      background: #007aff;
+      border-color: #007aff;
       color: #ffffff;
       font-weight: 600;
+      box-shadow: 0 2px 8px rgba(0, 122, 255, 0.4);
     }
 
     /* 主机模拟外壳：支持真机尺寸切换与全屏铺满 */
     #mobile-viewport {
       position: relative;
+      z-index: 10;
       width: 100%;
       max-width: 440px; /* 默认手机视口，可通过工具条切换宽屏 */
       min-height: calc(100vh - 42px);
-      background: var(--canvas-bg, #f3f6f7);
-      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+      height: calc(100vh - 42px);
+      background: rgba(242, 245, 248, 0.78);
+      backdrop-filter: blur(40px) saturate(200%);
+      -webkit-backdrop-filter: blur(40px) saturate(200%);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), inset 0 1px 1.5px rgba(255, 255, 255, 0.8);
+      border-left: 1px solid rgba(255, 255, 255, 0.2);
+      border-right: 1px solid rgba(255, 255, 255, 0.2);
       display: flex;
       flex-direction: column;
-      padding-bottom: 96px; /* 为悬浮底栏预留安全避让区 */
+      overflow: hidden;
       transition: max-width 0.3s cubic-bezier(0.32, 0.72, 0, 1);
     }
 
@@ -101,7 +153,17 @@
       padding: 12px 14px;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding-bottom: 84px; /* 为悬浮底栏预留安全避让区 */
+      -webkit-overflow-scrolling: touch;
+    }
+
+    /* 当切换到 AI Tab 时，消除父级滚动，交由 AI 专有流控制器 */
+    #view-root.ai-tab-active {
+      padding: 0;
+      overflow: hidden;
+      padding-bottom: 0;
     }
 
     /* 浮动提示通知卡片 */
@@ -127,18 +189,24 @@
   </style>
 </head>
 <body>
+  <!-- 背景弥散高斯光环（提供 Muse / Apple visionOS 级别的物理折射背光） -->
+  <div class="ambient-glow-layer">
+    <div class="glow-orb-1"></div>
+    <div class="glow-orb-2"></div>
+    <div class="glow-orb-3"></div>
+  </div>
+
   <!-- 视检调试工具栏 -->
   <aside class="inspection-toolbar">
     <div class="inspection-title-group">
-      <span class="inspection-badge">合规视检</span>
-      <strong>Apple 工业轻毛玻璃套件 (单文件独立运行)</strong>
-      <span style="color: #94a3b8; font-size: 11px;">遵循 APP-DEVELOPMENT-FRAMEWORK-AND-DATA-SUMMARY-2026-10-02</span>
+      <span class="inspection-badge">Apple 质感单行看板</span>
+      <strong>IoT Manager 工业移动端视检</strong>
     </div>
     <div class="inspection-controls">
-      <button id="btn-theme-auto" class="inspection-btn active" type="button">轻玻璃模式 (Auto)</button>
+      <button id="btn-theme-auto" class="inspection-btn active" type="button">晶体轻玻璃 (Auto)</button>
       <button id="btn-theme-solid" class="inspection-btn" type="button">实色降级 (Solid F11)</button>
-      <button id="btn-width-phone" class="inspection-btn active" type="button">单列 (390px)</button>
-      <button id="btn-width-tablet" class="inspection-btn" type="button">响应式双列 (640px F15)</button>
+      <button id="btn-width-phone" class="inspection-btn active" type="button">单设备单行 (440px)</button>
+      <button id="btn-width-tablet" class="inspection-btn" type="button">宽屏视图 (680px F15)</button>
     </div>
   </aside>
 
@@ -146,17 +214,17 @@
 
   <!-- 移动端视口容器 -->
   <main id="mobile-viewport">
-    <!-- 1. 全机型自适应通用顶栏挂载点 -->
+    <!-- 1. 全机型自适应通用轻毛玻璃顶栏挂载点 -->
     <header id="header-mount"></header>
 
     <!-- 2. 主页面内容动态挂载点 -->
     <section id="view-root"></section>
 
-    <!-- 3. 悬浮毛玻璃底栏挂载点 -->
+    <!-- 3. 悬浮轻毛玻璃底栏挂载点 -->
     <nav id="nav-mount"></nav>
   </main>
 
-  <!-- 真正运行 apple-glass-standalone.js 核心代码 -->
+  <!-- 运行 apple-glass-standalone.js 单文件组件库 -->
   <script type="module">
     import {
       injectAppleGlassStyles,
@@ -173,7 +241,7 @@
       createActivityStreamView
     } from './apple-glass-standalone.js';
 
-    // 1. 注入自包含全套苹果微质感 CSS
+    // 1. 注入自包含全套苹果晶体 CSS
     injectAppleGlassStyles();
 
     // 视检工具栏交互
@@ -187,7 +255,7 @@
       document.body.classList.remove('glass-theme-solid');
       btnAuto.classList.add('active');
       btnSolid.classList.remove('active');
-      showToast('已切换至：Apple 轻毛玻璃材质 (Auto)');
+      showToast('已切换至：Apple / Muse 晶体质感轻毛玻璃');
     };
     btnSolid.onclick = () => {
       document.body.classList.add('glass-theme-solid');
@@ -200,13 +268,13 @@
       viewport.style.maxWidth = '440px';
       btnPhone.classList.add('active');
       btnTablet.classList.remove('active');
-      showToast('视口宽度设为 440px (<612px 保持单列)');
+      showToast('视口宽度设为 440px (单行单设备)');
     };
     btnTablet.onclick = () => {
       viewport.style.maxWidth = '680px';
       btnTablet.classList.add('active');
       btnPhone.classList.remove('active');
-      showToast('视口宽度设为 680px (>=612px 响应式双列)');
+      showToast('视口宽度设为 680px (宽屏单行自适应)');
     };
 
     // 辅助 Toast 提示 (纯 textContent，杜绝 XSS)
@@ -236,7 +304,7 @@
     });
     headerMount.appendChild(headerNode);
 
-    // 3. 挂载悬浮毛玻璃底栏
+    // 3. 挂载悬浮轻毛玻璃底栏
     const navMount = document.getElementById('nav-mount');
     const bottomNavNode = createBottomNav({
       activeTab: 'devices',
@@ -244,11 +312,11 @@
     });
     navMount.appendChild(bottomNavNode);
 
-    // 4. 符合技术框架与契约的设备数据源 (严格分离 reportedState 与 desiredState)
+    // 4. 符合技术框架与契约的设备数据源 (大小适中、信息均衡)
     const demoDevices = [
       {
         id: 'dev-101',
-        name: '精密恒温恒湿空调',
+        name: '恒温恒湿空调',
         type: 'HVAC',
         siteCode: 'SITE-ALPHA',
         icon: '❄️',
@@ -260,7 +328,7 @@
       },
       {
         id: 'dev-102',
-        name: '日光色谱调光筒灯',
+        name: '调光筒灯',
         type: 'LIGHT',
         siteCode: 'SITE-ALPHA',
         icon: '💡',
@@ -272,7 +340,7 @@
       },
       {
         id: 'dev-103',
-        name: '洁净正压新风机',
+        name: '正压新风机',
         type: 'VENTILATION',
         siteCode: 'SITE-ALPHA',
         icon: '🌀',
@@ -284,7 +352,7 @@
       },
       {
         id: 'dev-104',
-        name: '循环水冷离心泵',
+        name: '循环水冷泵',
         type: 'PUMP',
         siteCode: 'SITE-ALPHA',
         icon: '💧',
@@ -296,7 +364,7 @@
       },
       {
         id: 'dev-105',
-        name: '微气候综合环境仪',
+        name: '综合环境仪',
         type: 'SENSOR',
         siteCode: 'SITE-ALPHA',
         icon: '🌡️',
@@ -308,7 +376,7 @@
       },
       {
         id: 'dev-106',
-        name: '备用柴油发电机组',
+        name: '应急发电机',
         type: 'POWER',
         siteCode: 'SITE-ALPHA',
         icon: '⚡',
@@ -344,6 +412,12 @@
     function renderTabContent(tabId) {
       viewRoot.replaceChildren();
 
+      if (tabId === 'ai') {
+        viewRoot.classList.add('ai-tab-active');
+      } else {
+        viewRoot.classList.remove('ai-tab-active');
+      }
+
       if (tabId === 'devices') {
         renderDevicesView();
       } else if (tabId === 'ai') {
@@ -355,7 +429,7 @@
       }
     }
 
-    // ── Tab 1: 设备看板与快控抽屉 ──
+    // ── Tab 1: 均衡美观双列看板与快控抽屉 ──
     function renderDevicesView() {
       viewRoot.replaceChildren();
 
@@ -450,19 +524,20 @@
       viewRoot.appendChild(detailView);
     }
 
-    // ── Tab 2: Apple Intelligence 对话 ──
+    // ── Tab 2: Apple Intelligence 对话 (输入框沉底固定不动) ──
     function renderAiView() {
       viewRoot.replaceChildren();
 
-      const aiWrap = document.createElement('div');
-      aiWrap.style.display = 'flex';
-      aiWrap.style.flexDirection = 'column';
-      aiWrap.style.gap = '12px';
+      // 专有全屏 AI 容器，使得上部消息可滚动，底部输入区吸底不动
+      const aiContainer = document.createElement('div');
+      aiContainer.className = 'ai-tab-fullscreen';
+      aiContainer.style.cssText = 'display:flex;flex-direction:column;height:100%;position:relative;overflow:hidden;';
 
       const messageStream = createAiMessageList({
         messages: aiMessages,
         onCopy: (txt) => showToast('已安全复制 AI 建议文本')
       });
+      messageStream.style.cssText = 'flex:1;overflow-y:auto;padding:14px 14px 10px 14px;display:flex;flex-direction:column;gap:12px;-webkit-overflow-scrolling:touch;';
 
       const composer = createCrystalAiComposer({
         initialDraft: aiDraftText,
@@ -476,6 +551,12 @@
           aiDraftText = '';
           renderAiView();
 
+          // 自动滚动到最新消息
+          setTimeout(() => {
+            const streamEl = aiContainer.querySelector('.ai-messages-stream');
+            if (streamEl) streamEl.scrollTop = streamEl.scrollHeight;
+          }, 50);
+
           // 模拟智能体异步推演
           setTimeout(() => {
             aiIsBusy = false;
@@ -484,12 +565,21 @@
               content: `已完成遥测核验：针对指令【${text}】，已生成最优调控策略，系统将在下个工况周期自适应微调。`
             });
             renderAiView();
+            setTimeout(() => {
+              const streamEl = aiContainer.querySelector('.ai-messages-stream');
+              if (streamEl) streamEl.scrollTop = streamEl.scrollHeight;
+            }, 50);
           }, 900);
         }
       });
 
-      aiWrap.append(messageStream, composer);
-      viewRoot.appendChild(aiWrap);
+      aiContainer.append(messageStream, composer);
+      viewRoot.appendChild(aiContainer);
+
+      // 初始渲染时滚至底部
+      setTimeout(() => {
+        messageStream.scrollTop = messageStream.scrollHeight;
+      }, 50);
     }
 
     // ── Tab 3: 运维审计 ──

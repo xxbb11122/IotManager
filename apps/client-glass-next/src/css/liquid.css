@@ -1,0 +1,117 @@
+/* Foreground labels and controls remain outside the optical surface. */
+body {
+  background: radial-gradient(ellipse at 0% 0%, rgb(157 215 213 / 72%), transparent 52%),
+    radial-gradient(ellipse at 100% 35%, rgb(174 201 233 / 58%), transparent 55%),
+    radial-gradient(ellipse at 20% 100%, rgb(241 214 190 / 55%), transparent 48%), #eff5f6;
+  background-attachment: fixed;
+}
+#app:not([data-glass='solid']) {
+  --surface: rgb(255 255 255 / 54%);
+  --surface-muted: rgb(238 247 248 / 54%);
+  --surface-strong: rgb(218 233 237 / 64%);
+  --teal-soft: rgb(194 227 230 / 58%);
+  --green-soft: rgb(214 244 230 / 62%);
+  --blue-soft: rgb(220 235 251 / 62%);
+  --amber-soft: rgb(255 236 196 / 75%);
+  --red-soft: rgb(253 220 225 / 72%);
+  --line: rgb(255 255 255 / 74%);
+  --line-strong: rgb(122 162 177 / 32%);
+}
+.glass-panel { position: relative; isolation: isolate; }
+.liquid-surface-layer {
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: inherit;
+  opacity: .68;
+}
+#app:not([data-glass='solid']) :is(.surface, .device-row--card, .context-row, .path-choice, .candidate-row,
+  .ai-workspace, .ai-field, .ai-message, .ai-history-item, .state-panel, .state-comparison, .notice) {
+  background: linear-gradient(135deg, rgb(255 255 255 / 65%), rgb(245 251 255 / 40%));
+  border-color: rgb(255 255 255 / 86%);
+  backdrop-filter: blur(12px) saturate(118%);
+  -webkit-backdrop-filter: blur(12px) saturate(118%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 92%), 0 8px 24px rgb(38 78 96 / 6%);
+}
+#app:not([data-glass='solid']) [data-region='device-list-surface'] {
+  background: transparent; border: 0; backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none;
+}
+#app:not([data-glass='solid']) .app-header.app-header--glass {
+  background: linear-gradient(125deg, rgb(249 255 255 / 76%), rgb(241 248 255 / 66%));
+  border-bottom-color: rgb(255 255 255 / 85%);
+  box-shadow: inset 0 1px 0 #fff, 0 8px 30px rgb(41 73 93 / 6%);
+}
+#app:not([data-glass='solid']) .primary-nav {
+  background: rgb(242 250 252 / 32%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-right-color: rgb(255 255 255 / 70%);
+}
+#app:not([data-glass='solid']) :is(.button, .icon-button, .mode-button, .segment, .switch-button,
+  .status-chip, .ai-chip, .device-icon, .range-value, .ai-notice) {
+  border-color: rgb(255 255 255 / 82%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 86%), 0 3px 10px rgb(35 68 85 / 5%);
+  backdrop-filter: blur(8px) saturate(115%);
+  -webkit-backdrop-filter: blur(8px) saturate(115%);
+}
+#app:not([data-glass='solid']) :is(.button--secondary, .button--quiet, .icon-button, .mode-button, .segment, .ai-chip) {
+  background: linear-gradient(140deg, rgb(255 255 255 / 68%), rgb(232 246 248 / 40%));
+}
+#app:not([data-glass='solid']) .button--primary {
+  background: linear-gradient(135deg, rgb(38 123 135 / 90%), rgb(26 96 115 / 84%));
+  border-color: rgb(235 255 255 / 64%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 42%), 0 4px 14px rgb(23 93 113 / 16%);
+}
+#app:not([data-glass='solid']) :is(.segment--active, .mode-button--selected, .switch-button--on) {
+  background: linear-gradient(130deg, rgb(198 235 234 / 80%), rgb(214 234 247 / 65%));
+  border-color: rgb(136 191 202 / 60%);
+}
+#app:not([data-glass='solid']) :is(input:not([type='range']), select, textarea) {
+  background: rgb(255 255 255 / 42%);
+  border-color: rgb(255 255 255 / 86%);
+  box-shadow: inset 0 1px 4px rgb(45 77 92 / 5%);
+}
+#app:not([data-glass='solid']) .ai-input { background: transparent; box-shadow: none; }
+#app:not([data-glass='solid']) .ai-composer--crystal .ai-field {
+  background: linear-gradient(135deg, rgb(255 255 255 / 70%), rgb(237 246 252 / 44%));
+}
+#app:not([data-glass='solid']) .ai-message--user { background: rgb(213 239 238 / 65%); }
+#app:not([data-glass='solid']) .device-row--card:hover { background: rgb(255 255 255 / 76%); border-color: #fff; }
+#app:not([data-glass='solid']) .button--quiet:hover { background: rgb(255 255 255 / 76%); }
+#app[data-glass='solid'] .liquid-surface-layer { display: none; }
+
+.liquid-nav-lens {
+  display: block;
+  position: absolute;
+  pointer-events: none;
+  border-radius: 16px;
+  background: rgb(185 220 224 / 26%);
+  opacity: 0;
+  transition: transform var(--motion-page) var(--ease-enter), opacity var(--motion-feedback) var(--ease-enter);
+}
+#app[data-glass='liquid'] .liquid-nav-lens[data-active='true'] { opacity: 1; }
+#app[data-glass='liquid'] .bottom-nav::before { opacity: 0; }
+.bottom-nav > .liquid-nav-lens {
+  top: 6px;
+  bottom: calc(8px + var(--safe-bottom));
+  left: calc(8px + var(--safe-left));
+  width: calc((100% - 16px - var(--safe-left) - var(--safe-right)) / 4);
+  transform: translateX(var(--nav-selection-offset, 0%));
+}
+#app[data-glass='liquid'] .bottom-nav {
+  background: linear-gradient(110deg, rgb(231 245 243 / 86%), rgb(255 255 255 / 76%) 42%, rgb(226 239 249 / 86%));
+}
+.primary-nav { position: relative; }
+.primary-nav > .liquid-nav-lens {
+  left: 0; top: 0;
+  width: var(--lens-width); height: var(--lens-height);
+  transform: translate(var(--lens-x), var(--lens-y));
+  z-index: 0;
+}
+.primary-nav > .desktop-nav-button { position: relative; z-index: 1; }
+#app[data-glass='liquid'] .desktop-nav-button--active { background: transparent; }
+#app[data-glass='solid'] .liquid-nav-lens,
+#app[data-glass='frosted'] .liquid-nav-lens { visibility: hidden; }
+#app[data-motion='reduced'] .liquid-nav-lens { transition: none; }

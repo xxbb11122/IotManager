@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.log
+.env.local
+.env.*.local
+android/.gradle/
+android/local.properties
+android/**/build/
+android/capacitor-cordova-android-plugins/
+android/app/src/main/assets/
+android/app/src/main/res/xml/config.xml
+test-results/
+playwright-report/
+verification/

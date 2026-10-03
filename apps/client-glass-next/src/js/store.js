@@ -1,0 +1,689 @@
+import { transitionCommand } from './command-state.js';
+import { valueEqual } from './value-equality.js';
+
+export const REALTIME_EVENT_VERSION = 1;
+
+export const CHANGE_DOMAIN = Object.freeze({
+  DEVICES: 'devices',
+  DEVICE_DETAIL: 'device-detail',
+  COMMANDS: 'commands',
+  ACTIVITY: 'activity',
+  ALERTS: 'alerts',
+  WEATHER: 'weather',
+  WEATHER_FORECAST: 'weather-forecast',
+  WEATHER_SETTINGS: 'weather-settings',
+  RUNTIME: 'runtime',
+  CONNECTION: 'connection',
+  SCREEN: 'screen',
+  STRUCTURE: 'structure'
+});
+
+const DEFAULT_CONNECTION_HEALTH = Object.freeze({
+  state: 'idle',
+  stale: true,
+  reconnectAttempt: 0,
+  lastConnectedAt: null,
+  lastDisconnectedAt: null,
+  error: null
+});
+
+const MEASUREMENT_FIELDS = new Set(['temperature', 'humidity', 'pressure', 'signalStrength', 'batteryLevel',
+  'cpuUsage', 'uptimeSeconds', 'voltage', 'current', 'power', 'energy', 'telemetry', 'lastSeen', 'lastSeenAt', 'updatedAt']);
+
+function isMeasurementOnlyChange(existing, incoming) {
+  return Boolean(existing) && Object.keys(incoming).every(key =>
+    valueEqual(existing[key], incoming[key]) || MEASUREMENT_FIELDS.has(key));
+}
+
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function copyValue(value) {
+  if (Array.isArray(value)) {
+    return value.map(copyValue);
+  }
+  if (isRecord(value)) {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, copyValue(item)]));
+  }
+  return value;
+}
+
+function freezeDeep(value, seen = new WeakSet()) {
+  if (value === null || typeof value !== 'object' || seen.has(value)) {
+    return value;
+  }
+  seen.add(value);
+  Object.values(value).forEach((item) => freezeDeep(item, seen));
+  return Object.freeze(value);
+}
+
+function normalizeDevice(device) {
+  const copy = isRecord(device) ? copyValue(device) : {};
+  copy.reportedState = isRecord(copy.reportedState) ? copy.reportedState : {};
+  copy.desiredState = isRecord(copy.desiredState) ? copy.desiredState : {};
+  copy.connections = Array.isArray(copy.connections) ? copy.connections : [];
+  return copy;
+}
+
+function normalizeCollectionByDevice(collection) {
+  if (!isRecord(collection)) {
+    return {};
+  }
+  return Object.fromEntries(Object.entries(collection).map(([key, entries]) => [
+    key,
+    Array.isArray(entries) ? entries.map(copyValue) : []
+  ]));
+}
+
+function normalizeState(candidate = {}) {
+  const source = isRecord(candidate) ? candidate : {};
+  return {
+    devices: Array.isArray(source.devices) ? source.devices.map(normalizeDevice) : [],
+    activeDeviceId: source.activeDeviceId ?? null,
+    activeConnection: isRecord(source.activeConnection) ? copyValue(source.activeConnection) : null,
+    commandsById: isRecord(source.commandsById) ? copyValue(source.commandsById) : {},
+    activitiesByDeviceId: normalizeCollectionByDevice(source.activitiesByDeviceId),
+    alertsByDeviceId: normalizeCollectionByDevice(source.alertsByDeviceId),
+    weather: isRecord(source.weather) ? copyValue(source.weather) : null,
+    weatherForecast: isRecord(source.weatherForecast) ? copyValue(source.weatherForecast) : null,
+    runtime: {
+      accessRoute: null,
+      endpointId: null,
+      siteCode: null,
+      stale: true,
+      lastSyncedAt: null,
+      ...(isRecord(source.runtime) ? copyValue(source.runtime) : {})
+    },
+    connectionHealth: {
+      ...DEFAULT_CONNECTION_HEALTH,
+      ...(isRecord(source.connectionHealth) ? copyValue(source.connectionHealth) : {})
+    }
+  };
+}
+
+function referencesMatch(device, reference) {
+  if (!device || reference === null || reference === undefined) {
+    return false;
+  }
+  const candidate = String(reference);
+  return [device.id, device.publicId, device.deviceId]
+    .filter((value) => value !== null && value !== undefined)
+    .some((value) => String(value) === candidate);
+}
+
+function findDeviceIndex(devices, reference) {
+  return devices.findIndex((device) => referencesMatch(device, reference));
+}
+
+function deviceKey(device, fallback) {
+  return String(device?.id ?? fallback);
+}
+
+function deviceReferences(device) {
+  return new Set([device?.id, device?.deviceId, device?.publicId]
+    .filter((value) => value !== null && value !== undefined)
+    .map((value) => String(value)));
+}
+
+function payloadDeviceReference(payload) {
+  if (!isRecord(payload)) {
+    return null;
+  }
+  return payload.deviceDbId ?? payload.deviceId ?? payload.devicePublicId ?? payload.publicId ?? payload.id ?? null;
+}
+
+function mergeDevice(existing, patch) {
+  const incoming = isRecord(patch) ? patch : {};
+  return normalizeDevice({
+    ...existing,
+    ...incoming,
+    reportedState: Object.prototype.hasOwnProperty.call(incoming, 'reportedState')
+      ? incoming.reportedState
+      : existing?.reportedState,
+    desiredState: Object.prototype.hasOwnProperty.call(incoming, 'desiredState')
+      ? incoming.desiredState
+      : existing?.desiredState,
+    connections: Object.prototype.hasOwnProperty.call(incoming, 'connections')
+      ? incoming.connections
+      : existing?.connections
+  });
+}
+
+function applyKnownCommands(device, commandsById) {
+  return Object.values(commandsById).reduce((next, command) => (
+    referencesMatch(next, payloadDeviceReference(command))
+      ? transitionCommand(next, command)
+      : next
+  ), normalizeDevice(device));
+}
+
+function parseActivityPayload(activity) {
+  if (!isRecord(activity) || typeof activity.payloadJson !== 'string') {
+    return activity;
+  }
+  try {
+    return { ...activity, payload: JSON.parse(activity.payloadJson) };
+  } catch {
+    return { ...activity, payload: activity.payloadJson };
+  }
+}
+
+function uniqueEntries(entries) {
+  const seen = new Set();
+  return entries.filter((entry) => {
+    const key = entry?.id ?? JSON.stringify(entry);
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function rekeyCollectionForDevices(collection, devices) {
+  let next = collection;
+  for (const device of devices) {
+    if (device?.id === null || device?.id === undefined) {
+      continue;
+    }
+    const canonicalKey = String(device.id);
+    const aliases = [...deviceReferences(device)];
+    const entries = aliases.flatMap((alias) => collection[alias] ?? []);
+    if (entries.length === 0 || (aliases.length === 1 && aliases[0] === canonicalKey)) {
+      continue;
+    }
+    next = { ...next };
+    for (const alias of aliases) {
+      if (alias !== canonicalKey) {
+        delete next[alias];
+      }
+    }
+    next[canonicalKey] = uniqueEntries(entries);
+  }
+  return next;
+}
+
+function rekeyDeviceCollections(devices, activitiesByDeviceId, alertsByDeviceId) {
+  return {
+    activitiesByDeviceId: rekeyCollectionForDevices(activitiesByDeviceId, devices),
+    alertsByDeviceId: rekeyCollectionForDevices(alertsByDeviceId, devices)
+  };
+}
+
+function connectionFromPayload(payload) {
+  const connection = {
+    transport: payload.transport,
+    profileId: payload.profileId ?? null,
+    externalId: payload.externalId ?? null,
+    status: payload.status ?? 'UNKNOWN',
+    metadata: isRecord(payload.metadata) ? payload.metadata : {}
+  };
+  return connection;
+}
+
+function normalizeMetadata(metadata, origin) {
+  const source = isRecord(metadata) ? metadata : {};
+  const domains = Array.isArray(source.domains)
+    ? [...new Set(source.domains.filter((domain) => typeof domain === 'string' && domain))]
+    : undefined;
+  const entityRefs = Array.isArray(source.entityRefs)
+    ? [...new Set(source.entityRefs
+      .filter((reference) => reference !== null && reference !== undefined)
+      .map((reference) => String(reference)))]
+    : undefined;
+  return {
+    origin: typeof source.origin === 'string' && source.origin ? source.origin : origin,
+    ...(domains ? { domains } : {}),
+    ...(entityRefs ? { entityRefs } : {}),
+    structural: source.structural === true,
+    ...(source.presentation === 'telemetry' ? { presentation: 'telemetry' } : {}),
+    ...(typeof source.reason === 'string' && source.reason ? { reason: source.reason } : {})
+  };
+}
+
+function referencesForMetadata(device, fallback = null) {
+  const references = [...deviceReferences(device)];
+  if (references.length === 0 && fallback !== null && fallback !== undefined) {
+    references.push(String(fallback));
+  }
+  return references;
+}
+
+/**
+ * Transport-neutral client state. Mutators publish frozen snapshot objects, so
+ * page code cannot accidentally change a previous or current store value.
+ */
+export function createClientStore(initialState = {}) {
+  let currentState = freezeDeep(normalizeState(initialState));
+  const listeners = new Set();
+  let publicationOrigin = 'local';
+  const counters = { publications: 0, suppressedPublications: 0 };
+
+  function publish(next, metadata = {}) {
+    const normalized = normalizeState(next);
+    if (valueEqual(currentState, normalized)) {
+      counters.suppressedPublications += 1;
+      return currentState;
+    }
+    currentState = freezeDeep(normalized);
+    counters.publications += 1;
+    const eventMetadata = normalizeMetadata(metadata, publicationOrigin);
+    for (const listener of listeners) {
+      listener(currentState, eventMetadata);
+    }
+    return currentState;
+  }
+
+  function withPublicationOrigin(origin, operation) {
+    const previousOrigin = publicationOrigin;
+    publicationOrigin = origin;
+    try {
+      return operation();
+    } finally {
+      publicationOrigin = previousOrigin;
+    }
+  }
+
+  function getState() {
+    return currentState;
+  }
+
+  function subscribe(listener, { emitCurrent = false } = {}) {
+    if (typeof listener !== 'function') {
+      throw new TypeError('Store subscriber must be a function');
+    }
+    listeners.add(listener);
+    if (emitCurrent) {
+      listener(currentState, {
+        origin: 'hydrate',
+        domains: [CHANGE_DOMAIN.STRUCTURE],
+        structural: true,
+        reason: 'initial_snapshot'
+      });
+    }
+    return () => listeners.delete(listener);
+  }
+
+  function selectDevice(reference) {
+    return currentState.devices.find((device) => referencesMatch(device, reference)) ?? null;
+  }
+
+  function selectActiveDevice() {
+    return selectDevice(currentState.activeDeviceId);
+  }
+
+  function setDevices(devices) {
+    const normalizedDevices = Array.isArray(devices)
+      ? devices.map((device) => applyKnownCommands(device, currentState.commandsById))
+      : [];
+    const collections = rekeyDeviceCollections(
+      normalizedDevices,
+      currentState.activitiesByDeviceId,
+      currentState.alertsByDeviceId
+    );
+    return publish({ ...currentState, devices: normalizedDevices, ...collections }, {
+      domains: [CHANGE_DOMAIN.DEVICES],
+      entityRefs: normalizedDevices.flatMap((device) => referencesForMetadata(device)),
+      structural: false,
+      reason: 'set_devices'
+    });
+  }
+
+  function clearPlatformData() {
+    const devices = currentState.devices.filter(device => device.localOnly === true);
+    const localReferences = new Set(devices.flatMap(device => [...deviceReferences(device)]));
+    const localCollection = collection => Object.fromEntries(Object.entries(collection)
+      .filter(([reference]) => localReferences.has(reference)));
+    const commandsById = Object.fromEntries(Object.entries(currentState.commandsById)
+      .filter(([, command]) => command.accessRoute === 'BLE_LOCAL' && localReferences.has(String(payloadDeviceReference(command)))));
+    return publish({
+      ...currentState, devices, commandsById,
+      activitiesByDeviceId: localCollection(currentState.activitiesByDeviceId),
+      alertsByDeviceId: localCollection(currentState.alertsByDeviceId),
+      activeDeviceId: localReferences.has(String(currentState.activeDeviceId)) ? currentState.activeDeviceId : null,
+      activeConnection: currentState.activeConnection?.transport === 'BLE_DIRECT'
+        || localReferences.has(String(currentState.activeConnection?.deviceId)) ? currentState.activeConnection : null,
+      weather: null, weatherForecast: null,
+      connectionHealth: { ...DEFAULT_CONNECTION_HEALTH },
+      runtime: { ...currentState.runtime, stale: true, lastSyncedAt: null }
+    }, { domains: [CHANGE_DOMAIN.STRUCTURE], structural: true, reason: 'clear_platform_context' });
+  }
+
+  function upsertDevice(device) {
+    const reference = payloadDeviceReference(device);
+    const index = findDeviceIndex(currentState.devices, reference);
+    const devices = [...currentState.devices];
+    if (index >= 0) {
+      devices[index] = applyKnownCommands(mergeDevice(devices[index], device), currentState.commandsById);
+    } else {
+      devices.push(applyKnownCommands(device, currentState.commandsById));
+    }
+    const collections = rekeyDeviceCollections(
+      devices,
+      currentState.activitiesByDeviceId,
+      currentState.alertsByDeviceId
+    );
+    const updated = devices[index >= 0 ? index : devices.length - 1];
+    return publish({ ...currentState, devices, ...collections }, {
+      domains: [CHANGE_DOMAIN.DEVICES],
+      entityRefs: referencesForMetadata(updated, reference),
+      structural: false,
+      ...(publicationOrigin === 'realtime' && isMeasurementOnlyChange(currentState.devices[index], updated)
+        ? { presentation: 'telemetry' } : {}),
+      reason: index >= 0 ? 'upsert_device' : 'add_device'
+    });
+  }
+
+  function patchDevice(reference, patch, metadata = {}) {
+    const index = findDeviceIndex(currentState.devices, reference);
+    if (index < 0) {
+      return null;
+    }
+    const devices = [...currentState.devices];
+    devices[index] = mergeDevice(devices[index], patch);
+    publish({ ...currentState, devices }, {
+      domains: [CHANGE_DOMAIN.DEVICES],
+      entityRefs: referencesForMetadata(devices[index], reference),
+      structural: false,
+      reason: 'patch_device',
+      ...metadata
+    });
+    return devices[index];
+  }
+
+  function removeDevice(reference) {
+    const devices = currentState.devices.filter((device) => !referencesMatch(device, reference));
+    const nextActiveDeviceId = referencesMatch(selectActiveDevice(), reference)
+      ? null
+      : currentState.activeDeviceId;
+    return publish({ ...currentState, devices, activeDeviceId: nextActiveDeviceId }, {
+      domains: [CHANGE_DOMAIN.DEVICES],
+      entityRefs: [String(reference)],
+      structural: nextActiveDeviceId !== currentState.activeDeviceId,
+      reason: 'remove_device'
+    });
+  }
+
+  function setActiveDevice(reference) {
+    const device = selectDevice(reference);
+    return publish({ ...currentState, activeDeviceId: device?.id ?? reference ?? null }, {
+      domains: [CHANGE_DOMAIN.STRUCTURE],
+      entityRefs: referencesForMetadata(device, reference),
+      structural: true,
+      reason: 'set_active_device'
+    });
+  }
+
+  function setActiveConnection(connection) {
+    return publish({ ...currentState, activeConnection: connection ?? null }, {
+      domains: [CHANGE_DOMAIN.DEVICE_DETAIL, CHANGE_DOMAIN.CONNECTION],
+      entityRefs: [connection?.deviceId ?? connection?.id].filter((reference) => reference != null).map(String),
+      structural: false,
+      reason: 'set_active_connection'
+    });
+  }
+
+  function setConnectionHealth(health) {
+    return publish({
+      ...currentState,
+      connectionHealth: { ...currentState.connectionHealth, ...(isRecord(health) ? health : {}) }
+    }, {
+      domains: [CHANGE_DOMAIN.CONNECTION, CHANGE_DOMAIN.RUNTIME],
+      structural: false,
+      reason: 'set_connection_health'
+    });
+  }
+
+  function setRuntimeContext(patch = {}) {
+    const structural = ['siteCode', 'endpointId', 'accessRoute']
+      .some((key) => Object.prototype.hasOwnProperty.call(patch, key));
+    const next = publish({
+      ...currentState,
+      runtime: { ...currentState.runtime, ...copyValue(patch) }
+    }, {
+      domains: [structural ? CHANGE_DOMAIN.STRUCTURE : CHANGE_DOMAIN.RUNTIME],
+      structural,
+      reason: 'set_runtime_context'
+    });
+    return next.runtime;
+  }
+
+  function setWeather(weather) {
+    return publish({ ...currentState, weather: isRecord(weather) ? copyValue(weather) : null }, {
+      domains: [CHANGE_DOMAIN.WEATHER],
+      structural: false,
+      reason: 'set_weather'
+    });
+  }
+
+  function setWeatherForecast(weatherForecast) {
+    return publish({
+      ...currentState,
+      weatherForecast: isRecord(weatherForecast) ? copyValue(weatherForecast) : null
+    }, {
+      domains: [CHANGE_DOMAIN.WEATHER_FORECAST],
+      structural: false,
+      reason: 'set_weather_forecast'
+    });
+  }
+
+  function upsertCommand(command) {
+    if (!isRecord(command) || !command.commandId) {
+      return null;
+    }
+    const commandsById = { ...currentState.commandsById, [command.commandId]: copyValue(command) };
+    const reference = payloadDeviceReference(command);
+    const index = findDeviceIndex(currentState.devices, reference);
+    const devices = [...currentState.devices];
+    if (index >= 0) {
+      devices[index] = transitionCommand(devices[index], command);
+    }
+    const updatedDevice = index >= 0 ? devices[index] : null;
+    publish({ ...currentState, devices, commandsById }, {
+      domains: [CHANGE_DOMAIN.COMMANDS, CHANGE_DOMAIN.DEVICES],
+      entityRefs: referencesForMetadata(updatedDevice, reference),
+      structural: false,
+      reason: 'upsert_command'
+    });
+    return commandsById[command.commandId];
+  }
+
+  function addActivity(reference, activity) {
+    const index = findDeviceIndex(currentState.devices, reference);
+    const device = index >= 0 ? currentState.devices[index] : null;
+    const key = deviceKey(device, reference);
+    const normalizedActivity = parseActivityPayload(copyValue(activity));
+    const existing = currentState.activitiesByDeviceId[key] ?? [];
+    const withoutDuplicate = normalizedActivity?.id == null
+      ? existing
+      : existing.filter((item) => item.id !== normalizedActivity.id);
+    return publish({
+      ...currentState,
+      activitiesByDeviceId: {
+        ...currentState.activitiesByDeviceId,
+        [key]: [normalizedActivity, ...withoutDuplicate]
+      }
+    }, {
+      domains: [CHANGE_DOMAIN.ACTIVITY],
+      entityRefs: referencesForMetadata(device, reference),
+      structural: false,
+      reason: 'add_activity'
+    });
+  }
+
+  function upsertAlert(reference, alert) {
+    const index = findDeviceIndex(currentState.devices, reference);
+    const device = index >= 0 ? currentState.devices[index] : null;
+    const key = deviceKey(device, reference);
+    const existing = currentState.alertsByDeviceId[key] ?? [];
+    const withoutDuplicate = alert?.id == null ? existing : existing.filter((item) => item.id !== alert.id);
+    return publish({
+      ...currentState,
+      alertsByDeviceId: {
+        ...currentState.alertsByDeviceId,
+        [key]: [copyValue(alert), ...withoutDuplicate]
+      }
+    }, {
+      domains: [CHANGE_DOMAIN.ALERTS],
+      entityRefs: referencesForMetadata(device, reference),
+      structural: false,
+      reason: 'upsert_alert'
+    });
+  }
+
+  function applyConnectionUpdate(payload) {
+    const reference = payloadDeviceReference(payload);
+    const index = findDeviceIndex(currentState.devices, reference);
+    if (index < 0) {
+      return false;
+    }
+    const existing = currentState.devices[index];
+    const connection = connectionFromPayload(payload);
+    const connectionIndex = existing.connections.findIndex((item) => (
+      item.externalId && connection.externalId
+        ? item.externalId === connection.externalId
+        : item.transport === connection.transport && item.profileId === connection.profileId
+    ));
+    const connections = [...existing.connections];
+    if (connectionIndex >= 0) {
+      connections[connectionIndex] = { ...connections[connectionIndex], ...connection };
+    } else {
+      connections.push(connection);
+    }
+    patchDevice(reference, { connections }, {
+      domains: [CHANGE_DOMAIN.DEVICES, CHANGE_DOMAIN.CONNECTION],
+      reason: 'connection_update'
+    });
+    return true;
+  }
+
+  function applyTelemetryUpdate(payload) {
+    const updates = Array.isArray(payload) ? payload : [payload];
+    let changed = false;
+    for (const update of updates) {
+      if (!isRecord(update)) {
+        continue;
+      }
+      const reference = payloadDeviceReference(update);
+      const existing = selectDevice(reference);
+      // Only known measurement fields may wait for the 1Hz presentation budget.
+      // Unknown fields, connection/control/authority changes always stay urgent.
+      const ordinary = isMeasurementOnlyChange(existing, update);
+      if (patchDevice(reference, update, { reason: 'telemetry_update', ...(ordinary ? { presentation: 'telemetry' } : {}) })) {
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  function applyRealtimeEvent(event) {
+    if (!isRecord(event) || event.version !== REALTIME_EVENT_VERSION || typeof event.type !== 'string') {
+      return false;
+    }
+
+    return withPublicationOrigin('realtime', () => {
+      const { type, payload } = event;
+      switch (type) {
+        case 'device_update':
+          upsertDevice(payload);
+          return true;
+        case 'telemetry_update':
+          return applyTelemetryUpdate(payload);
+        case 'connection_update':
+          return isRecord(payload) && applyConnectionUpdate(payload);
+        case 'command_update':
+          return Boolean(upsertCommand(payload));
+        case 'activity_update':
+          addActivity(payloadDeviceReference(payload), payload);
+          return true;
+        case 'alert':
+        case 'alert_update':
+          upsertAlert(payloadDeviceReference(payload), payload);
+          return true;
+        case 'device_updates':
+          // The legacy batch event can race the singular normalized events.
+          return true;
+        case 'weather_update':
+          if (!isRecord(payload)) return false;
+          if (currentState.runtime.siteCode && String(payload.siteCode) !== String(currentState.runtime.siteCode)) {
+            return false;
+          }
+          setWeather(payload);
+          return true;
+        default:
+          return false;
+      }
+    });
+  }
+
+  return Object.freeze({
+    getState,
+    diagnostics: () => Object.freeze({ ...counters }),
+    subscribe,
+    selectDevice,
+    selectActiveDevice,
+    setDevices,
+    clearPlatformData,
+    upsertDevice,
+    patchDevice,
+    removeDevice,
+    setActiveDevice,
+    setActiveConnection,
+    setConnectionHealth,
+    setRuntimeContext,
+    setWeather,
+    setWeatherForecast,
+    upsertCommand,
+    addActivity,
+    upsertAlert,
+    applyRealtimeEvent
+  });
+}
+
+export const store = createClientStore();
+
+// Compatibility exports keep the former client entry point buildable while it
+// is migrated to the normalized store API.
+export const state = new Proxy({}, {
+  get(_target, property) {
+    if (property === 'currentDevice') {
+      return store.selectActiveDevice();
+    }
+    if (property === 'logs') {
+      return Object.values(store.getState().activitiesByDeviceId).flat();
+    }
+    return store.getState()[property];
+  }
+});
+
+export function setDevices(devices) {
+  return store.setDevices(devices);
+}
+
+export function setCurrentDevice(device) {
+  if (device == null) {
+    return store.setActiveDevice(null);
+  }
+  store.upsertDevice(device);
+  return store.setActiveDevice(device.id ?? device.deviceId ?? device.publicId);
+}
+
+export function addDevice(device) {
+  return store.upsertDevice(device);
+}
+
+export function removeDevice(reference) {
+  return store.removeDevice(reference);
+}
+
+export function updateDeviceState(reference, newState) {
+  const device = store.selectDevice(reference);
+  if (!device) {
+    return null;
+  }
+  return store.patchDevice(reference, {
+    state: { ...(isRecord(device.state) ? device.state : {}), ...(isRecord(newState) ? newState : {}) },
+    reportedState: { ...device.reportedState, ...(isRecord(newState) ? newState : {}) }
+  });
+}

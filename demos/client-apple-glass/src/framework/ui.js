@@ -55,6 +55,7 @@ import { createPullRefreshState } from './pull-refresh.js';
 import { reconcileElement } from './dom-reconcile.js';
 import { BUILD_INFO } from './build-info.js';
 import { buildAiView } from './ai/ai-view.js';
+import { addGlassSurface } from '../glass-surfaces.js';
 
 const icons = {
   Activity,
@@ -1402,8 +1403,8 @@ class ClientUi {
     const fragment = document.createDocumentFragment();
     const weather = this.model.weather;
     fragment.append(screenHeading('园区天气', weatherDescription(weather), backButton('devices')));
-    fragment.append(this.buildWeatherLocationSurface());
     fragment.append(this.buildWeatherData());
+    fragment.append(this.buildWeatherLocationSurface());
     return fragment;
   }
 
@@ -1431,8 +1432,10 @@ class ClientUi {
       return content;
     }
 
-    const hero = element('section', 'weather-hero', { data: { region: 'weather-hero' } });
+    const overview = element('section', 'weather-overview', { data: { region: 'weather-overview' }, ariaLabel: '当前园区天气' });
+    const hero = element('div', 'weather-hero', { data: { region: 'weather-hero' } });
     const heroMain = element('div', 'weather-hero__main');
+    heroMain.append(element('p', 'weather-hero__location', { text: weather.locationLabel ?? this.model.context.siteName ?? '当前站点' }));
     const condition = element('div', 'weather-hero__condition');
     condition.append(icon(weatherIcon(current.iconKey), 42));
     const conditionCopy = element('div');
@@ -1446,14 +1449,16 @@ class ClientUi {
     const refresh = element('p', 'weather-hero__updated', { data: { region: 'weather-update-stamp' }, text: weather?.fetchedAt ? `更新于 ${formatDate(weather.fetchedAt)}` : '等待天气数据' });
     if (motionAllowed && stamp && this.weatherRevealStamp === stamp) refresh.classList.add('motion-reveal');
     hero.append(refresh);
-    content.append(hero);
+    overview.append(hero);
 
     const metrics = element('section', 'weather-metrics', { ariaLabel: '当前天气指标' });
     metrics.append(weatherDetailMetric('Droplets', '湿度', weatherValue(current.relativeHumidityPct, '%'), weather?.indicators?.humidity));
     metrics.append(weatherDetailMetric('Gauge', '气压', weatherValue(current.surfacePressureHpa, ' hPa'), weather?.indicators?.pressure));
-    metrics.append(weatherDetailMetric('Wind', '风速', weatherValue(current.windSpeedKmh, ' km/h'), null));
+    metrics.append(weatherDetailMetric('Wind', '风速', current.windSpeedKmh != null
+      ? weatherValue(current.windSpeedKmh, ' km/h') : weatherValue(current.windSpeedMps, ' m/s'), null));
     metrics.append(weatherDetailMetric('MapPin', '海拔', weatherValue(current.elevationM, ' m'), null));
-    content.append(metrics);
+    overview.append(metrics);
+    content.append(overview);
 
     const risks = element('section', 'surface surface--padded weather-risks');
     risks.append(surfaceHeading('环境状态', '颜色反映环境风险，不影响设备连接与控制权限。'));
@@ -1466,8 +1471,16 @@ class ClientUi {
     risks.append(list);
     content.append(risks);
 
-    content.append(this.buildWeatherForecastSurface('未来 24 小时', arrayOf(forecast.hourly), false));
-    content.append(this.buildWeatherForecastSurface('7 天预报', arrayOf(forecast.daily), true));
+    const hourly = arrayOf(forecast.hourly), daily = arrayOf(forecast.daily);
+    if (hourly.length || daily.length) {
+      if (hourly.length) content.append(this.buildWeatherForecastSurface('未来 24 小时', hourly, false));
+      if (daily.length) content.append(this.buildWeatherForecastSurface('7 天预报', daily, true));
+    } else {
+      const forecastResource = this.model.resources.weatherForecast ?? {};
+      const waiting = this.model.loading.weatherForecast || forecastResource.phase === 'loading' || forecastResource.refreshing;
+      content.append(element('p', 'weather-forecast-note', { text: forecastResource.error
+        ?? (waiting ? '正在加载预报…' : '当前暂无预报数据，已显示可用的室外天气样例。') }));
+    }
     return content;
   }
 
@@ -1478,7 +1491,7 @@ class ClientUi {
     const hasPendingLocation = validCoordinate(pendingLocation.latitude, -90, 90)
       && validCoordinate(pendingLocation.longitude, -180, 180);
     const surface = element('section', 'surface surface--padded weather-location', { data: { region: 'weather-location' } });
-    surface.append(surfaceHeading('模拟天气位置', '可使用演示坐标或手动填写；天气数值为固定样例，仅作室外参考。'));
+    surface.append(surfaceHeading('位置与刷新', '使用演示坐标或手动填写；天气样例仅作室外参考。'));
 
     const summary = element('div', 'weather-location__summary');
     summary.append(icon('MapPin', 19));
@@ -1495,7 +1508,7 @@ class ClientUi {
       }
     } else {
       copy.append(element('strong', '', { text: '尚未配置天气位置' }));
-      copy.append(element('p', '', { text: '授权定位后即可获取当前位置的真实天气；也可手动填写坐标。' }));
+      copy.append(element('p', '', { text: '使用演示位置，或展开手动坐标设置。' }));
     }
     summary.append(copy);
     surface.append(summary);
@@ -1531,15 +1544,20 @@ class ClientUi {
     }
     surface.append(actions);
 
-    const manual = element('div', 'weather-location__manual');
-    manual.append(element('p', 'weather-location__manual-title', { text: '无法定位？手动填写坐标' }));
-    manual.append(this.textField('纬度', 'weather-latitude', this.local.weatherLocationDraft.latitude, '范围 -90 至 90，例如 22.5431', 'weatherLatitude'));
-    manual.append(this.textField('经度', 'weather-longitude', this.local.weatherLocationDraft.longitude, '范围 -180 至 180，例如 114.0579', 'weatherLongitude'));
-    manual.append(this.textField('时区', 'weather-timezone', this.local.weatherLocationDraft.timezone, '例如 Asia/Shanghai', 'weatherTimezone'));
-    manual.append(actionButton(this.isBusy('weather-manual-location') ? '保存并刷新中…' : '保存手动位置并刷新', 'save-manual-weather-location', {
+    const manual = element('details', 'weather-location__manual', {
+      data: { region: 'weather-coordinate-details' },
+      open: this.root.querySelector('[data-region=weather-coordinate-details]')?.open === true
+    });
+    manual.append(element('summary', 'weather-location__manual-title', { text: '手动设置坐标与时区' }));
+    const fields = element('div', 'weather-location__fields');
+    fields.append(this.textField('纬度', 'weather-latitude', this.local.weatherLocationDraft.latitude, '范围 -90 至 90，例如 22.5431', 'weatherLatitude'));
+    fields.append(this.textField('经度', 'weather-longitude', this.local.weatherLocationDraft.longitude, '范围 -180 至 180，例如 114.0579', 'weatherLongitude'));
+    fields.append(this.textField('时区', 'weather-timezone', this.local.weatherLocationDraft.timezone, '例如 Asia/Shanghai', 'weatherTimezone'));
+    fields.append(actionButton(this.isBusy('weather-manual-location') ? '保存并刷新中…' : '保存手动位置并刷新', 'save-manual-weather-location', {
       className: 'button button--secondary', iconName: 'MapPin',
       disabled: this.isBusy('weather-manual-location') || this.isBusy('weather-device-location')
     }));
+    manual.append(fields);
     surface.append(manual);
     return surface;
   }
@@ -1994,7 +2012,7 @@ class ClientUi {
       fragment.append(this.buildNotice(screenState.notice, 'warning', null, '安全控制已关闭'));
     }
 
-    const layout = element('div', 'detail-layout');
+    const layout = element('div', 'detail-layout', { data: { region: 'device-detail-panel' } });
     const main = element('div', 'detail-layout__main');
     main.append(this.buildConnectionSurface(device, connection));
     main.append(this.buildStateSurface(device));
@@ -2008,7 +2026,7 @@ class ClientUi {
 
     const metadata = genericMetadata(device, connection);
     if (metadata.length) {
-      const extra = this.buildMetadataSurface(metadata);
+      const extra = this.buildMetadataSurface(metadata, { inDetail: true });
       extra.classList.add('detail-layout__full');
       layout.append(extra);
     }
@@ -2095,14 +2113,15 @@ class ClientUi {
     const surface = element('section', 'surface surface--padded', { data: { region: 'device-state' } });
     surface.append(surfaceHeading('设备状态', '期望状态不会覆盖设备已上报的真实状态。'));
     const comparison = element('div', 'state-comparison');
-    comparison.append(this.buildStatePanel('期望状态', device.desiredState ?? {}, 'desired'));
-    comparison.append(this.buildStatePanel('已上报状态', device.reportedState ?? device.state ?? {}, 'reported'));
+    const controls = resolveDeviceCapabilities(device, getPrimaryConnection(device, this.model.activeConnection)).controls;
+    comparison.append(this.buildStatePanel('期望状态', device.desiredState ?? {}, 'desired', controls));
+    comparison.append(this.buildStatePanel('已上报状态', device.reportedState ?? device.state ?? {}, 'reported', controls));
     surface.append(comparison);
     return surface;
   }
 
-  buildStatePanel(title, state, kind) {
-    const panel = element('section', 'state-panel');
+  buildStatePanel(title, state, kind, controls = []) {
+    const panel = element('section', 'state-panel', { data: { stateKind: kind } });
     const titleRow = element('h4', `state-panel__title state-panel__title--${kind}`);
     titleRow.append(icon(kind === 'desired' ? 'Target' : 'RadioTower', 15));
     titleRow.append(textNode(title));
@@ -2113,9 +2132,11 @@ class ClientUi {
       list.append(element('div', 'state-empty', { text: '暂无数据' }));
     } else {
       entries.slice(0, 8).forEach(([key, value]) => {
-        const row = element('div', 'state-row');
-        row.append(element('span', 'state-row__key', { text: stateLabel(key) }));
-        row.append(element('span', 'state-row__value', { text: stateValue(value) }));
+        const capability = controls.find(control => control.stateKey === key);
+        const option = capability?.options?.find(item => String(item.value) === String(value));
+        const row = element('div', 'state-row', { data: { stateField: key } });
+        row.append(element('span', 'state-row__key', { text: capability?.label ?? stateLabel(key) }));
+        row.append(element('span', 'state-row__value', { text: option?.label ?? stateValue(value) }));
         list.append(row);
       });
     }
@@ -2399,8 +2420,9 @@ class ClientUi {
     return timeline;
   }
 
-  buildMetadataSurface(metadata) {
-    const surface = element('section', 'surface surface--padded');
+  buildMetadataSurface(metadata, { inDetail = false } = {}) {
+    const surface = element('section', 'surface surface--padded',
+      inDetail ? { data: { region: 'device-metadata' } } : {});
     surface.append(surfaceHeading('通用信息', '这些信息不表示该设备支持控制命令。'));
     const list = element('div', 'state-list');
     metadata.slice(0, 8).forEach(([key, value]) => {
@@ -3405,7 +3427,7 @@ function element(tag, className = '', attributes = {}) {
       node.setAttribute(key, String(value));
     }
   });
-  return node;
+  return addGlassSurface(node);
 }
 
 function textNode(value) {
