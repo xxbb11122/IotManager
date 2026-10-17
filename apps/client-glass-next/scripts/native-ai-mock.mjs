@@ -38,6 +38,10 @@ export async function startNativeAiMock({ port = 8080 } = {}) {
         res.writeHead(200, { 'content-type': 'text/html' });
         return res.end('<!doctype html><title>Native mock browser</title><p>Native browser plugin fixture</p>');
       }
+      if (pathname === '/security-document') {
+        res.writeHead(200, { 'content-type': 'text/html' });
+        return res.end('<!doctype html><title>Local security fixture</title><script>top.__nativeProxyEscaped=1</script>');
+      }
       if (pathname === '/api/v1/me') return send(res, 200, { subject: 'native-smoke-owner', roles: ['OWNER'], sites: [{ id: 1 }] });
       if (pathname === '/api/v1/sites') return send(res, 200, [{ id: 1, siteCode: 'native-smoke-site', siteName: '原生模拟站点', organizationCode: 'native-smoke-org' }]);
       if (pathname === '/api/v1/devices') return send(res, 200, []);

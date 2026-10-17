@@ -19,7 +19,7 @@ const expectedVersionCode = Number(process.env.IOT_RELEASE_VERSION_CODE ?? gradl
 assert.ok(Number.isSafeInteger(expectedVersionCode) && expectedVersionCode > 0, 'A valid expected Android version code is required');
 const appId = 'com.iot.manager.glassnext', port = 9224, reversePort = 18891;
 const results = [];
-const expectedChecks = 15;
+const expectedChecks = 16;
 let browser, page, originalPreferencesXml, mock, originalChromeFlags, browserFixture = false, forwarded = false, reversed = false;
 let installedApkSha256 = null;
 let preferencesWritten = false;
@@ -169,6 +169,24 @@ try {
   installedApkSha256 = adb('shell', 'sha256sum', apkPath).split(/\s+/)[0].toUpperCase();
   assert.match(installedApkSha256, /^[A-F0-9]{64}$/);
   record('installed Debug APK ' + expectedVersionName + ' uses native platform');
+
+  // A loopback-only document fixture must never execute with the App origin.
+  const unexpectedNavigation = page.waitForEvent('framenavigated', {
+    predicate: frame => frame === page.mainFrame(), timeout: 1000
+  }).then(() => true, error => { if (error.name === 'TimeoutError') return false; throw error; });
+  await page.evaluate(() => {
+    const url = '/_capacitor_http_interceptor_?u=' + encodeURIComponent('http://127.0.0.1:18891/security-document');
+    const link = document.createElement('a'); link.href = url;
+    document.body.append(link); link.click(); link.remove();
+    const frame = document.createElement('iframe'); frame.id = 'native-proxy-guard'; frame.hidden = true; frame.src = url;
+    document.body.append(frame);
+  });
+  assert.equal(await unexpectedNavigation, false);
+  assert.equal(await page.evaluate(() => window.__nativeProxyEscaped), undefined);
+  assert.equal(mock.calls.filter(row => row.pathname === '/security-document').length, 0);
+  await page.evaluate(() => document.getElementById('native-proxy-guard')?.remove());
+  await expect(page.locator('#ai-question')).toBeVisible();
+  record('native internal HTTP proxy blocks document and iframe navigation');
 
   // WebView quantizes CSS borders to physical pixels at fractional density.
   assert.ok(await page.locator('.ai-workspace').evaluate(node => parseFloat(getComputedStyle(node).borderTopWidth) > 0));
