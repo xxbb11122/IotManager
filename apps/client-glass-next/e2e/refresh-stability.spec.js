@@ -245,7 +245,13 @@ test('actual runtime: failed startup plus three WS reconnects performs one list 
     await page.waitForTimeout(200);
     expect(reads).toBe(1);
   }
-  expect(await page.evaluate(() => window.__iotUiMetrics().snapshotCooldownCount)).toBeGreaterThanOrEqual(4);
+  // The initial socket can join the startup read or arrive just after it.
+  // Both must suppress another read; the three later reconnects cool down.
+  await expect.poll(() => page.evaluate(() => window.__iotUiMetrics().snapshotCooldownCount)).toBeGreaterThanOrEqual(3);
+  await expect.poll(() => page.evaluate(() => {
+    const metrics = window.__iotUiMetrics();
+    return metrics.snapshotCooldownCount + metrics.snapshotJoinedCount;
+  })).toBeGreaterThanOrEqual(4);
   expect(errors).toEqual([]);
   await page.locator('[data-action="open-connection-settings"]').click();
   await expect(page.locator('[data-region="build-identity"]')).toContainText('提交');

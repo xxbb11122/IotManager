@@ -161,6 +161,31 @@ try {
   assert.match(installedApkSha256, /^[A-F0-9]{64}$/);
   record('installed Debug APK ' + expectedVersionName + ' uses native platform');
 
+  await expect(page.locator('.ai-workspace')).toHaveCSS('border-top-width', '1px');
+  await expect(page.locator('.ai-workspace')).toHaveCSS('backdrop-filter', /blur/);
+  await page.locator('[data-action="open-connection-settings"]').click();
+  for (const mode of ['solid', 'frosted', 'liquid']) {
+    await page.locator('[data-material-mode="' + mode + '"]').click();
+    await expect(page.locator('#app')).toHaveAttribute('data-glass', mode);
+    if (mode === 'solid') {
+      const filtered = await page.locator('#app').evaluate(root => [...root.querySelectorAll('*')]
+        .filter(node => getComputedStyle(node).backdropFilter !== 'none').length);
+      assert.equal(filtered, 0);
+    }
+  }
+  await page.emulateMedia({ contrast: 'more' });
+  await expect(page.locator('#app')).toHaveAttribute('data-glass', 'solid');
+  await expect(page.locator('.app-header')).toHaveCSS('backdrop-filter', 'none');
+  await expect(page.locator('.bottom-nav')).toHaveCSS('backdrop-filter', 'none');
+  await page.emulateMedia({ contrast: 'no-preference', forcedColors: 'active' });
+  await expect(page.locator('#app')).toHaveAttribute('data-glass', 'solid');
+  await expect(page.locator('.app-header')).toHaveCSS('backdrop-filter', 'none');
+  await page.emulateMedia({ forcedColors: 'none' });
+  await expect(page.locator('#app')).toHaveAttribute('data-glass', 'liquid');
+  await page.locator('.bottom-nav [data-screen="ai"]').click();
+  await expect(page.locator('#ai-question')).toBeVisible();
+  record('packaged CSS surface, three materials and both system contrast overrides');
+
   const nav = page.locator('.bottom-nav');
   await expect(nav).toBeVisible();
   await expect(nav.locator('.nav-button')).toHaveCount(4);
@@ -251,6 +276,12 @@ try {
 
   await page.getByRole('button', { name: '性格', exact: true }).click();
   await expect(nav.locator('[aria-current="page"]')).toHaveAttribute('data-screen', 'ai');
+  await expect(page.locator('#ai-persona-name')).toHaveCSS('min-height', '48px');
+  await expect(page.locator('#ai-persona-instructions')).toHaveCSS('min-height', '88px');
+  await page.locator('#ai-persona-name').focus();
+  await expect(page.locator('#ai-persona-name')).toHaveCSS('outline-style', 'solid');
+  await expect(page.locator('#ai-persona-name')).toHaveCSS('outline-width', '2px');
+  record('packaged persona fields preserve 48px target and visible keyboard focus');
   const personaTail = 'native-persona-end';
   const instructions = 'a'.repeat(4000 - personaTail.length) + personaTail;
   assert.equal(instructions.length, 4000);

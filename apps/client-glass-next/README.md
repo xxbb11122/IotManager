@@ -19,7 +19,7 @@ AI 是本 App 的主导航功能之一：登录并选择获授权站点后即可
 | 项目 | Glass Next |
 | --- | --- |
 | 源码基线 | 客户端 1.1.3；来源提交和文件摘要见 [source-provenance.json](source-provenance.json) |
-| 当前版本 | 1.1.4-glass.4 / Android code 8 |
+| 当前版本 | 1.1.4-glass.5 / Android code 9 |
 | 开发/预览端口 | 5190 |
 | Android 包名 | `com.iot.manager.glassnext` |
 | Android 显示名称 | IoT Manager Glass |

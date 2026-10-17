@@ -1288,7 +1288,7 @@ class ClientUi {
     if (resource.error) surface.append(this.buildNotice(resource.error, 'warning', null, devices.length ? '保留已有设备' : '设备读取失败'));
     if (devices.length === 0) {
       const list = element('div', 'device-list device-list--cards', { data: { region: 'device-list' } });
-      const empty = element('div', 'empty-state');
+      const empty = element('div', 'empty-state empty-state--panel');
       const iconWrap = element('div', 'empty-state__icon', { ariaHidden: 'true' });
       iconWrap.append(icon('Boxes', 27));
       empty.append(iconWrap);
@@ -2273,6 +2273,7 @@ class ClientUi {
         className: `mode-button${value === current ? ' mode-button--selected' : ''}${disabled && value === current ? ' mode-button--pending' : ''}`,
         data: capabilityActionData(device, capability, option.value),
         disabled,
+        ariaPressed: String(value === current),
         ariaLabel: `设置 ${capability.label} 为 ${option.label}`
       }));
     });
@@ -2314,36 +2315,6 @@ class ClientUi {
       disabled
     }));
     row.append(heading);
-    return row;
-  }
-
-  buildLevelControl(device, capability, disabled) {
-    const reported = plainObject(device.reportedState ?? device.state);
-    const desired = plainObject(device.desiredState);
-    const stored = this.local.commandValues[`level:${deviceKey(device)}`];
-    const value = clampNumber(disabled
-      ? stored ?? desired.level ?? desired.brightness ?? reported.level ?? reported.brightness ?? 0
-      : reported.level ?? reported.brightness ?? 0, 0, 100);
-    const row = element('div', 'control-row');
-    const heading = element('div', 'control-row__heading');
-    const copy = element('div');
-    copy.append(element('h4', '', { text: capability.label ?? '强度' }));
-    copy.append(element('p', '', { text: '拖动后松开以发送新命令。' }));
-    heading.append(copy);
-    row.append(heading);
-    const rangeRow = element('div', 'range-row');
-    rangeRow.append(element('input', 'range-input', {
-      type: 'range',
-      min: '0',
-      max: '100',
-      step: '1',
-      value: String(value),
-      disabled,
-      data: { deviceId: deviceKey(device), commandType: capability.commandType ?? 'set_level', field: 'level' },
-      ariaLabel: `${capability.label ?? '强度'} ${value}%`
-    }));
-    rangeRow.append(element('output', `range-value${disabled ? ' range-value--pending' : ''}`, { text: `${value}%` }));
-    row.append(rangeRow);
     return row;
   }
 

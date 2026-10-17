@@ -51,16 +51,15 @@ button:focus-visible, a:focus-visible, select:focus-visible { outline: 2px solid
 .bottom-nav::before { left: calc(8px + var(--safe-left)); width: calc((100% - 16px - var(--safe-left) - var(--safe-right)) / 4); bottom: calc(8px + var(--safe-bottom)); }
 .ai-workspace { border-color: var(--line); padding: 24px; gap: 18px; box-shadow: 0 3px 12px rgb(23 49 60 / 3%); }
 .ai-title { font-size: 1.65rem; }
-.ai-notice { font-size: .85rem; color: #48626c; background: #edf4f6; }
+.ai-notice { font-size: .85rem; }
 .ai-empty { display: flex; align-items: center; justify-content: center; min-height: 160px; text-align: center; color: var(--ink-muted); font-size: .95rem; }
 .ai-message { background: #f0f4f7; font-size: .95rem; }
 .ai-message--user { background: #e3eff2; }
 .ai-message-role { font-size: .8rem; color: var(--ink-muted); }
-.ai-input { color: var(--ink); border-color: transparent; background: transparent; padding: 4px; resize: vertical; min-height: 88px; }
-.ai-input:focus { outline: 0; }
+.ai-input { color: var(--ink); }
 .ai-quick-chips { flex-wrap: wrap; overflow-x: visible; }
 .ai-chip { color: var(--teal-strong); background: #f2f7f9; border-color: #d6e6eb; font-size: .85rem; }
-.ai-composer--crystal .ai-field { padding: 16px; border-radius: 18px; border-color: #b3cbd4; background: linear-gradient(140deg, #fafdff, #eef4f8); }
+.ai-composer--crystal .ai-field { padding: 16px; border-radius: 18px; }
 .ai-field-label { color: var(--ink); font-size: .9rem; }
 .ai-count { font-size: .72rem; }
 .ai-composer > .button--primary { min-width: 110px; border-radius: 12px; }

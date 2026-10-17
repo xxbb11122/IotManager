@@ -8,21 +8,40 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <title>设备运营 · Glass Next</title>
   <style>
-    html, body { min-height: 100%; margin: 0; background: #f3f6f7; }
+    html, body { min-height: 100%; margin: 0; background: #eff5f6; }
     #startup-overlay {
       position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center;
-      background: #f3f6f7; opacity: 1; transition: opacity 280ms ease-out;
+      background: radial-gradient(ellipse at 0% 0%, rgb(157 215 213 / 72%), transparent 52%),
+        radial-gradient(ellipse at 100% 35%, rgb(174 201 233 / 58%), transparent 55%),
+        radial-gradient(ellipse at 20% 100%, rgb(241 214 190 / 55%), transparent 48%), #eff5f6;
+      opacity: 1; transition: opacity 280ms ease-out;
     }
     #startup-overlay.startup-overlay--leaving { opacity: 0; }
     .startup-visual { width: 160px; height: 160px; display: grid; place-items: center; }
     .startup-icon {
       width: 160px; height: 160px; object-fit: contain; border-radius: 50%;
-      background: #fff;
+      background: #fff; border: 1px solid rgb(255 255 255 / 88%);
+      box-shadow: inset 0 1px #fff, 0 12px 32px rgb(38 78 96 / 10%);
     }
     .startup-status { position: absolute; top: calc(50% + 100px); margin: 0; color: #607078; font: 13px/1.5 system-ui, sans-serif; text-align: center; }
     .startup-retry {
-      position: absolute; top: calc(50% + 142px); padding: 10px 16px; border: 1px solid #bdcdd1;
-      border-radius: 8px; background: #fff; color: #14555d; font: 600 14px/1.3 system-ui, sans-serif;
+      position: absolute; top: calc(50% + 142px); min-height: 48px; padding: 10px 18px; border: 1px solid #bdcdd1;
+      border-radius: 12px; background: #fff; color: #14555d; font: 600 14px/1.3 system-ui, sans-serif;
+    }
+    .startup-retry:focus-visible { outline: 2px solid #14555d; outline-offset: 3px; }
+    @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+      .startup-icon, .startup-retry {
+        background: linear-gradient(135deg, rgb(255 255 255 / 86%), rgb(240 249 252 / 74%));
+        backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      }
+    }
+    @media (forced-colors: active), (prefers-contrast: more) {
+      #startup-overlay, .startup-icon, .startup-retry {
+        background: Canvas; color: CanvasText; border-color: CanvasText;
+        backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none;
+      }
+      .startup-status { color: CanvasText; }
+      .startup-retry:focus-visible { outline-color: Highlight; }
     }
     [hidden] { display: none !important; }
     @media (prefers-reduced-motion: reduce) {
@@ -39,7 +58,7 @@
     <p id="startup-status" class="startup-status" hidden>正在准备设备运营界面…</p>
     <button id="startup-retry" class="startup-retry" type="button" hidden>重新加载</button>
   </div>
-  <noscript><style>#startup-overlay { display: none !important; }</style>设备运营需要启用 JavaScript。未发送任何设备操作，请启用后重新打开。</noscript>
+  <noscript><style>#startup-overlay, #app { display: none !important; }</style><p id="startup-noscript" role="alert">设备运营需要启用 JavaScript。未发送任何设备操作，请启用后重新打开。</p></noscript>
   <script src="/startup-watchdog.js"></script>
   <script type="module" src="/src/main.js"></script>
 </body>
