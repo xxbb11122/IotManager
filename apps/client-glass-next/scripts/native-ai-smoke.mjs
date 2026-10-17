@@ -59,7 +59,9 @@ async function connect() {
   assert.ok(socket, 'Debug WebView socket must exist');
   adb('forward', 'tcp:' + port, 'localabstract:' + socket);
   forwarded = true;
-  browser = await chromium.connectOverCDP('http://127.0.0.1:' + port);
+  // Android WebView exposes a default context but does not implement browser
+  // context download management. Attach without changing context defaults.
+  browser = await chromium.connectOverCDP('http://127.0.0.1:' + port, { noDefaults: true });
   page = browser.contexts().flatMap(context => context.pages()).find(item => item.url() === 'https://localhost/');
   assert.ok(page, 'Only the packaged local App is accepted');
   expect.setTimeout?.(15000);
