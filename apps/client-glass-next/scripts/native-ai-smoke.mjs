@@ -72,7 +72,13 @@ async function screenshot(name) {
   // DOM assertions may complete before WebView and SurfaceFlinger paint the
   // glass and navigation transitions. Capture their settled native frame.
   if (page && !page.isClosed()) {
-    await page.evaluate(() => new Promise(resolveFrame => requestAnimationFrame(() => requestAnimationFrame(resolveFrame))));
+    await Promise.race([
+      page.evaluate(() => new Promise(resolveFrame => {
+        if (document.hidden) return resolveFrame();
+        requestAnimationFrame(() => requestAnimationFrame(resolveFrame));
+      })),
+      delay(1500)
+    ]);
     await delay(600);
   }
   const value = spawnSync(adbPath, ['-s', serial, 'exec-out', 'screencap', '-p'], {
@@ -373,6 +379,10 @@ try {
   adb('shell', 'am', 'force-stop', 'com.android.chrome');
   await page.evaluate(() => window.Capacitor.Plugins.Browser.open({ url: 'http://127.0.0.1:18891/mock-login' }));
   await expect.poll(() => mock.calls.some(row => row.pathname === '/mock-login'), { timeout: 15000 }).toBe(true);
+  // Receiving the HTTP request does not imply that Android has focused the
+  // custom tab yet. A Back sent during its launch can be consumed elsewhere.
+  await expect.poll(() => adb('shell', 'dumpsys window | grep -m 1 mCurrentFocus').includes('com.android.chrome'),
+    { timeout: 15000 }).toBe(true);
   adb('shell', 'input', 'keyevent', 'KEYCODE_BACK');
   await expect.poll(() => adb('shell', 'dumpsys window | grep -m 1 mCurrentFocus').includes(appId),
     { timeout: 10000 }).toBe(true);

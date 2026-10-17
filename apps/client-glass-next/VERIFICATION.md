@@ -1,5 +1,17 @@
 # Glass Next 验证记录
 
+## 2026-10-18 glass.5 材质与可访问性整改
+
+版本 **1.1.4-glass.5 / code 9**。完成 AI 根容器材质、通知语义色、AI 表单高度/焦点/内边距、独立状态面板、系统高对比度及启动兜底整改；保留连续详情和天气指标布局。
+
+**220 项单元、68 项浏览器、15 项已安装 APK 模拟器检查通过**；8 项真实环境用例未启用。截图实际合成背景的 Notice/AI 错误文本对比度检查通过。安装包内 14 个网页资源与 dist 摘要一致，签名与 glass.4 相同；覆盖升级测试保留原 App 数据标记。
+
+交付包源码提交 `2364bf542f413077f023ac6fe9f63f96a9353d32`，构建标记 `dirty=false`。APK SHA-256：`6c0752a259675d8072d3746b8d31da578d7eace6c7432b1cc4e2a0a26644a94f`。
+
+原生检查使用专用 Android 36 AVD 和隔离 HTTP 服务，未调用真实 AI 供应商；不代表实体手机、现场 BLE/LAN 或真实 Keycloak 验收。源码构建之后的测试等待修正及文档提交不改变该 APK 的运行时源码。
+
+详见[开发与验收记录](docs/GLASS-5-IMPLEMENTATION-2026-10-18.md)及[脱敏验证摘要](docs/GLASS-5-VERIFICATION.json)。完整报告在本机 `verification/glass5-20261018/`，以下旧版本记录保留为历史基线。
+
 ## 2026-10-03 Android 局域网接入
 
 当前版本 **1.1.4-glass.4 / code 8**。220 项单元、2 项移动浏览器检查通过；公开 HTTPS 入口、证书、5 个 PKCE 表单与 APK 摘要通过；14 项最终 APK 资源、LAN 默认参数、Debug CA 与签名通过。13 项真实协议检查通过，包括真实账号的 Android/web PKCE 登录、授权 API、刷新、WSS、Backend→DeepSeek 回答、历史/GET 恢复及退出后拒绝刷新。修复了 Keycloak Glass client 缺少 `basic` scope 与退出未撤销 offline refresh token 的问题。实体手机的验收边界见下文。以下 glass.2 和 10 月 2 日记录为历史基线。

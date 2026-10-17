@@ -1,0 +1,71 @@
+{
+  "releaseDate": "2026-10-18",
+  "timezone": "Asia/Shanghai",
+  "verifiedAt": "2026-10-17T23:27:44.334Z",
+  "version": "1.1.4-glass.5",
+  "versionCode": 9,
+  "applicationId": "com.iot.manager.glassnext",
+  "sourceCommit": "2364bf542f413077f023ac6fe9f63f96a9353d32",
+  "sourceDirtyAtBuild": false,
+  "runtimeMatchesBuildCommit": true,
+  "apk": {
+    "sha256": "6c0752a259675d8072d3746b8d31da578d7eace6c7432b1cc4e2a0a26644a94f",
+    "bytes": 6118809,
+    "certificateSha256": "55135dbb4ac115bc0db023544ccc184472f9023f51bf767161a0ca6ba11a6e0d",
+    "sameSignerAsGlass4": true,
+    "distFilesMatched": 14
+  },
+  "tests": {
+    "unit": {
+      "total": 220,
+      "passed": 220,
+      "failed": 0
+    },
+    "browser": {
+      "total": 76,
+      "passed": 68,
+      "skipped": 8,
+      "failed": 0,
+      "flaky": 0,
+      "durationMs": 101487.924
+    },
+    "native": {
+      "passed": true,
+      "checks": 15,
+      "realProviderCalled": false,
+      "postCount": 2,
+      "installedApkSha256": "6c0752a259675d8072d3746b8d31da578d7eace6c7432b1cc4e2a0a26644a94f",
+      "checksPassed": [
+        "installed Debug APK 1.1.4-glass.5 uses native platform",
+        "packaged CSS surface, three materials and both system contrast overrides",
+        "native bottom navigation aligns, survives interrupted taps and respects reduced motion",
+        "crystal quick prompt fills draft without calling the provider",
+        "native HTTP roundtrip, one POST and safe answer text",
+        "connection recheck preserves draft and conversation without another POST",
+        "Android soft keyboard opens and first Back dismisses it without leaving chat",
+        "history and Android system Back return to chat",
+        "packaged persona fields preserve 48px target and visible keyboard focus",
+        "4000 character persona and guarded activation through native HTTP",
+        "native Preferences stores only request IDs and timestamp",
+        "background lifecycle stops recovery polling",
+        "process restart obtains saved answer with GET and no repeated POST",
+        "Android rotation preserves chat, safe area and no horizontal overflow",
+        "native Browser plugin opens isolated page and returns to App"
+      ]
+    }
+  },
+  "upgrade": {
+    "passed": true,
+    "fromCode": 8,
+    "toCode": 9,
+    "appDataPreserved": true,
+    "serial": "emulator-5560"
+  },
+  "nativeTestScriptSha256LfNormalized": "416abf1283615af7cf885af610a603ba3e69fd5f9b71576fc3c4fe7a9108ce04",
+  "boundaries": [
+    "Native checks ran on a dedicated Android 36 emulator with isolated HTTP and auth fixtures.",
+    "Eight opt-in live-environment tests were skipped.",
+    "No physical-device CA, BLE hardware, production Keycloak, real AI provider or GPU performance acceptance was performed.",
+    "Post-build changes only affect native test synchronization and delivery documentation."
+  ]
+}
