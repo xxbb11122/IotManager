@@ -1,24 +1,37 @@
 {
   "releaseDate": "2026-10-18",
   "timezone": "Asia/Shanghai",
-  "verifiedAt": "2026-10-17T23:27:44.334Z",
+  "verifiedAt": "2026-10-17T23:50:56.821Z",
   "version": "1.1.4-glass.5",
-  "versionCode": 9,
+  "versionCode": 10,
   "applicationId": "com.iot.manager.glassnext",
-  "sourceCommit": "2364bf542f413077f023ac6fe9f63f96a9353d32",
+  "sourceCommit": "0225d4f91ea08993a65ee518793eb40baba341b3",
   "sourceDirtyAtBuild": false,
   "runtimeMatchesBuildCommit": true,
   "apk": {
-    "sha256": "6c0752a259675d8072d3746b8d31da578d7eace6c7432b1cc4e2a0a26644a94f",
-    "bytes": 6118809,
+    "fileName": "iot-manager-glass-1.1.4-glass.5-code10-debug.apk",
+    "sha256": "068475f1f3bf097ea35ab459bcc52d4a3930cbd0d946be84ea30a14b689fd3bd",
+    "bytes": 6002998,
     "certificateSha256": "55135dbb4ac115bc0db023544ccc184472f9023f51bf767161a0ca6ba11a6e0d",
     "sameSignerAsGlass4": true,
     "distFilesMatched": 14
+  },
+  "security": {
+    "capacitorAndroid": "8.4.3",
+    "cve": "CVE-2026-103922",
+    "advisory": "https://github.com/ionic-team/capacitor/security/advisories/GHSA-rvm3-566m-v7fv",
+    "originalClientDependencyAlsoPatched": true,
+    "supersedesCandidateVersionCode": 9
   },
   "tests": {
     "unit": {
       "total": 220,
       "passed": 220,
+      "failed": 0
+    },
+    "originalClientUnit": {
+      "total": 230,
+      "passed": 230,
       "failed": 0
     },
     "browser": {
@@ -27,14 +40,14 @@
       "skipped": 8,
       "failed": 0,
       "flaky": 0,
-      "durationMs": 101487.924
+      "durationMs": 142397.36800000002
     },
     "native": {
       "passed": true,
-      "checks": 15,
+      "checks": 16,
       "realProviderCalled": false,
       "postCount": 2,
-      "installedApkSha256": "6c0752a259675d8072d3746b8d31da578d7eace6c7432b1cc4e2a0a26644a94f",
+      "installedApkSha256": "068475f1f3bf097ea35ab459bcc52d4a3930cbd0d946be84ea30a14b689fd3bd",
       "checksPassed": [
         "installed Debug APK 1.1.4-glass.5 uses native platform",
         "packaged CSS surface, three materials and both system contrast overrides",
@@ -50,18 +63,19 @@
         "background lifecycle stops recovery polling",
         "process restart obtains saved answer with GET and no repeated POST",
         "Android rotation preserves chat, safe area and no horizontal overflow",
-        "native Browser plugin opens isolated page and returns to App"
+        "native Browser plugin opens isolated page and returns to App",
+        "native internal HTTP proxy blocks document and iframe navigation"
       ]
     }
   },
   "upgrade": {
     "passed": true,
     "fromCode": 8,
-    "toCode": 9,
+    "toCode": 10,
     "appDataPreserved": true,
     "serial": "emulator-5560"
   },
-  "nativeTestScriptSha256LfNormalized": "416abf1283615af7cf885af610a603ba3e69fd5f9b71576fc3c4fe7a9108ce04",
+  "nativeTestScriptSha256LfNormalized": "28ec34406f1084a08c6e206ccd40f12f512505af73cb7de8472b960f2fd4f6a8",
   "boundaries": [
     "Native checks ran on a dedicated Android 36 emulator with isolated HTTP and auth fixtures.",
     "Eight opt-in live-environment tests were skipped.",

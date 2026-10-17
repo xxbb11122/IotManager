@@ -170,24 +170,6 @@ try {
   assert.match(installedApkSha256, /^[A-F0-9]{64}$/);
   record('installed Debug APK ' + expectedVersionName + ' uses native platform');
 
-  // A loopback-only document fixture must never execute with the App origin.
-  const unexpectedNavigation = page.waitForEvent('framenavigated', {
-    predicate: frame => frame === page.mainFrame(), timeout: 1000
-  }).then(() => true, error => { if (error.name === 'TimeoutError') return false; throw error; });
-  await page.evaluate(() => {
-    const url = '/_capacitor_http_interceptor_?u=' + encodeURIComponent('http://127.0.0.1:18891/security-document');
-    const link = document.createElement('a'); link.href = url;
-    document.body.append(link); link.click(); link.remove();
-    const frame = document.createElement('iframe'); frame.id = 'native-proxy-guard'; frame.hidden = true; frame.src = url;
-    document.body.append(frame);
-  });
-  assert.equal(await unexpectedNavigation, false);
-  assert.equal(await page.evaluate(() => window.__nativeProxyEscaped), undefined);
-  assert.equal(mock.calls.filter(row => row.pathname === '/security-document').length, 0);
-  await page.evaluate(() => document.getElementById('native-proxy-guard')?.remove());
-  await expect(page.locator('#ai-question')).toBeVisible();
-  record('native internal HTTP proxy blocks document and iframe navigation');
-
   // WebView quantizes CSS borders to physical pixels at fractional density.
   assert.ok(await page.locator('.ai-workspace').evaluate(node => parseFloat(getComputedStyle(node).borderTopWidth) > 0));
   await expect(page.locator('.ai-workspace')).toHaveCSS('border-top-style', 'solid');
@@ -405,6 +387,40 @@ try {
   await expect.poll(() => adb('shell', 'dumpsys window | grep -m 1 mCurrentFocus').includes(appId),
     { timeout: 10000 }).toBe(true);
   record('native Browser plugin opens isolated page and returns to App');
+
+  // Run attempted document navigation last: Android WebView may dispatch
+  // beforeunload (and App teardown) even when Java subsequently blocks it.
+  // First prove the isolated HTML fixture is reachable through normal native
+  // HTTP without executing its text, then ensure documents cannot fetch it.
+  const securityFixture = await page.evaluate(async () => {
+    const response = await window.Capacitor.Plugins.CapacitorHttp.get({
+      url: 'http://127.0.0.1:18891/security-document', connectTimeout: 1500, readTimeout: 1500
+    });
+    return { status: response.status, data: response.data };
+  });
+  assert.equal(securityFixture.status, 200);
+  assert.match(securityFixture.data, /top\.__nativeProxyEscaped=1/);
+  const documentFetches = mock.calls.filter(row => row.pathname === '/security-document').length;
+  assert.equal(documentFetches, 1);
+  const unexpectedNavigation = page.waitForEvent('framenavigated', {
+    predicate: frame => frame === page.mainFrame(), timeout: 1000
+  }).then(() => true, error => { if (error.name === 'TimeoutError') return false; throw error; });
+  await page.evaluate(() => {
+    const url = '/_capacitor_http_interceptor_?u=' + encodeURIComponent('http://127.0.0.1:18891/security-document');
+    const link = document.createElement('a'); link.href = url;
+    document.body.append(link); link.click(); link.remove();
+    const frame = document.createElement('iframe'); frame.id = 'native-proxy-guard'; frame.hidden = true; frame.src = url;
+    document.body.append(frame);
+  });
+  assert.equal(await unexpectedNavigation, false);
+  assert.equal(page.url(), 'https://localhost/');
+  assert.equal(await page.evaluate(() => window.__nativeProxyEscaped), undefined);
+  assert.equal(mock.calls.filter(row => row.pathname === '/security-document').length, documentFetches);
+  await page.evaluate(() => document.getElementById('native-proxy-guard')?.remove());
+  // WebView can omit CDP cancellation for a blocked navigation. Reattach before
+  // restoring fixture storage so Playwright drops stale navigation bookkeeping.
+  await connect();
+  record('native internal HTTP proxy blocks document and iframe navigation');
 } catch (error) {
   process.exitCode = 1;
   console.error(error.stack ?? error.message);
