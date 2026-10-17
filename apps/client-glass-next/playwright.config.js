@@ -6,7 +6,7 @@ const runtimeBaseUrl = String(process.env.IOT_RUNTIME_BASE_URL ?? '').trim();
 export default defineConfig({
   testDir: './e2e',
   workers: 2,
-  reporter: [['list'], ['json', { outputFile: 'verification/e2e-results.json' }]],
+  reporter: [['list'], ['json', { outputFile: process.env.IOT_PLAYWRIGHT_REPORT_FILE || 'verification/e2e-results.json' }]],
   outputDir: process.env.IOT_PLAYWRIGHT_OUTPUT_DIR || './test-results',
   webServer: runtimeBaseUrl ? undefined : {
     command: 'npm run dev -- --host 127.0.0.1',

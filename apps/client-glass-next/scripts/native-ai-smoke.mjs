@@ -19,6 +19,7 @@ const expectedVersionCode = Number(process.env.IOT_RELEASE_VERSION_CODE ?? gradl
 assert.ok(Number.isSafeInteger(expectedVersionCode) && expectedVersionCode > 0, 'A valid expected Android version code is required');
 const appId = 'com.iot.manager.glassnext', port = 9224, reversePort = 18891;
 const results = [];
+const expectedChecks = 15;
 let browser, page, originalPreferencesXml, mock, originalChromeFlags, browserFixture = false, forwarded = false, reversed = false;
 let installedApkSha256 = null;
 let preferencesWritten = false;
@@ -163,7 +164,9 @@ try {
   assert.match(installedApkSha256, /^[A-F0-9]{64}$/);
   record('installed Debug APK ' + expectedVersionName + ' uses native platform');
 
-  await expect(page.locator('.ai-workspace')).toHaveCSS('border-top-width', '1px');
+  // WebView quantizes CSS borders to physical pixels at fractional density.
+  assert.ok(await page.locator('.ai-workspace').evaluate(node => parseFloat(getComputedStyle(node).borderTopWidth) > 0));
+  await expect(page.locator('.ai-workspace')).toHaveCSS('border-top-style', 'solid');
   await expect(page.locator('.ai-workspace')).toHaveCSS('backdrop-filter', /blur/);
   await page.locator('[data-action="open-connection-settings"]').click();
   for (const mode of ['solid', 'frosted', 'liquid']) {
@@ -282,7 +285,7 @@ try {
   await expect(page.locator('#ai-persona-instructions')).toHaveCSS('min-height', '88px');
   await page.locator('#ai-persona-name').focus();
   await expect(page.locator('#ai-persona-name')).toHaveCSS('outline-style', 'solid');
-  await expect(page.locator('#ai-persona-name')).toHaveCSS('outline-width', '2px');
+  assert.ok(await page.locator('#ai-persona-name').evaluate(node => parseFloat(getComputedStyle(node).outlineWidth) >= 1));
   record('packaged persona fields preserve 48px target and visible keyboard focus');
   const personaTail = 'native-persona-end';
   const instructions = 'a'.repeat(4000 - personaTail.length) + personaTail;
@@ -440,7 +443,8 @@ try {
   if (mock) await mock.close();
   await writeFile(resolve(output, 'native-ai-results.json'), JSON.stringify({
     applicationId: appId, versionName: expectedVersionName, versionCode: expectedVersionCode, source: 'installed-debug-apk',
-    provider: 'isolated-mock', realProviderCalled: false, installedApkSha256, passed: process.exitCode !== 1 && results.length === 13,
+    provider: 'isolated-mock', realProviderCalled: false, installedApkSha256, expectedChecks,
+    passed: process.exitCode !== 1 && results.length === expectedChecks,
     results, postCount: mock?.calls.filter(row => row.pathname.endsWith('/chat')).length ?? 0
   }, null, 2));
 }
