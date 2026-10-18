@@ -72,24 +72,25 @@ export function repairLegacyNativeEndpoint(profile, nativeDefaults) {
 export class RuntimeConfigRepository {
   constructor({ preferences = Preferences } = {}) {
     this.preferences = preferences;
+    this.writes = Promise.resolve();
   }
 
-  async load() {
+  async load({ migrate = true } = {}) {
     const { value } = await this.preferences.get({ key: STORAGE_KEY });
     if (!value) return null;
     const parsed = JSON.parse(value);
-    const normalized = normalizeEndpointProfile(parsed);
+    const normalized = normalizeEndpointProfile({ ...parsed, accessToken: null });
     // One-way migration for pre-PKCE clients: a token that used to be stored
     // in Preferences is discarded rather than copied into another store.
-    if (parsed?.accessToken) {
-      await this.preferences.set({ key: STORAGE_KEY, value: JSON.stringify(persistedEndpointProfile(normalized)) });
-    }
+    if (parsed?.accessToken && migrate) await this.save(normalized);
     return normalized;
   }
 
   async save(profile) {
     const normalized = normalizeEndpointProfile(profile);
-    await this.preferences.set({ key: STORAGE_KEY, value: JSON.stringify(persistedEndpointProfile(normalized)) });
+    const write = this.writes.catch(() => {}).then(() => this.preferences.set({ key: STORAGE_KEY, value: JSON.stringify(persistedEndpointProfile(normalized)) }));
+    this.writes = write;
+    await write;
     return normalized;
   }
 }

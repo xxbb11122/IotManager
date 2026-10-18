@@ -14,18 +14,42 @@
       background: radial-gradient(ellipse at 0% 0%, rgb(157 215 213 / 72%), transparent 52%),
         radial-gradient(ellipse at 100% 35%, rgb(174 201 233 / 58%), transparent 55%),
         radial-gradient(ellipse at 20% 100%, rgb(241 214 190 / 55%), transparent 48%), #eff5f6;
-      opacity: 1; transition: opacity 280ms ease-out;
+      opacity: 1; transition: opacity 360ms cubic-bezier(.22,1,.36,1);
     }
     #startup-overlay.startup-overlay--leaving { opacity: 0; }
-    .startup-visual { width: 160px; height: 160px; display: grid; place-items: center; }
+    .startup-stack { display:flex; flex-direction:column; align-items:center; gap:24px; width:100%; max-width:480px; padding:16px; box-sizing:border-box; }
+    .startup-feedback { display:flex; flex-direction:column; align-items:center; gap:16px; min-height:128px; width:100%; }
+    .startup-visual { position: relative; isolation: isolate; width: 148px; height: 148px; display: grid; place-items: center; }
+    .startup-visual::before, .startup-visual::after {
+      content: ''; position: absolute; inset: -10px; z-index: -1; border-radius: 38px;
+      background: linear-gradient(135deg, rgb(31 111 120 / 15%), rgb(37 99 168 / 10%), rgb(255 255 255 / 40%));
+      border: 1px solid rgb(255 255 255 / 65%); animation: startup-halo 2.4s ease-in-out infinite;
+    }
+    .startup-visual::after { inset: -22px; border-radius: 46px; animation-delay: -1.2s; opacity: .4; }
+    @keyframes startup-halo { 0%,100% { transform: scale(.98); opacity:.65; } 50% { transform: scale(1.04); opacity:.25; } }
     .startup-icon {
-      width: 160px; height: 160px; object-fit: contain; border-radius: 50%;
+      width: 136px; height: 136px; object-fit: contain; border-radius: 32px;
       background: #fff; border: 1px solid rgb(255 255 255 / 88%);
       box-shadow: inset 0 1px #fff, 0 12px 32px rgb(38 78 96 / 10%);
     }
-    .startup-status { position: absolute; top: calc(50% + 100px); margin: 0; color: #607078; font: 13px/1.5 system-ui, sans-serif; text-align: center; }
+    #startup-image-fallback { color:#14555d; font:700 36px system-ui,sans-serif; }
+    html[data-startup-owner='native'] .startup-visual::before,
+    html[data-startup-owner='native'] .startup-visual::after { animation:none; }
+    html[data-startup-motion='off'] .startup-visual::before,
+    html[data-startup-motion='off'] .startup-visual::after,
+    html[data-startup-phase='error'] .startup-visual::before,
+    html[data-startup-phase='error'] .startup-visual::after,
+    html[data-startup-phase='disposed'] .startup-visual::before,
+    html[data-startup-phase='disposed'] .startup-visual::after { animation:none; }
+    html[data-startup-depth='true'][data-startup-phase='web_exiting'] .startup-visual {
+      transform:scale(1.04); transition:transform 360ms cubic-bezier(.22,1,.36,1);
+    }
+    html[data-startup-blur='true'] .startup-overlay--leaving .startup-icon { filter:blur(8px); transition:filter 360ms ease-out; }
+    html[data-startup-phase='interactive'] .startup-visual,
+    html[data-startup-phase='error'] .startup-visual { animation:none; }
+    .startup-status { margin:0; color:#607078; font:13px/1.5 system-ui, sans-serif; text-align:center; overflow-wrap:anywhere; }
     .startup-retry {
-      position: absolute; top: calc(50% + 142px); min-height: 48px; padding: 10px 18px; border: 1px solid #bdcdd1;
+      flex-shrink:0; min-height:48px; padding:10px 18px; border:1px solid #bdcdd1;
       border-radius: 12px; background: #fff; color: #14555d; font: 600 14px/1.3 system-ui, sans-serif;
     }
     .startup-retry:focus-visible { outline: 2px solid #14555d; outline-offset: 3px; }
@@ -35,28 +59,56 @@
         backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
       }
     }
+    :where(#app[data-material='solid']) ~ #startup-overlay { background:#eff5f6; }
+    :where(#app[data-material='solid']) ~ #startup-overlay .startup-icon,
+    :where(#app[data-material='solid']) ~ #startup-overlay .startup-retry {
+      background:#fff; backdrop-filter:none; -webkit-backdrop-filter:none; box-shadow:none; filter:none;
+    }
+    :where(#app[data-material='solid']) ~ #startup-overlay .startup-visual { transform:none; transition:none; }
+    :where(#app[data-material='solid']) ~ #startup-overlay .startup-visual::before,
+    :where(#app[data-material='solid']) ~ #startup-overlay .startup-visual::after { display:none; }
     @media (forced-colors: active), (prefers-contrast: more) {
-      #startup-overlay, .startup-icon, .startup-retry {
+      #startup-overlay, #startup-overlay .startup-icon, #startup-overlay .startup-retry {
         background: Canvas; color: CanvasText; border-color: CanvasText;
-        backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none;
+        backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; filter:none;
       }
+      #startup-overlay .startup-visual { transform:none; transition:none; }
       .startup-status { color: CanvasText; }
+      .startup-visual::before, .startup-visual::after { display:none; }
       .startup-retry:focus-visible { outline-color: Highlight; }
     }
     [hidden] { display: none !important; }
     @media (prefers-reduced-motion: reduce) {
-      #startup-overlay { transition: none !important; }
+      #startup-overlay, .startup-visual, .startup-icon { transition: none !important; transform:none !important; filter:none !important; }
+      .startup-visual::before, .startup-visual::after { animation:none !important; }
+    }
+    html[data-startup-motion='off'] #startup-overlay,
+    html[data-startup-motion='off'] .startup-icon,
+    html[data-startup-motion='off'] .startup-visual { transition:none !important; transform:none !important; filter:none !important; }
+    @media (max-height:430px) {
+      #startup-overlay { overflow:auto; }
+      .startup-stack { gap:12px; padding:12px; }
+      .startup-feedback { min-height:0; gap:12px; }
+      .startup-visual { width:80px; height:80px; }
+      .startup-icon { width:72px; height:72px; border-radius:20px; }
+      .startup-visual::before { inset:-5px; border-radius:24px; }
+      .startup-visual::after { inset:-10px; border-radius:28px; }
     }
   </style>
 </head>
 <body>
   <div id="app"><p role="status">正在准备设备运营界面…</p></div>
   <div id="startup-overlay" aria-label="正在打开设备运营" role="status">
-    <div class="startup-visual" aria-hidden="true">
-      <img class="startup-icon" src="/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png" alt="">
+    <div class="startup-stack">
+      <div class="startup-visual" aria-hidden="true">
+        <img class="startup-icon" src="/assets/startup-icon.png" alt="">
+        <span id="startup-image-fallback" hidden>IoT</span>
+      </div>
+      <div class="startup-feedback">
+        <p id="startup-status" class="startup-status" hidden>正在准备设备运营界面…</p>
+        <button id="startup-retry" class="startup-retry" type="button" hidden>重新加载</button>
+      </div>
     </div>
-    <p id="startup-status" class="startup-status" hidden>正在准备设备运营界面…</p>
-    <button id="startup-retry" class="startup-retry" type="button" hidden>重新加载</button>
   </div>
   <noscript><style>#startup-overlay, #app { display: none !important; }</style><p id="startup-noscript" role="alert">设备运营需要启用 JavaScript。未发送任何设备操作，请启用后重新打开。</p></noscript>
   <script src="/startup-watchdog.js"></script>

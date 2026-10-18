@@ -9,6 +9,9 @@ import { createLocalBleDevice, decorateLanDevice, mergePlatformAndLocalDevices }
 import * as resources from '../src/js/runtime-resource-state.js';
 import { valueEqual } from '../src/js/value-equality.js';
 import { createSnapshotRefreshGate } from '../src/js/snapshot-refresh-gate.js';
+import { createStartupTrace, startupFeatures } from '../src/js/platform/startup-policy.js';
+import { createStartupPrefetch, readStartupSnapshot } from '../src/js/platform/startup-bootstrap.js';
+import { normalizeEndpointProfile } from '../src/js/platform/runtime-config.js';
 
 // Execute the actual main.js function bodies with inert platform boundaries.
 // No network, BLE, geolocation, DOM implementation or application bootstrap runs.
@@ -17,7 +20,7 @@ const source = (await readFile(new URL('../src/main.js', import.meta.url), 'utf8
   .replaceAll('import.meta.env', 'testEnv')
   .replace(/void bootstrapRuntime\(\)\.catch\([\s\S]*$/, '');
 
-function fixture(adapter = {}, cacheOverrides = {}) {
+function fixture(adapter = {}, cacheOverrides = {}, env = {}) {
   const store = createClientStore();
   const notifications = [];
   const cache = {
@@ -30,8 +33,10 @@ function fixture(adapter = {}, cacheOverrides = {}) {
   const context = vm.createContext({
     ...resources, store, CHANGE_DOMAIN, createCommandDispatcher, isTerminalCommandStatus, valueEqual, createSnapshotRefreshGate,
     createLocalBleDevice, decorateLanDevice, mergePlatformAndLocalDevices,
-    testEnv: { DEV: false }, Capacitor: { isNativePlatform: () => false },
-    RuntimeConfigRepository: class {}, CacheRepository: class { constructor() { return cache; } },
+    createStartupTrace, startupFeatures, createStartupPrefetch, readStartupSnapshot, AbortController,
+    testEnv: { DEV: false, ...env }, Capacitor: { isNativePlatform: () => false },
+    normalizeEndpointProfile, createPlatformAdapter: () => ({ adapter }),
+    RuntimeConfigRepository: class { async save(profile) { return profile; } }, CacheRepository: class { constructor() { return cache; } },
     BleAdapter: class { availability() { return { available: false }; } subscribe() { return noOp; } },
     createClientUi: () => ui, createStartupTransition: () => ({ markUiReady: noOp, dispose: noOp }),
     createNativeStartupVisual: () => null,
@@ -260,7 +265,7 @@ test('BLE connect captures identity and treats binding-storage failure as partia
   let target;
   const f = fixture({}, { putLocalBinding: async () => { throw new Error('quota'); } });
   f.context.testBle = { stopScan: async () => {}, connect: candidate => { target = candidate.deviceId; return pending.promise; }, getCapabilities: () => ({ controls: [] }) };
-  f.run(`ble = testBle; appInstallId = 'fixture'; clientState.ble.candidate = { deviceId: 'a', name: 'A' };`);
+  f.run(`ble = testBle; appInstallId = 'fixture'; installIdentityVerified = true; clientState.ble.candidate = { deviceId: 'a', name: 'A' };`);
   const connection = f.run('connectBle()');
   f.run(`clientState.ble.candidate = { deviceId: 'b', name: 'B' };`);
   pending.resolve({ deviceId: 'a', status: 'CONNECTED', transport: 'BLE_DIRECT' });
@@ -284,11 +289,46 @@ test('runtime scan-stop failure is not shown as a successful stop', async () => 
 
 test('restored BLE bindings retain data but never pretend a cached GATT link is live', async () => {
   const f = fixture({}, {
-    listLocalBindings: async () => [{ key: 'local:a', pluginDeviceId: 'a', displayName: 'Cached', lastConnectionState: 'CONNECTED', lastReportedState: { on: true } }],
-    listLocalActivity: async () => []
+    listLocalBindings: async () => [{ key: 'local:a', appInstallId: 'local', pluginDeviceId: 'a', displayName: 'Cached', lastConnectionState: 'CONNECTED', lastReportedState: { on: true } }],
+    listLocalActivity: async () => { throw new Error('history must not block bootstrap'); }
   });
-  await f.run('restoreLocalBindings()');
+  f.run(`appInstallId = 'local'; installIdentityVerified = true;`);
+  await f.run('cacheRepository.listLocalBindings().then(restoreLocalBindings)');
   assert.equal(f.store.selectDevice('a').status, 'OFFLINE');
   assert.equal(f.store.selectDevice('a').connections[0].status, 'DISCONNECTED');
   assert.equal(f.store.selectDevice('a').reportedState.on, true);
+});
+
+test('startup prefetch runs before reveal, buffers sites and applies once after interaction', async () => {
+  let calls = 0; const reveal = deferred(), response = deferred();
+  const f = fixture({ disconnect() {}, listSites() { calls++; return response.promise; } }, {}, { VITE_STARTUP_PREFETCH: 'true' });
+  f.context.revealGate = reveal.promise;
+  f.run(`configureAuthSession = async () => { authSession = { getAccessToken: () => 'valid', needsRefresh: () => false, isRedirect: () => false };
+    clientState.auth = { configured: true, authenticated: true }; }; bindPlatformEvents = () => {};
+    synchronizePlatformEndpoint = async options => { await loadSites(options); return endpointProfile; };`);
+  const pending = f.run(`activateEndpoint({ id: 'a', accessRoute: 'SITE_API', apiBaseUrl: 'https://a.invalid/api/v1', wsUrl: 'wss://a.invalid/ws/devices' }, { startupReady: () => revealGate })`);
+  await new Promise(setImmediate); assert.equal(calls, 1); assert.equal(f.run('clientState.sites.length'), 0);
+  response.resolve([]); await new Promise(setImmediate); assert.equal(f.run('clientState.resources.sites.phase'), 'idle');
+  reveal.resolve(true); await pending;
+  assert.equal(calls, 1); assert.equal(f.run('clientState.resources.sites.phase'), 'empty');
+});
+
+test('failed visual completion cancels buffered data and never claims startup success', async () => {
+  const reveal = deferred(); let calls = 0;
+  const f = fixture({ disconnect() {}, async listSites() { calls++; return [{ id:1, siteCode:'forbidden-late' }]; } }, {}, { VITE_STARTUP_PREFETCH:'true' });
+  f.context.revealGate = reveal.promise;
+  f.run(`configureAuthSession = async () => { authSession = { getAccessToken: () => 'valid', needsRefresh: () => false, isRedirect: () => false }; };
+    bindPlatformEvents = () => {};`);
+  const pending = f.run(`activateEndpoint({ id:'a', accessRoute:'SITE_API', apiBaseUrl:'https://a.invalid/api/v1', wsUrl:'wss://a.invalid/ws/devices' }, { startupReady: () => revealGate })`);
+  await new Promise(setImmediate); assert.equal(calls, 1);
+  reveal.resolve(false); assert.equal(await pending, null);
+  assert.equal(f.run('clientState.sites.length'), 0); assert.equal(f.run('clientState.startup.phase'), 'error');
+});
+
+test('unverified installation identity cannot restore other bindings or persist a new binding', async () => {
+  const f = fixture();
+  f.run(`appInstallId = 'temporary'; installIdentityVerified = false;
+    restoreLocalBindings([{ appInstallId:'old', pluginDeviceId:'a' }]);`);
+  assert.equal(f.store.getState().devices.length, 0);
+  await assert.rejects(f.run(`persistBleBinding({}, { deviceId:'a' })`), /安装身份/);
 });

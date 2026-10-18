@@ -224,7 +224,7 @@ test('T09: twelve pages fit seven phone and desktop widths and enlarged text', a
 
 test('T10: startup glass respects system contrast before the main module loads', async ({page}) => {
   await page.emulateMedia({contrast: 'more'});
-  await page.route('**/src/main.js', route => route.abort());
+  await page.route(/\/src\/main\.js(?:\?.*)?$/, route => route.abort());
   await page.goto('/');
   await expect(page.locator('#startup-overlay')).toBeVisible();
   await expect(page.locator('.startup-icon')).toHaveCSS('backdrop-filter', 'none');

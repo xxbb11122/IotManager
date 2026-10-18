@@ -1,0 +1,76 @@
+{
+  "verifiedAt": "2026-10-18T06:35:38.566Z",
+  "version": "1.1.4-glass.6",
+  "versionCode": 11,
+  "applicationId": "com.iot.manager.glassnext",
+  "sourceCommitAtBuild": "0c0ed0393f880d6483ce72632bdaa8980a3a4afe",
+  "sourceDirtyAtBuild": true,
+  "builtAt": "2026-10-18T06:22:49.61Z",
+  "apk": {
+    "fileName": "IoT-Manager-Glass-1.1.4-glass.6-debug.apk",
+    "sha256": "B4A556F62CA44BEB7E2512E4C3048DB6189CE47FA0977C06E34042BF0BA7B656",
+    "bytes": 6132986,
+    "kind": "debug"
+  },
+  "tests": {
+    "unit": {
+      "passed": 240,
+      "failed": 0,
+      "skipped": 0
+    },
+    "browser": {
+      "total": 83,
+      "passed": 75,
+      "skipped": 8,
+      "failed": 0,
+      "flaky": 0
+    },
+    "startupAndMaterialFinal": {
+      "passed": 22,
+      "failed": 0
+    },
+    "nativeUnit": {
+      "passed": 5,
+      "failed": 0
+    },
+    "nativeInstrumentation": {
+      "passed": 4,
+      "failed": 0
+    },
+    "nativeProcessRestarts": {
+      "passed": 3,
+      "samplesMs": [
+        6705,
+        5716,
+        5856
+      ]
+    }
+  },
+  "defaults": {
+    "motion": true,
+    "depth": false,
+    "blur": false,
+    "prefetch": false
+  },
+  "nativeEnvironment": {
+    "android": "16",
+    "api": 36,
+    "model": "sdk_gphone64_x86_64",
+    "webview": "133.0.6943.137",
+    "resolution": "1080x2400",
+    "realHardware": false
+  },
+  "localArtifactDirectory": "artifacts/glass-startup-development-20261018",
+  "limitations": [
+    "Real identity/AI/load/rollback tests skipped (8)",
+    "Target phone/PDA performance not accepted",
+    "Database upgraded to v3; unpatched v2 APK cannot reopen it",
+    "No valid same-device performance comparison",
+    "Second-stage Web-owned normal Android reveal and production telemetry deferred"
+  ],
+  "publishing": {
+    "generatedApksAndDeviceLogsCommitted": false,
+    "runtimeChangedAfterValidation": false,
+    "note": "The recorded APK was built before the source commit. Later documentation changes do not change its embedded build-info."
+  }
+}

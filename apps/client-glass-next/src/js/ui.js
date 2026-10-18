@@ -535,7 +535,7 @@ class ClientUi {
     main.classList.remove('screen-region--motion-peer', 'screen-region--motion-forward', 'screen-region--motion-back', 'screen-region--motion-context');
     if (!this.motionPolicy.snapshot().animate) return;
     // Restoring the startup endpoint/site is hydration, not user navigation.
-    if (hint === 'context' && ['loading', 'syncing'].includes(this.model.startup.phase)) return;
+    if (hint === 'context' && ['loading', 'syncing', 'local_ui_ready', 'interactive'].includes(this.model.startup.phase)) return;
     const kind = navigationMotionKind(from, to, hint);
     if (!kind) return;
     // Restart only for another real navigation; a same-screen redraw keeps the main node intact.
@@ -2412,6 +2412,11 @@ class ClientUi {
     heading.append(openAll);
     surface.append(heading);
     const activities = this.activitiesForDevice(device).slice(0, limit);
+    const resource = this.model.resources.activity ?? {};
+    if (String(resource.entityId) === String(device.id)) {
+      if (resource.phase === 'loading' || resource.refreshing) surface.append(this.buildResourceMessage('正在读取动态…', true));
+      if (resource.error) surface.append(this.buildNotice(resource.error, 'warning', null, '动态读取失败'));
+    }
     const timeline = this.buildActivityTimeline(activities, `device:${deviceKey(device)}`, 'timeline');
     if (!activities.length) {
       surface.append(element('p', 'empty-inline', { text: '暂无活动记录。' }));
@@ -2462,7 +2467,10 @@ class ClientUi {
     const resource = this.model.resources.activity ?? {};
     if (resource.phase === 'loading' || resource.refreshing) surface.append(this.buildResourceMessage('正在读取动态…', true));
     if (resource.error) surface.append(this.buildNotice(resource.error, 'warning', null, '动态读取失败'));
-    const list = this.buildActivityTimeline(activities.slice(0, 30), `all:${this.model.context.siteCode}`, 'activity-list');
+    const list = this.buildActivityTimeline(resource.local ? activities : activities.slice(0, 30), `all:${this.model.context.siteCode}`, 'activity-list');
+    if (resource.local && resource.hasMore) surface.append(actionButton('加载更多本地动态', 'load-local-history', {
+      className: 'button button--secondary', data: { deviceId: resource.entityId }, disabled: Boolean(resource.refreshing)
+    }));
     if (!activities.length) {
       const empty = element('div', 'empty-state');
       const iconWrap = element('div', 'empty-state__icon', { ariaHidden: 'true' });
@@ -2702,6 +2710,9 @@ class ClientUi {
         break;
       case 'retry-command':
         this.invoke('retryCommand', { commandId: target.dataset.commandId, deviceId: target.dataset.deviceId }, { busy: 'retry-command' });
+        break;
+      case 'load-local-history':
+        this.invoke('loadLocalHistory', { deviceId: target.dataset.deviceId }, { busy: 'load-local-history' });
         break;
       case 'reconnect-realtime':
         this.invoke('reconnectRealtime', {}, { busy: 'reconnect-realtime' });
