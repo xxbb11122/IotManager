@@ -1,0 +1,76 @@
+name: Extended isolated lab
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["codex/**"]
+    paths:
+      - .github/workflows/extended-isolated-lab.yml
+      - scripts/testing/extended-lab/**
+      - scripts/testing/runtime-eight/**
+      - scripts/runtime/wal-recovery-drill.sh
+      - deploy/docker-compose.recovery.yml
+      - firmware/**
+
+permissions:
+  contents: read
+concurrency:
+  group: extended-lab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  firmware:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Build the actual nRF52840 application with Zephyr 3.7.2
+        run: bash scripts/testing/extended-lab/firmware.sh
+      - name: Upload firmware build evidence (no device was flashed)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: lab-firmware-${{ github.sha }}
+          path: artifacts/extended-lab/firmware/
+          if-no-files-found: warn
+          retention-days: 14
+  recovery:
+    name: Real services and laboratory S3 physical recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    env:
+      IOT_EIGHT_PHYSICAL_LAB: "true"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: apps/client-glass-next/package-lock.json
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install isolated test tools
+        working-directory: apps/client-glass-next
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          sudo apt-get install -y --no-install-recommends libnss3-tools
+          python3 -m venv "$RUNNER_TEMP/s3-client"
+          "$RUNNER_TEMP/s3-client/bin/pip" install boto3==1.40.43
+      - name: Execute runtime boundaries and the real physical restore script
+        run: bash scripts/testing/runtime-eight/run.sh
+      - name: Upload public structured lab evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: extended-lab-runtime-${{ github.sha }}
+          path: artifacts/runtime-eight/*.json
+          if-no-files-found: error
+          retention-days: 14

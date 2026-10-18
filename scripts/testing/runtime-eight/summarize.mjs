@@ -43,6 +43,14 @@ rollback = await evidence('rollback-evidence.json', rollback => {
 cleanup = await evidence('cleanup.json', cleanup => {
   assert.equal(cleanup.passed, true);
 });
+let physicalLab;
+if (process.env.IOT_EIGHT_PHYSICAL_LAB === 'true') {
+  physicalLab = await evidence('physical-lab.json', value => {
+    assert.equal(value.passed, true); assert.equal(value.cleanupPassed, true);
+    assert.equal(value.productionApproved, false); assert.equal(value.productionStorageTested, false);
+    assert.equal(value.report?.readWriteProof, true);
+  });
+}
 // Only these structured files are published; fail if a generated password or
 // bearer JWT appears in any of them. Traces and browser storage are never kept.
 const safeFiles = (await readdir(root)).filter(name => name.endsWith('.json') && name !== 'summary.json');
@@ -61,7 +69,7 @@ for (const name of safeFiles) {
 }
 const summary = { passed, completedAt: new Date().toISOString(), scenarios: 8,
   playwrightExecutions: Object.values(phases).reduce((sum, row) => sum + (row.tests ?? 0), 0),
-  phases, inputs, ai, load, rollback, cleanup,
+  phases, inputs, ai, load, rollback, cleanup, physicalLab,
   errors: errors.map(value => value.replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, '[REDACTED_JWT]')),
   boundaries: ['Isolated service and site-dashboard integration; not a Glass APK real-account acceptance run.',
     'Mock AI supplier; no real-provider quality or billing acceptance.',

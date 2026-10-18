@@ -191,4 +191,7 @@ value.resumeProbe=JSON.parse(readFileSync(root+'/rollback-resume-probe.json','ut
 writeFileSync(file,JSON.stringify(value,null,2));
 NODE
 echo '::notice title=R01 passed::Actual version switch, legacy timestamps, read/write and migration invariants passed.'
+if [[ "${IOT_EIGHT_PHYSICAL_LAB:-false}" == true ]]; then
+  bash scripts/testing/extended-lab/wal-lab.sh
+fi
 echo 'All eight scenarios executed; validating structured evidence and cleaning the dedicated project.'
