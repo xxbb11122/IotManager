@@ -63,6 +63,7 @@ bash scripts/runtime/new-secrets.sh "$IOT_SECRET_DIR"
 printf '%s' test-only-key > "$IOT_SECRET_DIR/ai_chat_api_key"
 chmod 600 "$IOT_SECRET_DIR/ai_chat_api_key"
 bash scripts/runtime/start-integration.sh
+echo '::notice title=Runtime ready::Isolated database, Keycloak, Backend and Caddy are healthy.'
 
 for role in OWNER ADMIN OPERATOR VIEWER; do
   lower="${role,,}"
@@ -94,6 +95,7 @@ wait_backend() {
 
 echo 'R03-R07: real Keycloak, API, RBAC and TLS WebSockets'
 run_tests auth "$repository_root/apps/client-glass-next/e2e/runtime-auth.spec.js"
+echo '::notice title=R03-R07 passed::Five real-service authentication, RBAC and credential scenarios passed.'
 
 echo 'R02: real Backend with an internal HTTPS AI fixture'
 keytool -importcert -noprompt -alias runtime-eight -file "$IOT_EIGHT_ROOT/root.crt" \
@@ -108,11 +110,13 @@ curl --fail --silent --show-error --cacert "$IOT_EIGHT_ROOT/root.crt" \
 export IOT_EIGHT_AI_FIXTURE=true
 run_tests ai "$IOT_EIGHT_TOOLS/ai-provider.spec.mjs"
 active_compose exec -T ai-fixture node -e 'fetch("http://127.0.0.1:8081/__evidence").then(r=>r.text()).then(t=>process.stdout.write(t))' > "$IOT_EIGHT_ROOT/ai-evidence.json"
+echo '::notice title=R02 passed::The real Backend and internal HTTPS AI fixture completed the chat test.'
 
 echo 'R08: 1000 virtual devices, 100 real authenticated WebSockets'
 export IOT_LOAD_SIMULATION_DEVICES=1000 IOT_LOAD_SIMULATION_WEBSOCKETS=100 IOT_LOAD_SIMULATION_CONCURRENCY=25
 export IOT_LOAD_SIMULATION_EVIDENCE="$IOT_EIGHT_ROOT/load-evidence.json"
 run_tests load "$repository_root/apps/client-glass-next/e2e/runtime-load.spec.js"
+echo '::notice title=R08 passed::1000 devices and 100 authenticated WebSockets passed, including data cleanup.'
 
 echo 'R01: actual N-to-N-1 Backend switch with the same database'
 baseline=e0977e77220773182df4e3a73741686cbb87c6d9
@@ -140,6 +144,7 @@ active_compose up -d --no-build --pull never --no-deps backend
 wait_backend
 export IOT_ROLLBACK_PHASE=read
 run_tests rollback-read "$repository_root/apps/client-glass-next/e2e/rollback-data-compatibility.spec.js"
+echo '::notice title=R01 API passed::N data was read and new data was written through the actual N-minus-one Backend.'
 export EIGHT_DB_AFTER="$(active_compose ps -q postgres)"
 export EIGHT_N1_IMAGE="$(docker inspect --format '{{.Image}}' "$(active_compose ps -q backend)")"
 active_compose exec -T postgres application-role-psql.sh -v ON_ERROR_STOP=1 -t -A \
