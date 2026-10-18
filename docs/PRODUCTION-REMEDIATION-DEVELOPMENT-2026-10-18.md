@@ -24,7 +24,7 @@
 
 四个 package.json 使用精确 Vite 7.3.7，更新四个 package-lock 及兼容传递依赖。四个 Vite 配置显式保留 `['es2020', 'edge88', 'firefox78', 'chrome87', 'safari14']`；Node 继续 22，审计使用官方 registry。`npm ci` 后执行完整 `npm audit --audit-level=high --registry=https://registry.npmjs.org`，任何 registry 错误也失败。四端完整审计与 `--omit=dev` 结果保留。
 
-Quick CI gate 的 needs、结果变量及判断循环纳入 `android-glass-debug`；Bash/PowerShell 严格 Glass 浏览器集加入 material-contract。部署静态验证运行新发布工具测试。Eight runtime 对 backend、相关部署及运行测试变更触发，保留隔离和清理保护。新增行为测试守住失败关闭，避免仅靠字符串存在就声称发布能力通过。
+Quick CI gate 的 needs、结果变量及判断循环纳入 `android-glass-debug`；Bash/PowerShell 严格 Glass 浏览器集加入 material-contract。部署静态验证运行新发布工具测试。Eight runtime 对 backend、相关部署及运行测试变更触发，保留隔离和清理保护。配置和汇总使用统一阶段定义，启动脚本的每个阶段都须在自动测试中加载真实 Playwright 配置并验证独立报告路径。新增行为测试守住失败关闭，避免仅靠字符串存在就声称发布能力通过。
 
 ## 4. R5：仓库只读预检
 

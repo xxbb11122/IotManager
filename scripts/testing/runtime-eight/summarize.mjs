@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { expectedExecutions } from './phases.mjs';
 
 const root = resolve(process.env.IOT_EIGHT_ROOT);
 const json = async name => JSON.parse(await readFile(resolve(root, name), 'utf8'));
 const phases = {};
 let passed = true;
 const errors = [];
-for (const [name, expected] of Object.entries({ auth: 5, ai: 1, load: 1, 'rollback-write': 1, 'rollback-read': 1, 'rollback-resume': 1 })) {
+for (const [name, expected] of Object.entries(expectedExecutions)) {
   try {
     const report = await json(name + '.json');
     const stats = report.stats;

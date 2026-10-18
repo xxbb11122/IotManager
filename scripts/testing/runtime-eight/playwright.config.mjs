@@ -1,10 +1,10 @@
 import { defineConfig } from '../../../apps/client-glass-next/node_modules/@playwright/test/index.mjs';
 import clientConfig from '../../../apps/client-glass-next/playwright.config.js';
 import { fileURLToPath } from 'node:url';
+import { requireRuntimePhase } from './phases.mjs';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
-const phase = process.env.IOT_EIGHT_PHASE;
-if (!/^(auth|ai|load|rollback-write|rollback-read)$/.test(phase ?? '')) throw new Error('Select an explicit runtime-eight phase');
+const phase = requireRuntimePhase(process.env.IOT_EIGHT_PHASE);
 export default defineConfig({
   ...clientConfig,
   testDir: root,
