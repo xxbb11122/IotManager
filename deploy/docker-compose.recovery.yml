@@ -62,6 +62,9 @@ services:
     networks: [internal, egress]
 
   postgres:
+    # restore_command runs inside PostgreSQL while replaying archived WAL.
+    # It needs the same S3 egress as the one-shot base-backup fetcher.
+    networks: [internal, egress]
     # A recovered cluster must not archive to the source repository. Recovery
     # settings are written by wal-g-recovery before this service starts.
     command: ["postgres", "-c", "archive_mode=off", "-c", "archive_command="]

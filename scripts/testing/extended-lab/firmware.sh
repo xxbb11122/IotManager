@@ -13,8 +13,14 @@ source "$workspace/venv/bin/activate"
 pip install west==1.4.0
 # Exact peeled commit of the official v3.7.2 tag.
 zephyr_sha=bbbf8b30094dacd0d6830946ba206bcec8af6b0c
-west init -m https://github.com/zephyrproject-rtos/zephyr --mr "$zephyr_sha" "$workspace/source"
+mkdir -p "$workspace/source/zephyr"
+git -C "$workspace/source/zephyr" init
+git -C "$workspace/source/zephyr" remote add origin https://github.com/zephyrproject-rtos/zephyr
+git -C "$workspace/source/zephyr" fetch --depth 1 origin "$zephyr_sha"
+git -C "$workspace/source/zephyr" checkout --detach FETCH_HEAD
+test "$(git -C "$workspace/source/zephyr" rev-parse HEAD)" = "$zephyr_sha"
 cd "$workspace/source"
+west init -l zephyr
 west update cmsis hal_nordic tinycrypt
 pip install -r zephyr/scripts/requirements-base.txt
 sdk_version=0.16.8

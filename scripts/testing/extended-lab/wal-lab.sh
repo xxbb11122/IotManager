@@ -11,6 +11,14 @@ export IOT_RECOVERY_REPORT_DIR="$lab/evidence"
 export IOT_RECOVERY_TIMEOUT_SECONDS=300 IOT_WAL_ARCHIVE_TIMEOUT_SECONDS=180
 export IOT_RECOVERY_TARGET_NAME=lab_validation IOT_RECOVERY_BASE_BACKUP=base_validation
 export IOT_PITR_CONFIRM=PITR
+# Keep cleanup Compose configuration valid even if fixture startup fails.
+cat >> "$IOT_ENVIRONMENT_FILE" <<EOF
+WALG_STORAGE_MODE=s3
+WALG_S3_PREFIX=s3://iot-isolated-lab/$GITHUB_RUN_ID
+AWS_ENDPOINT=http://lab-s3:9000
+AWS_REGION=us-east-1
+AWS_S3_FORCE_PATH_STYLE=true
+EOF
 s3_name="iot-manager-lab-s3-$GITHUB_RUN_ID"
 recovery_network="${IOT_RECOVERY_PROJECT}_egress"
 source=(compose --project-name "$IOT_COMPOSE_PROJECT" --env-file "$IOT_ENVIRONMENT_FILE" -f deploy/docker-compose.yml)
@@ -34,24 +42,19 @@ let report = null;
 try { report = JSON.parse(readFileSync(process.env.LAB_REPORT, 'utf8')); } catch {}
 const passed = process.env.LAB_RESULT === '0' && process.env.LAB_CLEANUP === 'true' && report?.status === 'passed';
 writeFileSync(process.env.IOT_EIGHT_ROOT + '/physical-lab.json', JSON.stringify({passed,
-  sourceSha: process.env.GITHUB_SHA, productionApproved: false, storage: 'disposable local MinIO S3 fixture',
+  sourceSha: process.env.GITHUB_SHA, productionApproved: false, storage: 'disposable Moto S3 API fixture',
   productionStorageTested: false, cleanupPassed: process.env.LAB_CLEANUP === 'true', report}, null, 2) + '\n');
 NODE
   [[ "$cleanup" == true ]] || result=1
   exit "$result"
 }
 trap finish EXIT
-access="$(cat "$IOT_SECRET_DIR/walg_s3_access_key")"
-secret="$(cat "$IOT_SECRET_DIR/walg_s3_secret_key")"
-printf '::add-mask::%s\n' "$access"
-printf '::add-mask::%s\n' "$secret"
-printf 'MINIO_ROOT_USER=%s\nMINIO_ROOT_PASSWORD=%s\n' "$access" "$secret" > "$lab/minio.env"
-chmod 600 "$lab/minio.env"
 docker run -d --name "$s3_name" --network "${IOT_COMPOSE_PROJECT}_egress" --network-alias lab-s3 \
-  --label "iot.lab.run=$GITHUB_RUN_ID" -p 127.0.0.1:19000:9000 --env-file "$lab/minio.env" \
-  quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z server /data >/dev/null
+  --label "iot.lab.run=$GITHUB_RUN_ID" -p 127.0.0.1:19000:9000 -e MOTO_PORT=9000 \
+  -e S3_IGNORE_SUBDOMAIN_BUCKETNAME=true \
+  motoserver/moto:5.1.14@sha256:800719627036dc38dc699e9f314f624f2c98ac3d8bb754db078cb2698f08ee77 >/dev/null
 for attempt in $(seq 1 60); do
-  if curl --fail --silent http://127.0.0.1:19000/minio/health/ready >/dev/null; then break; fi
+  if curl --fail --silent http://127.0.0.1:19000/ >/dev/null; then break; fi
   sleep 1
 done
 "$RUNNER_TEMP/s3-client/bin/python" - <<'PY'
@@ -66,12 +69,5 @@ PY
 docker network create --label "com.docker.compose.project=$IOT_RECOVERY_PROJECT" \
   --label com.docker.compose.network=egress "$recovery_network" >/dev/null
 docker network connect --alias lab-s3 "$recovery_network" "$s3_name"
-cat >> "$IOT_ENVIRONMENT_FILE" <<EOF
-WALG_STORAGE_MODE=s3
-WALG_S3_PREFIX=s3://iot-isolated-lab/$GITHUB_RUN_ID
-AWS_ENDPOINT=http://lab-s3:9000
-AWS_REGION=us-east-1
-AWS_S3_FORCE_PATH_STYLE=true
-EOF
 docker "${source[@]}" --profile application up -d --no-build --no-deps wal-g-archive wal-g-backup
 bash scripts/runtime/wal-recovery-drill.sh

@@ -636,7 +636,7 @@ async function synchronizePlatformEndpoint({ prefetchKey = null } = {}) {
   return endpointProfile;
 }
 
-async function activateEndpoint(profile, { startupReady = null, launchUrl = null } = {}) {
+async function activateEndpoint(profile, { startupReady = null, launchUrl = null, persistProfile = true } = {}) {
   const normalizedProfile = normalizeEndpointProfile(profile);
   const activation = ++endpointActivationRevision;
   setClientState({ loading: { endpointPhase: 'saving' } });
@@ -649,7 +649,7 @@ async function activateEndpoint(profile, { startupReady = null, launchUrl = null
     try {
       // Startup already read this profile. Do not put a repeated Preferences
       // write on the first-frame path; serialize persistence after reveal.
-      if (!startupReady) savedProfile = await runtimeConfigRepository.save(normalizedProfile);
+      if (!startupReady && persistProfile) savedProfile = await runtimeConfigRepository.save(normalizedProfile);
     } catch {
       if (activation === endpointActivationRevision) storageNotice('连接设置已在本次会话生效，但本机保存失败；重启后需要重新填写。', 'endpoint-preference');
     }
@@ -702,7 +702,7 @@ async function activateEndpoint(profile, { startupReady = null, launchUrl = null
         if (!startupDisposed && visible !== true) setClientState({ startup: { phase: 'error', error: '启动显示未完成，请使用恢复入口重新加载。' } });
         return null;
       }
-      void runtimeConfigRepository.save(normalizedProfile).catch(() => {
+      if (persistProfile) void runtimeConfigRepository.save(normalizedProfile).catch(() => {
         if (activation === endpointActivationRevision && !startupDisposed) storageNotice('连接设置已在本次会话生效，但本机保存失败。', 'endpoint-preference');
       });
       setClientState({ startup: { phase: 'interactive', error: null } });
@@ -1454,6 +1454,9 @@ async function bootstrapRuntime() {
   const launch = snapshot.launch?.value;
   const activated = await activateEndpoint(profile, {
     launchUrl: launch?.url ?? null,
+    // A failed or timed-out read does not prove storage is empty. Keep the
+    // default in memory and preserve the operator's existing saved profile.
+    persistProfile: snapshot.endpoint?.status === 'fulfilled',
     startupReady: async () => {
       // Pending locations are only restored for their original endpoint/site.
       if (pendingWeatherLocation?.scopeKey === JSON.stringify(platformCacheScope())) {

@@ -332,3 +332,26 @@ test('unverified installation identity cannot restore other bindings or persist 
   assert.equal(f.store.getState().devices.length, 0);
   await assert.rejects(f.run(`persistBleBinding({}, { deviceId:'a' })`), /安装身份/);
 });
+
+test('startup preserves saved endpoints on read failure and persists confirmed snapshots', async () => {
+  const saved = { id: 'saved', accessRoute: 'SITE_API', apiBaseUrl: 'https://saved.invalid/api/v1', wsUrl: 'wss://saved.invalid/ws/devices' };
+  for (const [status, value] of [['timeout'], ['rejected'], ['cancelled'], ['fulfilled', null], ['fulfilled', saved]]) {
+    const f = fixture({ disconnect() {} });
+    f.context.readStartupSnapshot = async () => ({
+      installId: { status: 'fulfilled', value: 'install' }, bindings: { status: 'fulfilled', value: [] },
+      selectedSite: { status: 'fulfilled', value: { value: null } }, endpoint: { status, value }
+    });
+    f.context.resolveClientConfig = () => ({ apiBaseUrl: 'https://default.invalid/api/v1', wsUrl: 'wss://default.invalid/ws/devices' });
+    f.context.attachAppLifecycle = async () => ({ remove() {} });
+    f.context.ACCESS_ROUTES = { SITE_API: 'SITE_API' };
+    f.context.written = [];
+    f.run(`runtimeConfigRepository.save = async profile => { written.push(profile); return profile; };
+      configureAuthSession = async () => { authSession = { getAccessToken: () => null, isRedirect: () => false }; };
+      bindPlatformEvents = () => {}; synchronizePlatformEndpoint = async () => endpointProfile;
+      startupTransition.markUiReady = async () => true;`);
+    await f.run('bootstrapRuntime()');
+    assert.equal(f.context.written.length, status === 'fulfilled' ? 1 : 0, status + ' persistence policy');
+    if (status === 'fulfilled') assert.equal(f.context.written[0].id, value?.id ?? 'local-site');
+    assert.equal(f.run('clientState.startup.phase'), 'data_settled');
+  }
+});
