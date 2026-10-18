@@ -64,12 +64,17 @@ services:
     # settings are written by wal-g-recovery before this service starts.
     command: ["postgres", "-c", "archive_mode=off", "-c", "archive_command="]
     environment:
+      WALG_SECRET_DIR: /run/wal-g-secrets
       WALG_STORAGE_MODE: ${WALG_STORAGE_MODE:?set WALG_STORAGE_MODE}
       WALG_S3_PREFIX: ${WALG_S3_PREFIX:?set WALG_S3_PREFIX}
       AWS_ENDPOINT: ${AWS_ENDPOINT:-}
       AWS_REGION: ${AWS_REGION:?set AWS_REGION}
       AWS_S3_FORCE_PATH_STYLE: ${AWS_S3_FORCE_PATH_STYLE:-true}
       WALG_COMPRESSION_METHOD: ${WALG_COMPRESSION_METHOD:-zstd}
+    volumes:
+      # Leave the normal database-role secret mount intact. Only this recovery
+      # override supplies S3 credentials for PostgreSQL's restore_command.
+      - runtime-secrets-walg-recovery:/run/wal-g-secrets:ro
     depends_on:
       volume-init:
         condition: service_completed_successfully

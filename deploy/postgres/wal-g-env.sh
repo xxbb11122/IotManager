@@ -2,7 +2,7 @@
 set -eu
 
 secret() {
-  secret_file="/run/secrets/$1"
+  secret_file="${WALG_SECRET_DIR:-/run/secrets}/$1"
   if [ ! -r "$secret_file" ]; then
     echo "Required WAL-G secret is unavailable: $1" >&2
     exit 78
@@ -32,8 +32,11 @@ case "$WALG_STORAGE_MODE" in
     export WALG_S3_PREFIX AWS_REGION
     [ -n "${AWS_ENDPOINT:-}" ] && export AWS_ENDPOINT
     [ -n "${AWS_S3_FORCE_PATH_STYLE:-}" ] && export AWS_S3_FORCE_PATH_STYLE
-    export AWS_ACCESS_KEY_ID="$(secret walg_s3_access_key)"
-    export AWS_SECRET_ACCESS_KEY="$(secret walg_s3_secret_key)"
+    # Assignment must fail before export: `export VAR=$(failing-command)`
+    # otherwise masks the reader's exit code and launches WAL-G without keys.
+    AWS_ACCESS_KEY_ID="$(secret walg_s3_access_key)"
+    AWS_SECRET_ACCESS_KEY="$(secret walg_s3_secret_key)"
+    export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
     ;;
   *)
     echo "WALG_STORAGE_MODE must be filesystem or s3" >&2

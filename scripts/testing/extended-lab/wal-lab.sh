@@ -11,6 +11,7 @@ export IOT_RECOVERY_REPORT_DIR="$lab/evidence"
 export IOT_RECOVERY_TIMEOUT_SECONDS=300 IOT_WAL_ARCHIVE_TIMEOUT_SECONDS=180
 export IOT_RECOVERY_TARGET_NAME=lab_validation IOT_RECOVERY_BASE_BACKUP=base_validation
 export IOT_PITR_CONFIRM=PITR
+cp "$IOT_ENVIRONMENT_FILE" "$lab/original.env"
 # Keep cleanup Compose configuration valid even if fixture startup fails.
 cat >> "$IOT_ENVIRONMENT_FILE" <<EOF
 WALG_STORAGE_MODE=s3
@@ -36,6 +37,10 @@ finish() {
   if docker network inspect "$recovery_network" >/dev/null 2>&1; then docker network rm "$recovery_network" >/dev/null || cleanup=false; fi
   test -z "$(docker ps -aq --filter "label=com.docker.compose.project=$IOT_RECOVERY_PROJECT")" || cleanup=false
   test -z "$(docker volume ls -q --filter "label=com.docker.compose.project=$IOT_RECOVERY_PROJECT")" || cleanup=false
+  cp "$lab/original.env" "$IOT_ENVIRONMENT_FILE" || cleanup=false
+  if (( result == 0 )); then
+    docker "${source[@]}" -f deploy/docker-compose.integration.yml --profile application up -d --no-build --no-deps wal-g-archive wal-g-backup > "$lab/source-reset.log" 2>&1 || cleanup=false
+  fi
   LAB_RESULT="$result" LAB_CLEANUP="$cleanup" LAB_REPORT="$IOT_RECOVERY_REPORT_DIR/report.json" node --input-type=module <<'NODE'
 import { readFileSync, writeFileSync } from 'node:fs';
 let report = null;

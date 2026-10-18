@@ -96,6 +96,9 @@ wait_backend() {
 echo 'R03-R07: real Keycloak, API, RBAC and TLS WebSockets'
 run_tests auth "$repository_root/apps/client-glass-next/e2e/runtime-auth.spec.js"
 echo '::notice title=R03-R07 passed::Five real-service authentication, RBAC and credential scenarios passed.'
+if [[ "${IOT_EIGHT_PHYSICAL_LAB:-false}" == true ]]; then
+  bash scripts/testing/extended-lab/wal-lab.sh
+fi
 
 echo 'R02: real Backend with an internal HTTPS AI fixture'
 javac -d "$IOT_EIGHT_ROOT" "$IOT_EIGHT_TOOLS/JvmZoneProbe.java"
@@ -191,7 +194,4 @@ value.resumeProbe=JSON.parse(readFileSync(root+'/rollback-resume-probe.json','ut
 writeFileSync(file,JSON.stringify(value,null,2));
 NODE
 echo '::notice title=R01 passed::Actual version switch, legacy timestamps, read/write and migration invariants passed.'
-if [[ "${IOT_EIGHT_PHYSICAL_LAB:-false}" == true ]]; then
-  bash scripts/testing/extended-lab/wal-lab.sh
-fi
 echo 'All eight scenarios executed; validating structured evidence and cleaning the dedicated project.'
