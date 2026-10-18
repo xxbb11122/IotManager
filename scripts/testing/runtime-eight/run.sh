@@ -98,6 +98,7 @@ run_tests auth "$repository_root/apps/client-glass-next/e2e/runtime-auth.spec.js
 echo '::notice title=R03-R07 passed::Five real-service authentication, RBAC and credential scenarios passed.'
 
 echo 'R02: real Backend with an internal HTTPS AI fixture'
+javac -d "$IOT_EIGHT_ROOT" "$IOT_EIGHT_TOOLS/JvmZoneProbe.java"
 keytool -importcert -noprompt -alias runtime-eight -file "$IOT_EIGHT_ROOT/root.crt" \
   -keystore "$IOT_EIGHT_ROOT/fixture.p12" -storetype PKCS12 -storepass changeit
 chmod 644 "$IOT_EIGHT_ROOT/fixture.p12"
@@ -119,7 +120,6 @@ run_tests load "$repository_root/apps/client-glass-next/e2e/runtime-load.spec.js
 echo '::notice title=R08 passed::1000 devices and 100 authenticated WebSockets passed, including data cleanup.'
 
 echo 'R01: actual N-to-N-1 Backend switch with the same database'
-javac -d "$IOT_EIGHT_ROOT" "$IOT_EIGHT_TOOLS/JvmZoneProbe.java"
 baseline=e0977e77220773182df4e3a73741686cbb87c6d9
 git cat-file -e "$baseline^{commit}"
 mkdir -p "$IOT_EIGHT_ROOT/n-minus-one"
@@ -130,7 +130,6 @@ export IOT_ROLLBACK_MARKER="rollback-eight-$GITHUB_RUN_ID" IOT_ROLLBACK_PHASE=wr
 run_tests rollback-write "$repository_root/apps/client-glass-next/e2e/rollback-data-compatibility.spec.js"
 export EIGHT_DB_BEFORE="$(active_compose ps -q postgres)"
 export EIGHT_N_IMAGE="$(docker inspect --format '{{.Image}}' "$(active_compose ps -q backend)")"
-active_compose cp "$IOT_EIGHT_ROOT/JvmZoneProbe.class" backend:/tmp/JvmZoneProbe.class
 node "$IOT_EIGHT_TOOLS/snapshot-runtime.mjs" n "$(active_compose ps -q backend)"
 active_compose exec -T postgres application-role-psql.sh -v ON_ERROR_STOP=1 -t -A \
   -c 'SELECT version, checksum, success FROM flyway_schema_history ORDER BY installed_rank' > "$IOT_EIGHT_ROOT/migrations-before.txt"
@@ -147,7 +146,6 @@ YAML
 mode=rollback
 active_compose up -d --no-build --pull never --no-deps backend
 wait_backend
-active_compose cp "$IOT_EIGHT_ROOT/JvmZoneProbe.class" backend:/tmp/JvmZoneProbe.class
 node "$IOT_EIGHT_TOOLS/snapshot-runtime.mjs" n-minus-one "$(active_compose ps -q backend)"
 export IOT_ROLLBACK_PHASE=read
 set +e

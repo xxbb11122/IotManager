@@ -31,3 +31,4 @@ services:
       JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/run/test-ca/fixture.p12 -Djavax.net.ssl.trustStorePassword=changeit
     volumes:
       - ${IOT_EIGHT_ROOT:?set evidence directory}/fixture.p12:/run/test-ca/fixture.p12:ro
+      - ${IOT_EIGHT_ROOT:?set evidence directory}/JvmZoneProbe.class:/run/test-probe/JvmZoneProbe.class:ro

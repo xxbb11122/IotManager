@@ -9,10 +9,11 @@ function docker(args) {
   return result.stdout.trim();
 }
 const inspected = JSON.parse(docker(['inspect', container]))[0];
+assert.equal(inspected.HostConfig.ReadonlyRootfs, true, 'Backend root filesystem must stay read-only');
 const environment = Object.fromEntries(inspected.Config.Env.map(entry => {
   const equal = entry.indexOf('='); return [entry.slice(0, equal), entry.slice(equal + 1)];
 }).filter(([name]) => ['TZ', 'IOT_TIME_LEGACY_ZONE'].includes(name)));
-const jvmZone = docker(['exec', container, 'java', '-cp', '/tmp', 'JvmZoneProbe']);
+const jvmZone = docker(['exec', container, 'java', '-cp', '/run/test-probe', 'JvmZoneProbe']);
 const wallClock = docker(['exec', container, 'date', '-Iseconds']);
-writeFileSync(process.env.IOT_EIGHT_ROOT + '/' + phase + '-runtime.json', JSON.stringify({ phase,
+writeFileSync(process.env.IOT_EIGHT_ROOT + '/' + phase + '-runtime.json', JSON.stringify({ phase, readOnlyRootfs: true,
   image: inspected.Image, environment, jvmZone, wallClock }, null, 2));
