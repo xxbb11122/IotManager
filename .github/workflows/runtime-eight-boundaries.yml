@@ -7,6 +7,12 @@ on:
     paths:
       - .github/workflows/runtime-eight-boundaries.yml
       - scripts/testing/runtime-eight/**
+      - backend/**
+      - deploy/docker-compose*.yml
+      - deploy/Dockerfile
+      - apps/client-glass-next/e2e/runtime-*.spec.js
+      - apps/client-glass-next/e2e/rollback-data-compatibility.spec.js
+      - apps/client-glass-next/package*.json
 
 permissions:
   contents: read

@@ -56,7 +56,7 @@ test.describe('N to N-1 rollback data compatibility', () => {
   test.skip(!baseUrl, 'Set IOT_RUNTIME_BASE_URL and rollback phase to run the isolated deployment drill.');
   test('writes under N and reads plus writes under N-1', async ({ browser }) => {
     test.setTimeout(90_000);
-    expect(['write', 'read'], 'IOT_ROLLBACK_PHASE must be write or read').toContain(phase);
+    expect(['write', 'read', 'resume'], 'IOT_ROLLBACK_PHASE must be write, read or resume').toContain(phase);
     expect(marker, 'IOT_ROLLBACK_MARKER must identify this drill').toMatch(/^rollback-[a-z0-9-]+$/);
     const { context, page, token } = await loginAsOwner(browser);
     try {
@@ -102,6 +102,21 @@ test.describe('N to N-1 rollback data compatibility', () => {
         `/api/v1/devices?siteCode=primary-site&search=${encodeURIComponent(marker)}`);
       expect(found.status, JSON.stringify(found.body)).toBe(200);
       expect(found.body?.some((device) => device.name === marker)).toBe(true);
+      if (phase === 'resume') {
+        const oldDevice = found.body.find(device => device.name === `${marker}-n1-write`);
+        expect(oldDevice, 'N must still see the device written by N-1').toBeTruthy();
+        const commands = await api(page, token, `/api/v1/commands?deviceId=${oldDevice.id}&type=set_power`);
+        expect(commands.status).toBe(200);
+        const command = commands.body?.items?.find(value => value.commandId);
+        expect(command, 'N must still see the command written by N-1').toBeTruthy();
+        const deltaMs = Date.now() - Date.parse(`${command.requestedAt}+08:00`);
+        recordProbe({ phase, commandId:command.commandId, resumedRequestedAt:command.requestedAt, deltaMs, observedAt:new Date().toISOString() });
+        expect(Number.isFinite(deltaMs)).toBe(true);
+        expect(Math.abs(deltaMs)).toBeLessThan(90 * 60_000);
+        const serverTime = await api(page, token, '/api/v1/time');
+        expect(serverTime.status).toBe(200); expect(serverTime.body?.zone).toBe('UTC');
+        return;
+      }
       const nDevice = found.body.find((device) => device.name === marker);
       const nCommands = await api(page, token, `/api/v1/commands?deviceId=${nDevice.id}&type=set_power`);
       expect(nCommands.status, JSON.stringify(nCommands.body)).toBe(200);

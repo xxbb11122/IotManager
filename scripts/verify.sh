@@ -275,7 +275,7 @@ run_web_playwright_tests() {
       e2e/mobile-offline-recovery.spec.js e2e/motion-interruptions.spec.js
       e2e/motion-preview-visuals.spec.js e2e/motion-preview.spec.js
       e2e/motion-render-integrity.spec.js e2e/motion-states.spec.js
-      e2e/refresh-stability.spec.js e2e/startup-animation.spec.js)
+      e2e/refresh-stability.spec.js e2e/startup-animation.spec.js e2e/material-contract.spec.js)
   fi
 
   # The caller has already changed into the application's directory, so this
@@ -342,6 +342,7 @@ if [ "$skip_web" = false ]; then
     (
       cd "$repository_root/$app"
       npm ci
+      npm audit --audit-level=high --registry=https://registry.npmjs.org
       if [ "$app" = client ]; then
         run_app_unit_tests client
         run_client_playwright_tests

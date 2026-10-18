@@ -57,6 +57,6 @@ export default defineConfig(({ mode }) => {
       '/ws': { ...proxy, ws: true }
     }
   },
-  build: { outDir: 'dist', assetsDir: 'assets', emptyOutDir: true }
+  build: { target: ['es2020', 'edge88', 'firefox78', 'chrome87', 'safari14'], outDir: 'dist', assetsDir: 'assets', emptyOutDir: true }
   };
 });

@@ -38,8 +38,9 @@ spring:
     properties:
       hibernate:
         format_sql: true
-        jdbc:
-          time_zone: UTC
+        # Keep N-1 LocalDateTime columns as literal wall-clock values. A global
+        # JDBC Calendar in UTC shifts them when the JVM uses another zone.
+        # Instant uses Hibernate TIMESTAMP_UTC independently of this setting.
     open-in-view: false
 
 management:

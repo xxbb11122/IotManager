@@ -7,7 +7,7 @@ const json = async name => JSON.parse(await readFile(resolve(root, name), 'utf8'
 const phases = {};
 let passed = true;
 const errors = [];
-for (const [name, expected] of Object.entries({ auth: 5, ai: 1, load: 1, 'rollback-write': 1, 'rollback-read': 1 })) {
+for (const [name, expected] of Object.entries({ auth: 5, ai: 1, load: 1, 'rollback-write': 1, 'rollback-read': 1, 'rollback-resume': 1 })) {
   try {
     const report = await json(name + '.json');
     const stats = report.stats;
@@ -37,6 +37,7 @@ ai = await evidence('ai-evidence.json', ai => {
 });
 rollback = await evidence('rollback-evidence.json', rollback => {
   assert.equal(rollback.sameDatabase, true); assert.equal(rollback.sameMigrations, true); assert.equal(rollback.distinctImages, true);
+  assert.equal(rollback.resumedNImage, rollback.nImage); assert.equal(rollback.resumeProbe.phase, 'resume');
 });
 cleanup = await evidence('cleanup.json', cleanup => {
   assert.equal(cleanup.passed, true);

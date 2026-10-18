@@ -1,4 +1,4 @@
-import { openDB } from 'idb';
+import { openCompatibleCache } from './cache-schema.js';
 
 function scopeKey({ endpointId, organizationCode }) {
   if (!endpointId || !organizationCode) throw new TypeError('Platform cache requires endpoint and organization');
@@ -21,7 +21,7 @@ export class CacheRepository {
   }
 
   db() {
-    this.dbPromise ??= openDB(this.databaseName, 3, {
+    this.dbPromise ??= openCompatibleCache(this.databaseName, 3, {
       upgrade(db, oldVersion, _newVersion, transaction) {
         if (oldVersion < 1) {
           const devices = db.createObjectStore('platformDevices', { keyPath: 'key' });
@@ -48,7 +48,7 @@ export class CacheRepository {
           })();
         }
       }
-    });
+    }).catch(error => { this.dbPromise = null; throw error; });
     return this.dbPromise;
   }
 

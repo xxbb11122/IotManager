@@ -1,0 +1,144 @@
+name: Verified Android Release Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full SHA already merged into the protected default branch
+        required: true
+        type: string
+      app:
+        description: Application identity
+        required: true
+        type: choice
+        options: [client, glass]
+      version_code:
+        description: Greater than every previously distributed versionCode
+        required: true
+        type: string
+      version_name:
+        description: Public version name
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: android-release-${{ inputs.app }}
+  cancel-in-progress: false
+
+jobs:
+  signed-build:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    environment: android-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      RELEASE_APP: ${{ inputs.app }}
+      IOT_RELEASE_VERSION_CODE: ${{ inputs.version_code }}
+      IOT_RELEASE_VERSION_NAME: ${{ inputs.version_name }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: governance
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Fail closed unless repository and environments are protected
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GOVERNANCE_READ_TOKEN || github.token }}
+        run: node governance/scripts/ci/release-readiness-preflight.mjs --repository "$GITHUB_REPOSITORY" --output "$RUNNER_TEMP/governance.json"
+      - name: Validate typed inputs
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$IOT_RELEASE_VERSION_CODE" =~ ^[1-9][0-9]{0,9}$ ]]
+          [[ "$IOT_RELEASE_VERSION_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9.+_-]{0,63}$ ]]
+          case "$RELEASE_APP" in
+            client) echo 'APP_PATH=client' >> "$GITHUB_ENV"; echo 'APP_JAVA=21' >> "$GITHUB_ENV" ;;
+            glass) echo 'APP_PATH=apps/client-glass-next' >> "$GITHUB_ENV"; echo 'APP_JAVA=23' >> "$GITHUB_ENV" ;;
+            *) exit 64 ;;
+          esac
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: candidate
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require a clean reviewed default-branch source and increasing version
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git merge-base --is-ancestor "$SOURCE_SHA" "refs/remotes/origin/$DEFAULT_BRANCH"
+          test -z "$(git status --porcelain --untracked-files=normal)"
+          baseline_code="$(sed -nE 's/^def resolvedVersionCode = ([0-9]+)$/\1/p' "$APP_PATH/android/app/build.gradle")"
+          [[ "$baseline_code" =~ ^[1-9][0-9]*$ ]]
+          test "$IOT_RELEASE_VERSION_CODE" -gt "$baseline_code"
+          test "$IOT_RELEASE_VERSION_CODE" -le 2100000000
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.APP_JAVA }}
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          packages: ''
+      - name: Install SDK and build public web assets before loading signing secrets
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || test "${PIPESTATUS[1]}" = 0
+          sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0' 'platform-tools'
+          cd "$APP_PATH"
+          npm ci --registry=https://registry.npmjs.org
+          npm audit --audit-level=high --registry=https://registry.npmjs.org
+          npm run android:sync
+          test -z "$(git status --porcelain --untracked-files=normal)"
+      - name: Build and verify signed APK and AAB
+        working-directory: candidate
+        env:
+          KEYSTORE_BASE64: ${{ secrets.IOT_RELEASE_KEYSTORE_BASE64 }}
+          IOT_RELEASE_STORE_PASSWORD: ${{ secrets.IOT_RELEASE_STORE_PASSWORD }}
+          IOT_RELEASE_KEY_ALIAS: ${{ secrets.IOT_RELEASE_KEY_ALIAS }}
+          IOT_RELEASE_KEY_PASSWORD: ${{ secrets.IOT_RELEASE_KEY_PASSWORD }}
+          CLIENT_CERT: ${{ vars.ANDROID_CLIENT_CERT_SHA256 }}
+          GLASS_CERT: ${{ vars.ANDROID_GLASS_CERT_SHA256 }}
+          CLIENT_LAST_CODE: ${{ vars.ANDROID_CLIENT_LAST_RELEASE_VERSION_CODE }}
+          GLASS_LAST_CODE: ${{ vars.ANDROID_GLASS_LAST_RELEASE_VERSION_CODE }}
+        run: |
+          set -euo pipefail
+          umask 077
+          export IOT_RELEASE_STORE_FILE="$RUNNER_TEMP/iot-android-release/signing.jks"
+          mkdir -p "$(dirname "$IOT_RELEASE_STORE_FILE")"
+          trap 'rm -f -- "$IOT_RELEASE_STORE_FILE"' EXIT
+          test -n "$KEYSTORE_BASE64" && test -n "$IOT_RELEASE_STORE_PASSWORD" && test -n "$IOT_RELEASE_KEY_ALIAS" && test -n "$IOT_RELEASE_KEY_PASSWORD"
+          if test "$RELEASE_APP" = client; then certificate="$CLIENT_CERT"; last_code="$CLIENT_LAST_CODE"; else certificate="$GLASS_CERT"; last_code="$GLASS_LAST_CODE"; fi
+          [[ "$last_code" =~ ^[0-9]{1,10}$ ]]
+          test "$IOT_RELEASE_VERSION_CODE" -gt "$last_code"
+          [[ "${certificate//:/}" =~ ^[a-fA-F0-9]{64}$ ]]
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$IOT_RELEASE_STORE_FILE"
+          unset KEYSTORE_BASE64
+          chmod +x "$APP_PATH/android/gradlew"
+          (cd "$APP_PATH/android" && ./gradlew --no-daemon :app:assembleRelease :app:bundleRelease)
+          node ../governance/scripts/ci/verify-android-release.mjs --root . --app "$RELEASE_APP" --source-sha "$SOURCE_SHA" \
+            --version-code "$IOT_RELEASE_VERSION_CODE" --version-name "$IOT_RELEASE_VERSION_NAME" --cert-sha256 "$certificate" --output "$RUNNER_TEMP/android-release-identity.json"
+      - name: Upload verified public release artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: signed-${{ inputs.app }}-${{ inputs.source_sha }}-${{ inputs.version_code }}
+          path: |
+            candidate/${{ env.APP_PATH }}/android/app/build/outputs/apk/release/app-release.apk
+            candidate/${{ env.APP_PATH }}/android/app/build/outputs/bundle/release/app-release.aab
+            ${{ runner.temp }}/android-release-identity.json
+            ${{ runner.temp }}/governance.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Always remove private signing material
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/iot-android-release/signing.jks"

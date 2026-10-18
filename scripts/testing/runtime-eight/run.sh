@@ -174,5 +174,21 @@ writeFileSync(root + '/rollback-evidence.json', JSON.stringify({ nCommit: proces
   commandStorage: readFileSync(root + '/command-storage.txt', 'utf8').trim() }, null, 2));
 NODE
 if (( rollback_status != 0 )); then exit "$rollback_status"; fi
+mode=ai
+active_compose up -d --no-build --pull never --no-deps backend
+wait_backend
+export IOT_ROLLBACK_PHASE=resume
+run_tests rollback-resume "$repository_root/apps/client-glass-next/e2e/rollback-data-compatibility.spec.js"
+export EIGHT_RESUMED_IMAGE="$(docker inspect --format '{{.Image}}' "$(active_compose ps -q backend)")"
+node --input-type=module <<'NODE'
+import { readFileSync, writeFileSync } from 'node:fs';
+import assert from 'node:assert/strict';
+const root=process.env.IOT_EIGHT_ROOT, file=root+'/rollback-evidence.json';
+const value=JSON.parse(readFileSync(file,'utf8'));
+assert.equal(process.env.EIGHT_RESUMED_IMAGE, value.nImage, 'Resume must restore the exact N image');
+value.resumedNImage=process.env.EIGHT_RESUMED_IMAGE;
+value.resumeProbe=JSON.parse(readFileSync(root+'/rollback-resume-probe.json','utf8'));
+writeFileSync(file,JSON.stringify(value,null,2));
+NODE
 echo '::notice title=R01 passed::Actual version switch, legacy timestamps, read/write and migration invariants passed.'
 echo 'All eight scenarios executed; validating structured evidence and cleaning the dedicated project.'

@@ -223,6 +223,7 @@ jobs:
         run: |
           node scripts/ci/tests/release-tools.test.mjs
           node scripts/ci/tests/release-workflows.test.mjs
+          node --test scripts/ci/tests/release-readiness-preflight.test.mjs scripts/ci/tests/android-release.test.mjs
       - name: Generate ephemeral non-production Compose secrets
         run: bash scripts/runtime/new-secrets.sh "$RUNNER_TEMP/iot-manager-compose-secrets"
       - name: Validate normal and recovery Compose topology
@@ -341,7 +342,7 @@ jobs:
 
   quick-gate:
     name: quick-gate
-    needs: [java, web, android-debug, deploy-static, source-security]
+    needs: [java, web, android-debug, android-glass-debug, deploy-static, source-security]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -351,11 +352,12 @@ jobs:
           JAVA_RESULT: ${{ needs.java.result }}
           WEB_RESULT: ${{ needs.web.result }}
           ANDROID_RESULT: ${{ needs['android-debug'].result }}
+          GLASS_ANDROID_RESULT: ${{ needs['android-glass-debug'].result }}
           DEPLOY_RESULT: ${{ needs['deploy-static'].result }}
           SECURITY_RESULT: ${{ needs['source-security'].result }}
         run: |
           set -euo pipefail
-          for result in "$JAVA_RESULT" "$WEB_RESULT" "$ANDROID_RESULT" "$DEPLOY_RESULT" "$SECURITY_RESULT"; do
+          for result in "$JAVA_RESULT" "$WEB_RESULT" "$ANDROID_RESULT" "$GLASS_ANDROID_RESULT" "$DEPLOY_RESULT" "$SECURITY_RESULT"; do
             test "$result" = success || {
               echo "::error::Quick CI prerequisite did not pass: $result" >&2
               exit 1
