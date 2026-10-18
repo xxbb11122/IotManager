@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { validateAndroidIdentity,normalizeCertificate } from '../verify-android-release.mjs';
 const sha='a'.repeat(40),cert='b'.repeat(64);
 const valid=()=>({app:'glass',sourceSha:sha,versionCode:12,versionName:'1.1.5-glass.7',certificateSha256:cert,
@@ -28,6 +29,17 @@ test('CI joins Glass Android, required UI regression and release safeguards',()=
   for(const path of ['scripts/verify.sh','scripts/verify.ps1'])assert.match(read(path),/e2e\/material-contract\.spec\.js/);
   const workflow=read('.github/workflows/android-release.yml');
   assert.match(workflow,/environment: android-release/);assert.match(workflow,/merge-base --is-ancestor/);
+  assert.match(workflow,/needs: \[source-policy\]/);
   assert.match(workflow,/release-readiness-preflight\.mjs/);assert.match(workflow,/verify-android-release\.mjs/);
   assert.ok(!workflow.includes('pull_request_target:'));assert.ok(!workflow.includes('packages: write'));
+});
+
+test('non-default dispatch explicitly fails before the protected signing job',()=>{
+  const workflow=readFileSync(new URL('../../../.github/workflows/android-release.yml',import.meta.url),'utf8');
+  const command=workflow.match(/run: (test "\$GITHUB_REF" = "refs\/heads\/\$DEFAULT_BRANCH")/)[1];
+  const bash=process.platform==='win32'?'C:/Program Files/Git/bin/bash.exe':'bash';
+  for(const [ref,expected] of [['refs/heads/main',0],['refs/heads/codex/unapproved',1],['refs/tags/main',1]]){
+    const result=spawnSync(bash,['-c',command],{env:{...process.env,GITHUB_REF:ref,DEFAULT_BRANCH:'main'},windowsHide:true});
+    assert.equal(result.status,expected);
+  }
 });
