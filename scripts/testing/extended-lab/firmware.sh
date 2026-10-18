@@ -41,7 +41,7 @@ cd "$workspace/source"
 west build -b nrf52840dk/nrf52840 "$root/firmware/nrf52840-reference-switch" -d "$workspace/build"
 cp "$workspace/build/zephyr/zephyr.hex" "$workspace/build/zephyr/zephyr.bin" "$workspace/build/zephyr/zephyr.elf" "$output/"
 cp "$workspace/build/zephyr/.config" "$output/zephyr.config"
-west manifest --freeze > "$output/west-manifest.yml"
+west manifest --resolve > "$output/west-manifest.yml"
 (cd "$output" && sha256sum zephyr.hex zephyr.bin zephyr.elf zephyr.config > SHA256SUMS)
 SOURCE_SHA="$GITHUB_SHA" ZEPHYR_SHA="$zephyr_sha" OUTPUT="$output" python3 - <<'PY'
 import json, os

@@ -49,6 +49,7 @@ if (process.env.IOT_EIGHT_PHYSICAL_LAB === 'true') {
     assert.equal(value.passed, true); assert.equal(value.cleanupPassed, true);
     assert.equal(value.productionApproved, false); assert.equal(value.productionStorageTested, false);
     assert.equal(value.report?.readWriteProof, true);
+    assert.equal(value.report?.promoted, true); assert.equal(value.report?.postTargetMarkerExcluded, true);
   });
 }
 // Only these structured files are published; fail if a generated password or

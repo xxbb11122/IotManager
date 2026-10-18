@@ -262,6 +262,13 @@ SQL
   printf 'PostgreSQL returned an invalid restore-point LSN: %s\n' "$restore_point_lsn" >&2
   exit 70
 }
+# Archive a later row in the same WAL stream. A correct point-in-time restore
+# must recover the earlier marker but exclude this post-target transaction.
+post_target_marker="${marker_id}-after-target"
+docker "${source_compose[@]}" exec -T postgres psql -v ON_ERROR_STOP=1 -U "$bootstrap_user" -d "$database_name" \
+  -v marker_id="$post_target_marker" <<'SQL' >/dev/null
+INSERT INTO r1_recovery_drill.markers (marker_id) VALUES (:'marker_id');
+SQL
 wal_segment="$(docker "${source_compose[@]}" exec -T postgres psql -v ON_ERROR_STOP=1 -U "$bootstrap_user" -d "$database_name" -At \
   -v restore_point_lsn="$restore_point_lsn" <<'SQL'
 SELECT pg_walfile_name(:'restore_point_lsn'::pg_lsn);
@@ -314,7 +321,9 @@ while true; do
   recovery_postgres_id="$(docker "${recovery_compose[@]}" ps -q postgres | head -n 1)"
   recovery_health="none"
   [[ -n "$recovery_postgres_id" ]] && recovery_health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$recovery_postgres_id")"
-  [[ "$recovery_health" == "healthy" ]] && break
+  if [[ "$recovery_health" == "healthy" ]] && [[ "$(docker "${recovery_compose[@]}" exec -T postgres psql -U "$bootstrap_user" -d "$database_name" -Atc 'SELECT NOT pg_is_in_recovery()' 2>/dev/null || true)" == t ]]; then
+    break
+  fi
   (( SECONDS < deadline )) || { printf 'Recovery PostgreSQL did not become healthy within %ss.\n' "$recovery_timeout_seconds" >&2; exit 1; }
   sleep 5
 done
@@ -325,6 +334,12 @@ SELECT marker_id FROM r1_recovery_drill.markers WHERE marker_id = :'marker_id';
 SQL
 )"
 [[ "$recovered_marker" == "$marker_id" ]] || { printf 'Recovered database does not contain the drill marker.\n' >&2; exit 1; }
+post_target_count="$(docker "${recovery_compose[@]}" exec -T postgres psql -v ON_ERROR_STOP=1 -U "$bootstrap_user" -d "$database_name" -At \
+  -v marker_id="$post_target_marker" <<'SQL'
+SELECT count(*) FROM r1_recovery_drill.markers WHERE marker_id = :'marker_id';
+SQL
+)"
+[[ "$post_target_count" == 0 ]] || { printf 'Recovery replayed a transaction after the named restore point.\n' >&2; exit 1; }
 
 recovered_version="$(docker "${recovery_compose[@]}" exec -T postgres psql -v ON_ERROR_STOP=1 -U "$bootstrap_user" -d "$database_name" -Atc \
   'SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1')"
@@ -368,6 +383,8 @@ cat > "$report_file" <<EOF
   "baseBackup": "$base_backup",
   "replayedWalSegment": "$wal_segment",
   "readWriteProof": true,
+  "promoted": true,
+  "postTargetMarkerExcluded": true,
   "status": "passed"
 }
 EOF
