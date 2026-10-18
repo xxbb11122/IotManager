@@ -119,6 +119,7 @@ run_tests load "$repository_root/apps/client-glass-next/e2e/runtime-load.spec.js
 echo '::notice title=R08 passed::1000 devices and 100 authenticated WebSockets passed, including data cleanup.'
 
 echo 'R01: actual N-to-N-1 Backend switch with the same database'
+javac -d "$IOT_EIGHT_ROOT" "$IOT_EIGHT_TOOLS/JvmZoneProbe.java"
 baseline=e0977e77220773182df4e3a73741686cbb87c6d9
 git cat-file -e "$baseline^{commit}"
 mkdir -p "$IOT_EIGHT_ROOT/n-minus-one"
@@ -129,8 +130,12 @@ export IOT_ROLLBACK_MARKER="rollback-eight-$GITHUB_RUN_ID" IOT_ROLLBACK_PHASE=wr
 run_tests rollback-write "$repository_root/apps/client-glass-next/e2e/rollback-data-compatibility.spec.js"
 export EIGHT_DB_BEFORE="$(active_compose ps -q postgres)"
 export EIGHT_N_IMAGE="$(docker inspect --format '{{.Image}}' "$(active_compose ps -q backend)")"
+active_compose cp "$IOT_EIGHT_ROOT/JvmZoneProbe.class" backend:/tmp/JvmZoneProbe.class
+node "$IOT_EIGHT_TOOLS/snapshot-runtime.mjs" n "$(active_compose ps -q backend)"
 active_compose exec -T postgres application-role-psql.sh -v ON_ERROR_STOP=1 -t -A \
   -c 'SELECT version, checksum, success FROM flyway_schema_history ORDER BY installed_rank' > "$IOT_EIGHT_ROOT/migrations-before.txt"
+active_compose exec -T postgres application-role-psql.sh -v ON_ERROR_STOP=1 -t -A \
+  -c "SELECT command_id, requested_at, requested_at_utc FROM device_commands WHERE idempotency_key = '$IOT_ROLLBACK_MARKER-n-command'" > "$IOT_EIGHT_ROOT/command-storage.txt"
 cat > "$IOT_EIGHT_ROOT/compose-rollback.yml" <<YAML
 services:
   backend:
@@ -142,9 +147,13 @@ YAML
 mode=rollback
 active_compose up -d --no-build --pull never --no-deps backend
 wait_backend
+active_compose cp "$IOT_EIGHT_ROOT/JvmZoneProbe.class" backend:/tmp/JvmZoneProbe.class
+node "$IOT_EIGHT_TOOLS/snapshot-runtime.mjs" n-minus-one "$(active_compose ps -q backend)"
 export IOT_ROLLBACK_PHASE=read
+set +e
 run_tests rollback-read "$repository_root/apps/client-glass-next/e2e/rollback-data-compatibility.spec.js"
-echo '::notice title=R01 API passed::N data was read and new data was written through the actual N-minus-one Backend.'
+rollback_status=$?
+set -e
 export EIGHT_DB_AFTER="$(active_compose ps -q postgres)"
 export EIGHT_N1_IMAGE="$(docker inspect --format '{{.Image}}' "$(active_compose ps -q backend)")"
 active_compose exec -T postgres application-role-psql.sh -v ON_ERROR_STOP=1 -t -A \
@@ -155,11 +164,17 @@ import { createHash } from 'node:crypto';
 const root = process.env.IOT_EIGHT_ROOT;
 const digest = name => createHash('sha256').update(readFileSync(root + '/' + name)).digest('hex');
 const before = digest('migrations-before.txt'), after = digest('migrations-after.txt');
+const json = name => JSON.parse(readFileSync(root + '/' + name, 'utf8'));
 writeFileSync(root + '/rollback-evidence.json', JSON.stringify({ nCommit: process.env.GITHUB_SHA,
   nMinusOneCommit: 'e0977e77220773182df4e3a73741686cbb87c6d9', approvedProductionReleaseDrill: false,
   nImage: process.env.EIGHT_N_IMAGE, nMinusOneImage: process.env.EIGHT_N1_IMAGE,
   distinctImages: process.env.EIGHT_N_IMAGE !== process.env.EIGHT_N1_IMAGE,
   sameDatabase: process.env.EIGHT_DB_BEFORE === process.env.EIGHT_DB_AFTER,
-  migrationsBeforeSha256: before, migrationsAfterSha256: after, sameMigrations: before === after }, null, 2));
+  migrationsBeforeSha256: before, migrationsAfterSha256: after, sameMigrations: before === after,
+  nRuntime: json('n-runtime.json'), nMinusOneRuntime: json('n-minus-one-runtime.json'),
+  nProbe: json('rollback-write-probe.json'), nMinusOneProbe: json('rollback-read-probe.json'),
+  commandStorage: readFileSync(root + '/command-storage.txt', 'utf8').trim() }, null, 2));
 NODE
+if (( rollback_status != 0 )); then exit "$rollback_status"; fi
+echo '::notice title=R01 passed::Actual version switch, legacy timestamps, read/write and migration invariants passed.'
 echo 'All eight scenarios executed; validating structured evidence and cleaning the dedicated project.'

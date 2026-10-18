@@ -237,21 +237,19 @@ test('actual runtime: failed startup plus three WS reconnects performs one list 
     };
   });
   await page.goto('/');
-  await page.waitForFunction(() => window.fixtureSockets.length > 0);
+  await page.waitForFunction(() => window.fixtureSockets.length > 0 && window.fixtureSockets.at(-1).readyState === 1);
   await expect.poll(() => reads).toBe(1);
+  const cooldownBeforeReconnects = await page.evaluate(() => window.__iotUiMetrics().snapshotCooldownCount);
   for (let i = 0; i < 3; i++) {
     const count = await page.evaluate(() => { const count = window.fixtureSockets.length; window.fixtureSockets.at(-1).close(); return count; });
     await page.waitForFunction(count => window.fixtureSockets.length > count && window.fixtureSockets.at(-1).readyState === 1, count);
     await page.waitForTimeout(200);
     expect(reads).toBe(1);
+    await expect.poll(() => page.evaluate(() => window.__iotUiMetrics().snapshotCooldownCount))
+      .toBeGreaterThanOrEqual(cooldownBeforeReconnects + i + 1);
   }
-  // The initial socket can join the startup read or arrive just after it.
-  // Both must suppress another read; the three later reconnects cool down.
-  await expect.poll(() => page.evaluate(() => window.__iotUiMetrics().snapshotCooldownCount)).toBeGreaterThanOrEqual(3);
-  await expect.poll(() => page.evaluate(() => {
-    const metrics = window.__iotUiMetrics();
-    return metrics.snapshotCooldownCount + metrics.snapshotJoinedCount;
-  })).toBeGreaterThanOrEqual(4);
+  // Count the three explicitly completed reconnects from their own baseline.
+  // Initial connection/context setup need not add a fourth suppression metric.
   expect(errors).toEqual([]);
   await page.locator('[data-action="open-connection-settings"]').click();
   await expect(page.locator('[data-region="build-identity"]')).toContainText('提交');

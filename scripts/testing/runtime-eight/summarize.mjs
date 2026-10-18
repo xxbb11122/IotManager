@@ -11,26 +11,36 @@ for (const [name, expected] of Object.entries({ auth: 5, ai: 1, load: 1, 'rollba
   try {
     const report = await json(name + '.json');
     const stats = report.stats;
+    phases[name] = { passed: false, tests: stats.expected + stats.unexpected + stats.flaky,
+      succeeded: stats.expected, failed: stats.unexpected, skipped: stats.skipped, durationMs: stats.duration };
     assert.equal(stats.expected, expected);
     assert.equal(stats.unexpected, 0); assert.equal(stats.skipped, 0); assert.equal(stats.flaky, 0);
-    phases[name] = { passed: true, tests: expected, durationMs: stats.duration };
-  } catch (error) { phases[name] = { passed: false }; passed = false; errors.push(name + ': ' + error.message); }
+    phases[name].passed = true;
+  } catch (error) { phases[name] ??= { passed: false, tests: 0 }; passed = false; errors.push(name + ': ' + error.message); }
 }
 let load, ai, rollback, cleanup, inputs;
-try {
-  inputs = await json('inputs.json');
-  load = await json('load-evidence.json');
+async function evidence(name, validate) {
+  let value;
+  try { value = await json(name); validate(value); }
+  catch (error) { passed = false; errors.push(name + ': ' + error.message); }
+  return value;
+}
+inputs = await evidence('inputs.json', () => {});
+load = await evidence('load-evidence.json', load => {
   assert.equal(load.result.created, 1000); assert.equal(load.result.failedCreates, 0);
   assert.equal(load.result.websocket.opened, 100); assert.equal(load.result.websocket.errors, 0);
   assert.ok(load.result.websocket.minimumMessages >= 1000);
   assert.equal(load.cleanup.archived, 1000); assert.equal(load.cleanup.failed, 0); assert.equal(load.cleanup.remainingActive, 0);
-  ai = await json('ai-evidence.json');
+});
+ai = await evidence('ai-evidence.json', ai => {
   assert.equal(ai.chatCalls, 1); assert.equal(ai.embeddingCalls, 0); assert.equal(ai.rejectedCalls, 0); assert.equal(ai.realProviderCalled, false);
-  rollback = await json('rollback-evidence.json');
+});
+rollback = await evidence('rollback-evidence.json', rollback => {
   assert.equal(rollback.sameDatabase, true); assert.equal(rollback.sameMigrations, true); assert.equal(rollback.distinctImages, true);
-  cleanup = await json('cleanup.json');
+});
+cleanup = await evidence('cleanup.json', cleanup => {
   assert.equal(cleanup.passed, true);
-} catch (error) { passed = false; errors.push('evidence: ' + error.message); }
+});
 // Only these structured files are published; fail if a generated password or
 // bearer JWT appears in any of them. Traces and browser storage are never kept.
 const safeFiles = (await readdir(root)).filter(name => name.endsWith('.json') && name !== 'summary.json');

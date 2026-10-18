@@ -1,10 +1,15 @@
 import { expect, test } from '@playwright/test';
+import { writeFileSync } from 'node:fs';
 
 const baseUrl = String(process.env.IOT_RUNTIME_BASE_URL ?? '').replace(/\/$/, '');
 const ownerUsername = process.env.IOT_E2E_OWNER_USERNAME;
 const ownerPassword = process.env.IOT_E2E_OWNER_PASSWORD;
 const marker = process.env.IOT_ROLLBACK_MARKER;
 const phase = process.env.IOT_ROLLBACK_PHASE;
+const probeFile = process.env.IOT_EIGHT_ROOT ? `${process.env.IOT_EIGHT_ROOT}/rollback-${phase}-probe.json` : null;
+function recordProbe(value) {
+  if (probeFile) writeFileSync(probeFile, JSON.stringify(value, null, 2));
+}
 
 async function accessToken(page) {
   return page.evaluate(() => {
@@ -84,6 +89,12 @@ test.describe('N to N-1 rollback data compatibility', () => {
         });
         expect(submitted.status, JSON.stringify(submitted.body)).toBe(202);
         expect(submitted.body?.commandId).toBeTruthy();
+        if (probeFile) {
+          const persisted = await api(page, token, `/api/v1/commands/${submitted.body.commandId}`);
+          expect(persisted.status).toBe(200);
+          recordProbe({ phase, commandId: submitted.body.commandId, submittedRequestedAt: submitted.body.requestedAt,
+            persistedRequestedAt: persisted.body.requestedAt, observedAt: new Date().toISOString() });
+        }
         return;
       }
 
@@ -102,7 +113,13 @@ test.describe('N to N-1 rollback data compatibility', () => {
       // old to N-1 even though its authoritative Instant is correct.
       const legacyRequestedAt = Date.parse(`${nCommand.requestedAt}+08:00`);
       expect(Number.isFinite(legacyRequestedAt)).toBe(true);
-      expect(Math.abs(Date.now() - legacyRequestedAt)).toBeLessThan(90 * 60_000);
+      const temporalProbe = { phase, commandId: nCommand.commandId, nMinusOneRequestedAt: nCommand.requestedAt,
+        interpretedOffset: '+08:00', deltaMs: Date.now() - legacyRequestedAt, observedAt: new Date().toISOString() };
+      recordProbe(temporalProbe);
+      // Keep the time boundary failing while still testing N-1's independent
+      // device/command writes in the isolated database for diagnostic evidence.
+      expect.soft(Math.abs(temporalProbe.deltaMs), `N-1 requestedAt=${nCommand.requestedAt}, interpreted as +08:00`)
+        .toBeLessThan(90 * 60_000);
 
       const nMinusOneWrite = await api(page, token, '/api/v1/devices?siteCode=primary-site', {
         method: 'POST',
@@ -127,6 +144,8 @@ test.describe('N to N-1 rollback data compatibility', () => {
       });
       expect(nMinusOneCommand.status, JSON.stringify(nMinusOneCommand.body)).toBe(202);
       expect(nMinusOneCommand.body?.commandId).toBeTruthy();
+      recordProbe({ ...temporalProbe, nMinusOneDeviceWrite: nMinusOneWrite.status,
+        nMinusOneCommandWrite: nMinusOneCommand.status, nMinusOneWrittenRequestedAt: nMinusOneCommand.body.requestedAt });
     } finally {
       await context.close();
     }
