@@ -28,7 +28,8 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@SpringBootTest
+// Drive edge claims explicitly so the background poller cannot own the test row.
+@SpringBootTest(properties = "iot.edge-agent.dispatch-interval-ms=3600000")
 @ActiveProfiles("test")
 class CommandServiceTest {
 
@@ -354,6 +355,47 @@ class CommandServiceTest {
             executor.shutdown();
             assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
         }
+    }
+
+    @Test
+    void concurrentEdgeClaimsHaveOneSenderAndSentOrTerminalCommandsCannotBeReclaimed() throws Exception {
+        Device device = lanDevice("edge-claim");
+        var connection = connectionRepository.findByDeviceId(device.getId()).get(0);
+        connection.setAgentId("isolated-claim-test");
+        connectionRepository.saveAndFlush(connection);
+        DeviceCommandView submitted = commandService.submit(device.getId(), new DeviceCommandRequest(
+                "set_power", "edge-claim-" + UUID.randomUUID(), Map.of("on", true)));
+        assertThat(submitted.source()).isEqualTo("EDGE_AGENT");
+        int contenders = 8;
+        CountDownLatch ready = new CountDownLatch(contenders), start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(contenders);
+        try {
+            List<Future<Boolean>> claims = new java.util.ArrayList<>();
+            for (int index = 0; index < contenders; index++) claims.add(executor.submit(() -> {
+                ready.countDown();
+                assertThat(start.await(5, TimeUnit.SECONDS)).isTrue();
+                return commandService.claimPendingForEdgeAgent(submitted.commandId());
+            }));
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            int owners = 0;
+            for (Future<Boolean> claim : claims) if (claim.get(5, TimeUnit.SECONDS)) owners++;
+            assertThat(owners).isEqualTo(1);
+            assertThat(commandService.getByCommandId(submitted.commandId()).status()).isEqualTo("SENT");
+            assertThat(commandService.claimPendingForEdgeAgent(submitted.commandId())).isFalse();
+            commandService.markUnconfirmed(submitted.commandId(), "isolated test timeout");
+            assertThat(commandService.claimPendingForEdgeAgent(submitted.commandId())).isFalse();
+            assertThat(activityEventRepository.findByDeviceIdOrderByOccurredAtDesc(device.getId()))
+                    .filteredOn(event -> "command_sent".equals(event.getEventType())).hasSize(1);
+        } finally {
+            start.countDown();
+            executor.shutdown();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+        Device other = lanDevice("not-an-edge-command");
+        DeviceCommandView local = commandService.submit(other.getId(), new DeviceCommandRequest(
+                "set_power", "local-claim-" + UUID.randomUUID(), Map.of("on", false)));
+        assertThat(commandService.claimPendingForEdgeAgent(local.commandId())).isFalse();
     }
 
     private Device lanDevice(String suffix) {

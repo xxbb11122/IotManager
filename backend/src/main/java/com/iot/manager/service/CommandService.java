@@ -315,15 +315,16 @@ public class CommandService {
         });
     }
 
-    public DeviceCommandView markSentForEdgeAgent(String commandId) {
+    /** Only the transaction that claims PENDING may send the command. */
+    public boolean claimPendingForEdgeAgent(String commandId) {
         return requiresNewTransaction().execute(status -> {
             DeviceCommand command = commandRepository.findByCommandIdForUpdate(commandId)
                     .orElseThrow(() -> new NoSuchElementException("Command not found"));
             Device device = deviceRepository.findByIdForUpdate(command.getDevice().getId())
                     .orElseThrow(() -> new NoSuchElementException("Device not found"));
-            if (!PENDING.equals(command.getStatus())) return toView(command, device);
+            if (!EDGE_AGENT.equals(command.getSource()) || !PENDING.equals(command.getStatus())) return false;
             transition(command, device, SENT, "command_sent", "Command sent to edge agent");
-            return toView(command, device);
+            return true;
         });
     }
 

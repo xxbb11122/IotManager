@@ -163,8 +163,7 @@ public class EdgeAgentService {
             return;
         }
         try {
-            DeviceCommandViewGuard sent = new DeviceCommandViewGuard(commandService.markSentForEdgeAgent(pending.getCommandId()));
-            if (!"SENT".equals(sent.status())) return;
+            if (!commandService.claimPendingForEdgeAgent(pending.getCommandId())) return;
             send(session, commandEnvelope(pending, connection));
         } catch (Exception exception) {
             commandService.completeFromEdgeAgent(
@@ -589,10 +588,6 @@ public class EdgeAgentService {
 
     private String stringValue(Object value) {
         return value instanceof String string && !string.isBlank() ? string : null;
-    }
-
-    private record DeviceCommandViewGuard(com.iot.manager.dto.DeviceCommandView command) {
-        private String status() { return command.status(); }
     }
 
     private record TimeObservation(ObservedTimeTrust trust, Long skewMillis) {
