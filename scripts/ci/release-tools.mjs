@@ -12,6 +12,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { validateEvidenceVex } from './vex-evidence.mjs';
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(scriptDirectory, '..', '..');
@@ -1266,7 +1267,7 @@ function commandCreateImageScanResult(parsed) {
   const vexDirectoryOption = option(parsed, 'vex-dir', false);
   const vexDirectory = vexDirectoryOption ? resolveRepositoryPath(vexDirectoryOption, true) : undefined;
   const validVexCves = vexDirectory
-    ? blockingCves.filter((cve) => hasApprovedVex(vexDirectory, artifactId, manifestById.get(artifactId), cve))
+    ? blockingCves.filter((cve) => hasApprovedVex(vexDirectory, artifactId, manifestById.get(artifactId), cve, undefined, candidate.sourceSha))
     : [];
   const allBlockingCvesApproved = blockingCves.length > 0 && validVexCves.length === blockingCves.length;
   const status = exitCode !== 0
@@ -1729,7 +1730,7 @@ function parseSimpleVexYaml(file) {
   return result;
 }
 
-function hasApprovedVex(directory, artifactId, imageReference, cve, nowValue) {
+function hasApprovedVex(directory, artifactId, imageReference, cve, nowValue, sourceSha) {
   if (!fs.existsSync(directory)) {
     return false;
   }
@@ -1749,10 +1750,14 @@ function hasApprovedVex(directory, artifactId, imageReference, cve, nowValue) {
     } catch (_) {
       continue;
     }
+    if (vex.schemaVersion === 2) {
+      if (validateEvidenceVex(vex, { directory, artifactId, digest, cve, sourceSha, now })) return true;
+      continue;
+    }
     const approvedAt = Date.parse(vex.approvedAt || '');
     const expiresAt = Date.parse(vex.expiresAt || '');
     const controls = Array.isArray(vex.compensatingControls) ? vex.compensatingControls : [];
-    const accepted = vex.schemaVersion &&
+    const accepted = vex.schemaVersion === 1 &&
       vex.artifact === artifactId &&
       extractDigest(vex.imageDigest || '') === digest &&
       (!cve || vex.cve === cve) &&
@@ -1781,7 +1786,7 @@ function commandValidateVex(parsed) {
   if (!digest) {
     fail('--image must identify an immutable sha256 digest.', 64);
   }
-  if (hasApprovedVex(directory, artifactId, imageReference, cve)) {
+  if (hasApprovedVex(directory, artifactId, imageReference, cve, undefined, option(parsed, 'source-sha', false))) {
     output('APPROVED_VEX');
     return;
   }
