@@ -224,9 +224,11 @@ run_client_playwright_tests() {
   local -a playwright_args=(playwright test --reporter=json)
   if [ "$strict_mode" = true ]; then
     # Real-stack auth/load/rollback have separate runtime gates. UI stability is mandatory here.
-    playwright_args+=(e2e/mobile-client.spec.js e2e/mobile-offline-recovery.spec.js
+    playwright_args+=(e2e/ai-chat-panel.spec.js e2e/ai-workspace.spec.js e2e/bottom-navigation-motion.spec.js
+      e2e/mobile-client.spec.js e2e/mobile-offline-recovery.spec.js
       e2e/motion-states.spec.js e2e/motion-interruptions.spec.js e2e/motion-render-integrity.spec.js
-      e2e/motion-preview.spec.js e2e/motion-preview-visuals.spec.js e2e/refresh-stability.spec.js)
+      e2e/motion-preview.spec.js e2e/motion-preview-visuals.spec.js e2e/refresh-stability.spec.js
+      e2e/startup-animation.spec.js e2e/startup-session-recovery.spec.js)
   fi
   if ! npx "${playwright_args[@]}" > "$report"; then
     cat "$report" >&2 || true
