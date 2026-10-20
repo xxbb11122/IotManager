@@ -139,6 +139,8 @@ jobs:
           persist-credentials: false
       - name: Prove cleanup-then-PITR, 13 service digests and recovery rejection
         run: bash simulation-tools/scripts/validation/immutable-recovery-simulation.sh
+      - name: Verify WAL-G encryption rejection on the actual candidate digest
+        run: bash simulation-tools/scripts/validation/walg-encryption-simulation.sh
       - name: Remove only this disposable project and verify cleanup
         if: ${{ always() }}
         run: |
