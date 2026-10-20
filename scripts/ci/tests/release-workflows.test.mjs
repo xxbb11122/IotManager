@@ -25,6 +25,8 @@ const recoveryWorkflow = read('.github/workflows/recovery-drill.yml');
 const quickCi = read('.github/workflows/ci.yml');
 const monitoringDockerfile = read('deploy/monitoring/Dockerfile');
 const imageWorkflow = read('.github/workflows/image-security.yml');
+assert.match(launcher, /IOT_RUNTIME_STATE_FILE="\$state_file" \\\r?\n\s+bash "\$repository_root\/scripts\/runtime\/verify-stack\.sh"/,
+  'The verify entry point must run on fresh clones without executable file mode.');
 
 // Reusable workflows inherit the caller event (push/dispatch), not
 // workflow_call. Evaluate the actual job conditions for both entry paths.

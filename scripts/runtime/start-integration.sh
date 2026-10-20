@@ -268,7 +268,7 @@ wait_service_healthy backup 180 application
 
 if [[ "$verify" == true ]]; then
   IOT_COMPOSE_PROJECT="$project_name" IOT_ENVIRONMENT_FILE="$environment_file" IOT_RUNTIME_STATE_FILE="$state_file" \
-    "$repository_root/scripts/runtime/verify-stack.sh"
+    bash "$repository_root/scripts/runtime/verify-stack.sh"
 fi
 
 if [[ "$mode" == immutable ]]; then

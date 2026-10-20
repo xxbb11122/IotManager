@@ -80,12 +80,15 @@ jobs:
           export IOT_SOURCE_SHA="$SOURCE_SHA" IOT_RELEASE_CANDIDATE_ID="$CANDIDATE_ID"
           export IOT_IMAGE_MANIFEST_SHA256="$(sha256sum artifacts/release/image-digests.json | cut -d' ' -f1)"
           cp deploy/.env.integration.example deploy/.env.integration
-          bash scripts/runtime/start-integration.sh --verify --mode immutable \
+          bash scripts/runtime/start-integration.sh --mode immutable \
             --digest-manifest artifacts/release/image-digests.json \
             --digest-env-file artifacts/release/image-digests.env \
             --release-services artifacts/release/release-services.json \
             --release-candidate artifacts/release/release-candidate.json \
             --release-topology artifacts/release/release-topology.json
+          # This frozen candidate predates the launcher executable-mode fix.
+          # Invoke its unchanged verifier explicitly with Bash; retain every check.
+          IOT_RUNTIME_EVIDENCE_DIR="$GITHUB_WORKSPACE/artifacts/simulation/stack" bash scripts/runtime/verify-stack.sh
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           import assert from 'node:assert/strict';
