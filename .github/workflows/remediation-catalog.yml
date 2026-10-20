@@ -23,7 +23,7 @@ jobs:
           const references = [
             'golang:1.26.10-bookworm', 'postgres:16-trixie', 'debian:trixie-slim',
             'eclipse-temurin:17-jre-noble', 'quay.io/keycloak/keycloak:26.7.5',
-            'quay.io/keycloak/keycloak:26.8.1', 'alpine:3.24.2'
+            'quay.io/keycloak/keycloak:26.8.1', 'alpine:3.24.2', 'postgres:16-alpine3.24'
           ];
           const results = references.map(reference => {
             const result = spawnSync('docker', ['buildx', 'imagetools', 'inspect', reference,
@@ -40,6 +40,27 @@ jobs:
           console.log(JSON.stringify(results));
           if (results.some(result => !result.passed)) process.exitCode = 1;
           NODE
+      - name: Inspect the maintained PG16 Alpine ABI before migration
+        run: |
+          set -euo pipefail
+          image="$(node -e 'const j=require("./artifacts/remediation-catalog/images.json");const r=j.results.find(r=>r.reference==="postgres:16-alpine3.24");if(!r?.passed)process.exit(1);console.log(r.reference+"@"+r.digest)')"
+          docker run --rm --entrypoint /bin/sh "$image" -ec '
+            cat /etc/alpine-release
+            id postgres
+            pg_config --bindir --libdir --pkglibdir --sharedir
+            ldd /usr/local/bin/psql
+            ldd /usr/local/lib/libpq.so.5
+            apk info
+          ' > artifacts/remediation-catalog/postgres-alpine-abi.txt
+      - uses: aquasecurity/setup-trivy@e6c2c5e321ed9123bda567646e2f96565e34abe1
+        with:
+          version: v0.70.0
+          cache: true
+      - name: Scan the unmodified Alpine supplier image
+        run: |
+          set -euo pipefail
+          image="$(node -e 'const r=require("./artifacts/remediation-catalog/images.json").results.find(r=>r.reference==="postgres:16-alpine3.24");console.log(r.reference+"@"+r.digest)')"
+          trivy image --scanners vuln --severity HIGH,CRITICAL --format json --output artifacts/remediation-catalog/postgres-alpine-scan.json "$image"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: ${{ always() }}
         with:
