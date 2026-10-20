@@ -1,6 +1,6 @@
 package com.iot.manager.weather;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.iot.manager.dto.SiteWeatherSettingsRequest;
 import com.iot.manager.dto.SiteWeatherLocationRequest;
 import com.iot.manager.entity.Site;

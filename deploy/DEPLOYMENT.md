@@ -1,5 +1,7 @@
 # IoT Manager P0 / R1 Docker 运行手册
 
+2026-10-20 安全整改将 PG16 基底切换为 Alpine musl。已有 glibc 数据卷会被新入口拒绝，必须先按[逻辑迁移说明](../docs/REMAINING-RELEASE-FIXES-DEVELOPMENT-2026-10-20.md)迁到新卷并建立新的备份链；禁止直接挂载旧卷或手工补 ABI 标记。
+
 本目录提供 PostgreSQL 16、Keycloak、Spring Boot Backend、Caddy、逻辑备份和
 WAL-G 的单主机 Compose 运行态。它用于完成 P0 缺陷闭环和 R1 受控试点，不代表
 Redis、mTLS、多实例、工单/报表或真实设备 Gate 3 验收已经完成。

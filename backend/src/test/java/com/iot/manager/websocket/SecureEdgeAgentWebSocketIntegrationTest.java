@@ -1,6 +1,6 @@
 package com.iot.manager.websocket;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.iot.manager.dto.AgentCredentialProvisionRequest;
 import com.iot.manager.repository.EdgeAgentRepository;
 import com.iot.manager.service.AgentCredentialService;

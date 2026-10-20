@@ -1,9 +1,9 @@
 package com.iot.manager.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.iot.manager.entity.Device;
 import com.iot.manager.entity.DeviceCommand;
 import com.iot.manager.entity.DeviceConnection;
@@ -567,7 +567,7 @@ public class EdgeAgentService {
     private String writeJson(Object value) {
         try {
             return objectMapper.writeValueAsString(value);
-        } catch (JsonProcessingException exception) {
+        } catch (JacksonException exception) {
             throw new IllegalArgumentException("Unable to serialize edge-agent payload");
         }
     }
@@ -576,7 +576,7 @@ public class EdgeAgentService {
         if (json == null || json.isBlank()) return Map.of();
         try {
             return objectMapper.readValue(json, new TypeReference<LinkedHashMap<String, Object>>() { });
-        } catch (JsonProcessingException exception) {
+        } catch (JacksonException exception) {
             return Map.of();
         }
     }

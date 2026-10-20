@@ -6,9 +6,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.boot.test.mock.mockito.SpyBean;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.http.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
@@ -20,6 +21,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 import static org.mockito.ArgumentMatchers.*;
 
+@AutoConfigureTestRestTemplate
 @SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT, properties={
         "iot.ai.enabled=true", "iot.ai.knowledge-enabled=false", "iot.ai.allowed-hosts[0]=example.test",
         "spring.ai.openai.chat.base-url=https://example.test", "spring.ai.openai.chat.api-key=test-only-key",
@@ -32,9 +34,9 @@ class AiRequestRecoveryIntegrationTest {
     @Autowired AiProperties properties;
     @Autowired JdbcTemplate jdbc;
     @Autowired TestRestTemplate rest;
-    @SpyBean AiRepository repository;
-    @SpyBean TimeProvider time;
-    @MockBean AiModelGateway models;
+    @MockitoSpyBean AiRepository repository;
+    @MockitoSpyBean TimeProvider time;
+    @MockitoBean AiModelGateway models;
     long site;
     @BeforeEach void setUp() {
         Long org=jdbc.queryForObject("SELECT organization_id FROM sites ORDER BY id LIMIT 1",Long.class);

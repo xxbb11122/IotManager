@@ -199,3 +199,32 @@ jobs:
           path: artifacts/alert-simulation/
           if-no-files-found: error
           retention-days: 30
+
+  postgres-abi-lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      IMAGE_RUN_ID: ${{ inputs.image_run_id }}
+      CANDIDATE_ID: ${{ inputs.release_candidate_id }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Verify candidate identity and pull only immutable laboratory images
+        run: |
+          set -euo pipefail
+          gh run download "$IMAGE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "image-manifest-$CANDIDATE_ID" --dir artifacts/release
+          node scripts/ci/release-tools.mjs validate-digest-manifest --candidate artifacts/release/release-candidate.json --topology artifacts/release/release-topology.json --services artifacts/release/release-services.json --manifest artifacts/release/image-digests.json --expected-source-sha "$SOURCE_SHA" --expected-release-candidate-id "$CANDIDATE_ID"
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Refuse the old physical volume and restore into a fresh musl cluster
+        run: bash scripts/validation/postgres-abi-migration-simulation.sh
+      - name: Upload migration and unchanged-volume evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: postgres-abi-simulation-${{ github.run_id }}
+          path: artifacts/simulation/postgres-abi/
+          if-no-files-found: error
+          retention-days: 30

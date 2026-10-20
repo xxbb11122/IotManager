@@ -3,7 +3,7 @@ package com.iot.manager.config;
 import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.core.annotation.AnnotatedElementUtils;
@@ -29,7 +29,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.ai.openai.chat.base-url=https://example.test",
         "spring.ai.openai.embedding.base-url=https://example.test",
         "spring.ai.openai.chat.api-key=test-only", "spring.ai.openai.embedding.api-key=test-only",
-        "spring.ai.openai.chat.options.model=test-chat", "spring.ai.openai.embedding.options.model=test-embedding"
+        "spring.ai.openai.chat.model=test-chat", "spring.ai.openai.embedding.model=test-embedding"
 })
 @ActiveProfiles("test")
 @AutoConfigureMockMvc

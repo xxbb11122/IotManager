@@ -1,8 +1,8 @@
 package com.iot.manager.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import com.iot.manager.dto.ActivityView;
 import com.iot.manager.dto.ConnectionView;
 import com.iot.manager.dto.DeviceView;
@@ -154,7 +154,7 @@ public class DeviceMapper {
         try {
             return objectMapper.readValue(json, new TypeReference<LinkedHashMap<String, Object>>() {
             });
-        } catch (JsonProcessingException exception) {
+        } catch (JacksonException exception) {
             return Map.of();
         }
     }

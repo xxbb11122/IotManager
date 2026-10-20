@@ -1,7 +1,7 @@
 package com.iot.manager.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import com.iot.manager.dto.ClaimLanDeviceRequest;
 import com.iot.manager.dto.DeviceView;
 import com.iot.manager.dto.LanCandidateView;
@@ -210,7 +210,7 @@ public class LanDiscoveryService {
     private String writeJson(Map<String, Object> value) {
         try {
             return objectMapper.writeValueAsString(value);
-        } catch (JsonProcessingException exception) {
+        } catch (JacksonException exception) {
             throw new IllegalStateException("Unable to serialize LAN discovery context", exception);
         }
     }
