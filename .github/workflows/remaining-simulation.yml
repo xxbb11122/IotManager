@@ -1,0 +1,122 @@
+name: Isolated Immutable Runtime Simulation
+
+on:
+  push:
+    branches: ['codex/**']
+    paths: ['.github/workflows/remaining-simulation.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  packages: read
+
+concurrency:
+  group: immutable-simulation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  immutable-lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      # Frozen laboratory inputs, deliberately independent of Release Gate.
+      SOURCE_SHA: 62b0938abdde6591489d2e4a912b709a33f5a1fa
+      IMAGE_RUN_ID: '39384244657'
+      CANDIDATE_ID: r1-rc-simulation-20261020-62b0938abdde
+      IOT_COMPOSE_PROJECT: iot-manager-immutable-sim-${{ github.run_id }}
+      IOT_ENABLE_OBSERVABILITY: 'true'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+      - name: Assert frozen laboratory source
+        run: bash scripts/ci/assert-source-checkout.sh --source-sha "$SOURCE_SHA"
+      - name: Wait for the actual eight-image manifest
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release artifacts/simulation
+          for attempt in $(seq 1 40); do
+            artifact_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$IMAGE_RUN_ID/artifacts" --jq ".artifacts[] | select(.name == \"image-manifest-$CANDIDATE_ID\") | .id")"
+            if [[ -n "$artifact_id" ]]; then
+              gh run download "$IMAGE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "image-manifest-$CANDIDATE_ID" --dir artifacts/release
+              break
+            fi
+            sleep 15
+          done
+          test -s artifacts/release/image-digests.json
+      - name: Validate actual manifest and reject changed source or checksum
+        run: |
+          set -euo pipefail
+          validation=(node scripts/ci/release-tools.mjs validate-digest-manifest --candidate artifacts/release/release-candidate.json --topology artifacts/release/release-topology.json --services artifacts/release/release-services.json --manifest artifacts/release/image-digests.json --expected-source-sha "$SOURCE_SHA" --expected-release-candidate-id "$CANDIDATE_ID")
+          "${validation[@]}"
+          if "${validation[@]}" --expected-source-sha 0000000000000000000000000000000000000000 > artifacts/simulation/wrong-source-rejection.txt 2>&1; then
+            echo 'Wrong source was accepted' >&2; exit 1
+          fi
+          cp artifacts/release/image-digests.json artifacts/simulation/tampered-digests.json
+          printf '\n ' >> artifacts/simulation/tampered-digests.json
+          expected="$(sha256sum artifacts/release/image-digests.json | cut -d' ' -f1)"
+          if "${validation[@]}" --manifest artifacts/simulation/tampered-digests.json --expected-manifest-sha256 "$expected" > artifacts/simulation/tampered-manifest-rejection.txt 2>&1; then
+            echo 'Changed manifest checksum was accepted' >&2; exit 1
+          fi
+      - name: Pull immutable digests without changing the scan verdict
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          while IFS=$'\t' read -r artifact_id image_ref; do
+            docker pull "$image_ref"
+          done < <(bash scripts/ci/list-digest-artifacts.sh --manifest artifacts/release/image-digests.json)
+      - name: Start the exact candidate and verify all 12 runtime services
+        run: |
+          set -euo pipefail
+          export IOT_ENVIRONMENT_FILE="$GITHUB_WORKSPACE/deploy/.env.integration"
+          export IOT_RUNTIME_STATE_FILE="$GITHUB_WORKSPACE/deploy/.runtime/$IOT_COMPOSE_PROJECT/runtime.env"
+          export IOT_SECRET_DIR="$GITHUB_WORKSPACE/deploy/.runtime/$IOT_COMPOSE_PROJECT/secrets"
+          export IOT_RUNTIME_DIGEST_EVIDENCE_FILE="$GITHUB_WORKSPACE/artifacts/simulation/runtime-service-digests.json"
+          export IOT_SOURCE_SHA="$SOURCE_SHA" IOT_RELEASE_CANDIDATE_ID="$CANDIDATE_ID"
+          export IOT_IMAGE_MANIFEST_SHA256="$(sha256sum artifacts/release/image-digests.json | cut -d' ' -f1)"
+          cp deploy/.env.integration.example deploy/.env.integration
+          bash scripts/runtime/start-integration.sh --verify --mode immutable \
+            --digest-manifest artifacts/release/image-digests.json \
+            --digest-env-file artifacts/release/image-digests.env \
+            --release-services artifacts/release/release-services.json \
+            --release-candidate artifacts/release/release-candidate.json \
+            --release-topology artifacts/release/release-topology.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          const evidence=JSON.parse(fs.readFileSync('artifacts/simulation/runtime-service-digests.json'));
+          assert.equal(evidence.status,'PASS');
+          assert.equal(evidence.verifiedServiceCount,12);
+          fs.writeFileSync('artifacts/simulation/summary.json',JSON.stringify({passed:true,sourceSha:process.env.SOURCE_SHA,
+            imageProducerRunId:process.env.IMAGE_RUN_ID,candidateId:process.env.CANDIDATE_ID,
+            productionApproved:false,verifiedRuntimeServices:12,negativeChecks:2,
+            boundaries:['Isolated GitHub runner; no protected production recovery environment',
+              'Runtime result does not approve or override image vulnerability scan results']},null,2)+'\n');
+          NODE
+      - name: Remove only this disposable project and verify cleanup
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          expected_project="iot-manager-immutable-sim-$GITHUB_RUN_ID"
+          test "$IOT_COMPOSE_PROJECT" = "$expected_project"
+          docker ps -aq --filter "label=com.docker.compose.project=$expected_project" | xargs -r docker rm -f
+          docker volume ls -q --filter "label=com.docker.compose.project=$expected_project" | xargs -r docker volume rm
+          test -z "$(docker ps -aq --filter "label=com.docker.compose.project=$expected_project")"
+          test -z "$(docker volume ls -q --filter "label=com.docker.compose.project=$expected_project")"
+          printf '{"passed":true,"containersRemaining":0,"volumesRemaining":0}\n' > artifacts/simulation/cleanup.json
+          rm -rf "deploy/.runtime/$expected_project"
+      - name: Upload public simulation evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: immutable-simulation-${{ github.run_id }}
+          path: |
+            artifacts/release/
+            artifacts/simulation/
+          if-no-files-found: error
+          retention-days: 30
