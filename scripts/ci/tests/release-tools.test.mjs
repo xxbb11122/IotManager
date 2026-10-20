@@ -134,6 +134,26 @@ try {
     '--cve', 'CVE-2099-0001'
   ]), 'APPROVED_VEX');
 
+  const evidenceVexDirectory = path.join(temporaryRoot, 'evidence-vex');
+  const proofFile = writeJson(path.join('evidence-vex', 'proof.json'), {
+    schemaVersion: 1, artifact: 'IMG-R01', imageDigest: digest, sourceSha,
+    cve: 'CVE-2099-0001', conclusion: 'not_affected', passed: true,
+    checks: [{name: 'Synthetic runtime proof fixture', passed: true}],
+    upstreamReferences: ['https://example.test/advisory']
+  });
+  writeJson(path.join('evidence-vex', 'decision.json'), {
+    schemaVersion: 2, artifact: 'IMG-R01', imageDigest: digest, sourceSha,
+    cve: 'CVE-2099-0001', status: 'not_affected', reason: 'Synthetic test fixture only',
+    preparedBy: 'fixture-author', approvedBy: 'fixture-reviewer',
+    approvedAt: '2026-01-01T00:00:00Z', expiresAt: '2099-01-01T00:00:00Z', trackingIssue: 'TEST-1',
+    approvalUrl: 'https://github.com/example/test/pull/1#pullrequestreview-1',
+    evidence: [{path: 'proof.json', sha256: sha256File(proofFile)}]
+  });
+  const evidenceVexArguments = ['--vex-dir', evidenceVexDirectory, '--artifact-id', 'IMG-R01',
+    '--image', 'ghcr.io/example/backend@' + digest, '--cve', 'CVE-2099-0001', '--source-sha', sourceSha];
+  assert.equal(run('validate-vex', evidenceVexArguments), 'APPROVED_VEX');
+  assert.equal(run('validate-vex', [...evidenceVexArguments.slice(0, -1), 'd'.repeat(40)], 1), 'NO_VALID_VEX');
+
   const stageFile = path.join(temporaryRoot, 'stage-image.json');
   run('write-stage-result', [
     '--candidate', candidateFile,
@@ -291,6 +311,12 @@ try {
     '--vex-dir', vexDirectory,
     '--scanner-exit-code', '0',
     '--output', vexScanFile
+  ]), /"status":"APPROVED_VEX"/);
+
+  assert.match(run('create-image-scan-result', [
+    '--candidate', strictCandidateFile, '--manifest', strictManifestFile, '--artifact-id', 'IMG-R01',
+    '--report', highReportFile, '--vex-dir', evidenceVexDirectory, '--scanner-exit-code', '0',
+    '--output', path.join(temporaryRoot, 'evidence-vex-scan.json')
   ]), /"status":"APPROVED_VEX"/);
 
   const runtimeEvidenceFile = writeJson('runtime-evidence.json', {

@@ -127,7 +127,7 @@ services:
     build:
       context: .
       dockerfile: keycloak/Dockerfile
-    image: iot-manager-keycloak:26.7.5
+    image: iot-manager-keycloak:26.8.1
     restart: unless-stopped
     stop_grace_period: 45s
     entrypoint: ["/opt/keycloak/bin/iot-manager-entrypoint.sh"]
