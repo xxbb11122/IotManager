@@ -299,6 +299,25 @@ try {
     '--expected-source-sha', sourceSha
   ]), /"status":"PASS"/);
 
+  const legacyTopology = JSON.parse(fs.readFileSync(topologyFile, 'utf8'));
+  legacyTopology.artifacts.find(row => row.artifactId === 'IMG-R07').origin = 'external';
+  const legacyTopologyFile = writeJson('legacy-topology.json', legacyTopology);
+  const legacyManifest = JSON.parse(fs.readFileSync(strictManifestFile, 'utf8'));
+  legacyManifest.topologySha256 = sha256File(legacyTopologyFile);
+  legacyManifest.artifacts.find(row => row.artifactId === 'IMG-R07').origin = 'external';
+  const legacyManifestFile = writeJson('legacy-manifest.json', legacyManifest);
+  const legacyCandidate = JSON.parse(fs.readFileSync(strictCandidateFile, 'utf8'));
+  legacyCandidate.topologySha256 = sha256File(legacyTopologyFile);
+  legacyCandidate.expected.buildableArtifacts = 6;
+  const legacyCandidateFile = writeJson('legacy-candidate.json', legacyCandidate);
+  const legacyArguments = ['--candidate', legacyCandidateFile, '--topology', legacyTopologyFile,
+    '--services', servicesFile, '--manifest', legacyManifestFile];
+  run('validate-digest-manifest', legacyArguments, 65);
+  assert.match(run('validate-digest-manifest', [...legacyArguments, '--allow-legacy-external-backup', 'true']), /"legacyBackupRollback":true/);
+  legacyManifest.artifacts.find(row => row.artifactId === 'IMG-R06').origin = 'external';
+  writeJson('legacy-manifest.json', legacyManifest);
+  run('validate-digest-manifest', [...legacyArguments, '--allow-legacy-external-backup', 'true'], 65);
+
   const highReportFile = writeJson('high-report.json', {
     Results: [{ Vulnerabilities: [{ VulnerabilityID: 'CVE-2099-0001', Severity: 'HIGH' }] }]
   });

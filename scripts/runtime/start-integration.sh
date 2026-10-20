@@ -166,6 +166,7 @@ if [[ "$mode" == immutable ]]; then
   [[ -n "${IOT_IMAGE_MANIFEST_SHA256:-}" ]] && manifest_validation_args+=(--expected-manifest-sha256 "$IOT_IMAGE_MANIFEST_SHA256")
   [[ -n "${IOT_RELEASE_CANDIDATE_ID:-}" ]] && manifest_validation_args+=(--expected-release-candidate-id "$IOT_RELEASE_CANDIDATE_ID")
   [[ -n "${IOT_SOURCE_SHA:-}" ]] && manifest_validation_args+=(--expected-source-sha "$IOT_SOURCE_SHA")
+  [[ "$rollback_compatibility_enabled" == true ]] && manifest_validation_args+=(--allow-legacy-external-backup true)
   node "$repository_root/scripts/ci/release-tools.mjs" "${manifest_validation_args[@]}"
   node "$repository_root/scripts/ci/release-tools.mjs" render-digest-env \
     --manifest "$digest_manifest" \

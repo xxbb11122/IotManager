@@ -898,7 +898,19 @@ function commandValidateDigestManifest(parsed) {
   const normal = services.normalRuntimeServices || [];
   const recoveryAdded = services.recoveryAddedServices || [];
   const union = services.releaseCandidateUnion || [];
-  if (artifacts.length !== 8 || artifacts.filter((item) => item.origin === 'built').length !== 7 ||
+  // Older known-good releases used the external PG image for logical backup.
+  // Only an explicit rollback compatibility invocation may accept that exact
+  // historical origin mapping; new candidates must retain seven builds.
+  const legacyBackupRollback = option(parsed, 'allow-legacy-external-backup', false) === 'true' &&
+    candidate.expected?.buildableArtifacts === 6 && artifacts.length === 8 &&
+    artifactCatalog.every((item, index) => {
+      const topologyArtifact = artifacts.find(value => value.artifactId === item.artifactId);
+      const manifestArtifact = artifactItems(manifest).find(value => value.artifactId === item.artifactId);
+      const origin = index < 6 ? 'built' : 'external';
+      return topologyArtifact?.origin === origin && manifestArtifact?.origin === origin;
+    });
+  const expectedBuilds = legacyBackupRollback ? 6 : 7;
+  if (candidate.expected?.buildableArtifacts !== expectedBuilds || artifacts.length !== 8 || artifacts.filter((item) => item.origin === 'built').length !== expectedBuilds ||
       normal.length !== 12 || recoveryAdded.length !== 1 || union.length !== 13) {
     fail('Release topology does not match the approved 8/7/12/1/13 baseline.', 65);
   }
@@ -912,6 +924,7 @@ function commandValidateDigestManifest(parsed) {
     sourceSha: candidate.sourceSha,
     topologySha256: candidate.topologySha256,
     manifestSha256,
+    legacyBackupRollback,
     artifacts: manifestArtifacts.size,
     normalRuntimeServices: normal.length,
     recoveryAddedServices: recoveryAdded.length,
