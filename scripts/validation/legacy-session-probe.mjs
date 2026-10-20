@@ -11,6 +11,7 @@ import { createLocalBleDevice, decorateLanDevice, mergePlatformAndLocalDevices }
 import * as resources from '../../client/src/js/runtime-resource-state.js';
 import { valueEqual } from '../../client/src/js/value-equality.js';
 import { createSnapshotRefreshGate } from '../../client/src/js/snapshot-refresh-gate.js';
+import { boundedStartupRead, readStartupSnapshot } from '../../client/src/js/platform/startup-bootstrap.js';
 
 // Execute the actual main.js function bodies with inert platform boundaries.
 // No network, BLE, geolocation, DOM implementation or application bootstrap runs.
@@ -32,6 +33,7 @@ function fixture(adapter = {}, cacheOverrides = {}) {
   const context = vm.createContext({
     ...resources, store, CHANGE_DOMAIN, createCommandDispatcher, isTerminalCommandStatus, valueEqual, createSnapshotRefreshGate,
     createLocalBleDevice, decorateLanDevice, mergePlatformAndLocalDevices,
+    boundedStartupRead, readStartupSnapshot, AbortController,
     testEnv: { DEV: false }, Capacitor: { isNativePlatform: () => false },
     RuntimeConfigRepository: class {}, CacheRepository: class { constructor() { return cache; } },
     BleAdapter: class { availability() { return { available: false }; } subscribe() { return noOp; } },
@@ -90,9 +92,12 @@ for(const status of ['fulfilled','rejected']){
  } finally {f.run('authSession?.stopAutoRefresh()');}
 }
 const report={sourceSha:execFileSync('git',['rev-parse','HEAD'],{cwd:resolve(import.meta.dirname,'../..'),encoding:'utf8',windowsHide:true}).trim(),
+  sourceDirty:Boolean(execFileSync('git',['diff','--name-only','HEAD','--','client/src'],{cwd:resolve(import.meta.dirname,'../..'),encoding:'utf8',windowsHide:true}).trim()),
   mainSha256:createHash('sha256').update(await readFile(new URL('../../client/src/main.js',import.meta.url))).digest('hex'),
   app:'legacy-client',cases:results,
   findingConfirmed:results[0].sessionRetained&&!results[1].sessionRetained,
+  passed:results[0].sessionRetained && results[0].authenticated && results[1].sessionRetained
+    && !results[1].authenticated && results[1].profileWrites === 0 && results[1].removedKeys.length === 0,
   expected:'Failed endpoint read preserves encrypted session without authenticating a fallback identity',
   productionApproved:false,boundaries:['Actual legacy main.js and OIDC manager; inert storage/network platform fixture']};
 const args=process.argv.slice(2);
@@ -101,4 +106,5 @@ assert.ok(output,'Use --output for the diagnostic JSON; the script exits 1 while
 writeFileSync(resolve(output),JSON.stringify(report,null,2)+'\n');
 console.log(JSON.stringify(report));
 assert.equal(results[1].sessionRetained,true,'Legacy endpoint read failure must preserve the previous valid encrypted session');
+assert.equal(report.passed,true,'Unconfirmed configuration must not write defaults or activate authentication');
 

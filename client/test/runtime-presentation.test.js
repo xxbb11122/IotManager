@@ -9,6 +9,9 @@ import { createLocalBleDevice, decorateLanDevice, mergePlatformAndLocalDevices }
 import * as resources from '../src/js/runtime-resource-state.js';
 import { valueEqual } from '../src/js/value-equality.js';
 import { createSnapshotRefreshGate } from '../src/js/snapshot-refresh-gate.js';
+import { boundedStartupRead, readStartupSnapshot } from '../src/js/platform/startup-bootstrap.js';
+import { normalizeEndpointProfile } from '../src/js/platform/runtime-config.js';
+import { OidcSessionManager, normalizeOidcConfig } from '../src/js/auth/oidc-session.js';
 
 // Execute the actual main.js function bodies with inert platform boundaries.
 // No network, BLE, geolocation, DOM implementation or application bootstrap runs.
@@ -17,7 +20,7 @@ const source = (await readFile(new URL('../src/main.js', import.meta.url), 'utf8
   .replaceAll('import.meta.env', 'testEnv')
   .replace(/void bootstrapRuntime\(\)\.catch\([\s\S]*$/, '');
 
-function fixture(adapter = {}, cacheOverrides = {}) {
+function fixture(adapter = {}, cacheOverrides = {}, env = {}) {
   const store = createClientStore();
   const notifications = [];
   const cache = {
@@ -30,7 +33,9 @@ function fixture(adapter = {}, cacheOverrides = {}) {
   const context = vm.createContext({
     ...resources, store, CHANGE_DOMAIN, createCommandDispatcher, isTerminalCommandStatus, valueEqual, createSnapshotRefreshGate,
     createLocalBleDevice, decorateLanDevice, mergePlatformAndLocalDevices,
-    testEnv: { DEV: false }, Capacitor: { isNativePlatform: () => false },
+    boundedStartupRead, readStartupSnapshot, AbortController,
+    testEnv: { DEV: false, ...env }, Capacitor: { isNativePlatform: () => false },
+    normalizeEndpointProfile, createPlatformAdapter: () => ({ adapter }),
     RuntimeConfigRepository: class {}, CacheRepository: class { constructor() { return cache; } },
     BleAdapter: class { availability() { return { available: false }; } subscribe() { return noOp; } },
     createClientUi: () => ui, createStartupTransition: () => ({ markUiReady: noOp, dispose: noOp }),
@@ -283,12 +288,244 @@ test('runtime scan-stop failure is not shown as a successful stop', async () => 
 });
 
 test('restored BLE bindings retain data but never pretend a cached GATT link is live', async () => {
-  const f = fixture({}, {
-    listLocalBindings: async () => [{ key: 'local:a', pluginDeviceId: 'a', displayName: 'Cached', lastConnectionState: 'CONNECTED', lastReportedState: { on: true } }],
-    listLocalActivity: async () => []
-  });
-  await f.run('restoreLocalBindings()');
+  const f = fixture();
+  f.run(`appInstallId = 'install'; restoreLocalBindings([{ appInstallId: 'install', key: 'install:a',
+    pluginDeviceId: 'a', displayName: 'Cached', lastConnectionState: 'CONNECTED', lastReportedState: { on: true } }])`);
   assert.equal(f.store.selectDevice('a').status, 'OFFLINE');
   assert.equal(f.store.selectDevice('a').connections[0].status, 'DISCONNECTED');
   assert.equal(f.store.selectDevice('a').reportedState.on, true);
+});
+
+test('startup preserves saved endpoints on read failure and persists confirmed snapshots', async () => {
+  const saved = { id: 'saved', accessRoute: 'SITE_API', apiBaseUrl: 'https://saved.invalid/api/v1', wsUrl: 'wss://saved.invalid/ws/devices' };
+  for (const [status, value] of [['timeout'], ['rejected'], ['cancelled'], ['fulfilled', null], ['fulfilled', saved]]) {
+    const f = fixture({ disconnect() {} });
+    f.context.readStartupSnapshot = async () => ({
+      installId: { status: 'fulfilled', value: 'install' }, bindings: { status: 'fulfilled', value: [] },
+      selectedSite: { status: 'fulfilled', value: { value: null } }, endpoint: { status, value }
+    });
+    f.context.resolveClientConfig = () => ({ apiBaseUrl: 'https://default.invalid/api/v1', wsUrl: 'wss://default.invalid/ws/devices' });
+    f.context.attachAppLifecycle = async () => ({ remove() {} });
+    f.context.ACCESS_ROUTES = { SITE_API: 'SITE_API' };
+    f.context.written = [];
+    f.run(`runtimeConfigRepository.save = async profile => { written.push(profile); return profile; };
+      configureAuthSession = async () => { authSession = { getAccessToken: () => null, isRedirect: () => false }; };
+      bindPlatformEvents = () => {}; synchronizePlatformEndpoint = async () => endpointProfile;
+      startupTransition.markUiReady = async () => true;`);
+    await f.run('bootstrapRuntime()');
+    assert.equal(f.context.written.length, status === 'fulfilled' ? 1 : 0, status + ' persistence policy');
+    if (status === 'fulfilled') assert.equal(f.context.written[0].id, value?.id ?? 'local-site');
+    assert.equal(f.run('clientState.startup.phase'), status === 'fulfilled' ? 'ready' : 'configuration_pending');
+  }
+});
+
+function authenticatedStartupFixture(status) {
+  const saved = { id: 'saved', accessRoute: 'SITE_API', apiBaseUrl: 'https://saved.invalid/api/v1',
+    wsUrl: 'wss://saved.invalid/ws/devices', oidcIssuerUrl: 'https://saved.invalid/oidc',
+    oidcClientId: 'saved-client', oidcRedirectUri: 'https://localhost/callback' };
+  const key = 'iot-manager.oidc-session.v1';
+  const values = new Map([[key, { accessToken: 'test-only', cachePartition: 'saved-owner', expiresAt: Date.now() + 3600000,
+    issuerUrl: saved.oidcIssuerUrl, clientId: saved.oidcClientId }]]);
+  const removed = [], reads = [], written = [], adapters = [];
+  const f = fixture({ disconnect() {} }, {}, { VITE_OIDC_ISSUER_URL: 'https://default.invalid/oidc',
+    VITE_OIDC_CLIENT_ID: 'default-client', VITE_OIDC_REDIRECT_URI: 'https://localhost/callback' });
+  const tokenStore = {
+    async getJson(name) { reads.push(name); return structuredClone(values.get(name) ?? null); },
+    async remove(name) { removed.push(name); values.delete(name); }
+  };
+  f.context.OidcSessionManager = class extends OidcSessionManager {
+    constructor(options) { super({ ...options, tokenStore, fetchImpl: () => { throw new Error('Unexpected identity network request'); } }); }
+  };
+  f.context.normalizeOidcConfig = normalizeOidcConfig;
+  f.context.readStartupSnapshot = async () => ({ installId: { status: 'fulfilled', value: 'install' },
+    bindings: { status: 'fulfilled', value: [] }, selectedSite: { status: 'fulfilled', value: { value: null } },
+    endpoint: { status, value: status === 'fulfilled' ? saved : undefined } });
+  f.context.resolveClientConfig = () => ({ apiBaseUrl: 'https://default.invalid/api/v1', wsUrl: 'wss://default.invalid/ws/devices',
+    accessToken: 'must-not-be-used-before-confirmation' });
+  f.context.createPlatformAdapter = options => { adapters.push(options); return { adapter: { disconnect() {} } }; };
+  f.context.attachAppLifecycle = async () => ({ remove() {} });
+  f.context.ACCESS_ROUTES = { SITE_API: 'SITE_API' };
+  f.context.written = written;
+  f.run(`runtimeConfigRepository.save = async profile => { written.push(profile); return profile; };
+    bindPlatformEvents = () => {}; synchronizePlatformEndpoint = async () => endpointProfile;
+    startupTransition.markUiReady = async () => true;`);
+  return { ...f, saved, key, values, removed, reads, written, adapters, tokenStore };
+}
+
+for (const status of ['timeout', 'rejected', 'cancelled']) {
+  test(`unconfirmed ${status} endpoint read retains the encrypted session and creates no platform`, async () => {
+    const f = authenticatedStartupFixture(status);
+    await f.run('bootstrapRuntime()');
+    assert.equal(f.values.has(f.key), true);
+    assert.deepEqual(f.reads, [], 'No session may be restored against an unconfirmed endpoint');
+    assert.deepEqual(f.removed, []);
+    assert.deepEqual(f.written, []);
+    assert.deepEqual(f.adapters, [], 'No API or WebSocket adapter may use default connection metadata');
+    assert.equal(f.run('tokenProvider()'), null);
+    assert.equal(f.run('platform'), null);
+    assert.equal(f.run('clientState.auth.status'), 'configuration_pending');
+    assert.equal(f.run('clientState.startup.phase'), 'configuration_pending');
+    assert.equal(f.store.getState().runtime.stale, true);
+    await assert.rejects(f.run('signIn()'), /连接设置/);
+  });
+}
+
+test('successful saved endpoint read still restores its matching OIDC session', async t => {
+  const f = authenticatedStartupFixture('fulfilled');
+  t.after(() => f.run('authSession?.stopAutoRefresh()'));
+  await f.run('bootstrapRuntime()');
+  assert.equal(f.run('clientState.auth.authenticated'), true);
+  assert.equal(f.run('tokenProvider()'), 'test-only');
+  assert.equal(f.values.has(f.key), true);
+  assert.deepEqual(f.removed, []);
+  assert.equal(f.adapters.length, 1);
+});
+
+test('explicitly choosing another identity still clears the old session', async t => {
+  const f = authenticatedStartupFixture('timeout');
+  t.after(() => f.run('authSession?.stopAutoRefresh()'));
+  await f.run('bootstrapRuntime()');
+  f.context.manual = { ...f.saved, id: 'different', oidcIssuerUrl: 'https://other.invalid/oidc', oidcClientId: 'other-client' };
+  await f.run('activateEndpoint(manual)');
+  assert.equal(f.values.has(f.key), false);
+  assert.ok(f.removed.includes(f.key));
+  assert.equal(f.run('clientState.auth.authenticated'), false);
+  assert.equal(f.run('endpointProfile.id'), 'different');
+});
+
+test('retrying the saved settings restores the original session without another sign-in', async t => {
+  const f = authenticatedStartupFixture('timeout');
+  t.after(() => f.run('authSession?.stopAutoRefresh()'));
+  await f.run('bootstrapRuntime()');
+  f.context.saved = f.saved;
+  f.run('runtimeConfigRepository.load = async () => saved');
+  await f.run('retryEndpointConfiguration()');
+  assert.equal(f.values.has(f.key), true);
+  assert.deepEqual(f.removed, []);
+  assert.equal(f.run('clientState.auth.authenticated'), true);
+  assert.equal(f.run('endpointProfile.id'), 'saved');
+  assert.equal(f.run('clientState.loading.endpointRecovery'), false);
+});
+
+test('failed settings retry preserves the session and never creates a platform adapter', async () => {
+  const f = authenticatedStartupFixture('timeout');
+  await f.run('bootstrapRuntime()');
+  f.run('runtimeConfigRepository.load = async () => { throw new Error("storage unavailable"); }');
+  await f.run('retryEndpointConfiguration()');
+  assert.equal(f.values.has(f.key), true);
+  assert.deepEqual(f.reads, []);
+  assert.deepEqual(f.adapters, []);
+  assert.equal(f.run('clientState.auth.status'), 'configuration_pending');
+  assert.equal(f.run('clientState.loading.endpointRecovery'), false);
+});
+
+test('late settings retry cannot replace an endpoint explicitly selected while reading', async t => {
+  const f = authenticatedStartupFixture('timeout'), pending = deferred();
+  t.after(() => f.run('authSession?.stopAutoRefresh()'));
+  await f.run('bootstrapRuntime()');
+  f.context.pending = pending.promise;
+  f.run('runtimeConfigRepository.load = () => pending');
+  const retry = f.run('retryEndpointConfiguration()');
+  f.context.manual = { ...f.saved, id: 'manual' };
+  await f.run('activateEndpoint(manual)');
+  pending.resolve(f.saved);
+  await retry;
+  assert.equal(f.run('endpointProfile.id'), 'manual');
+  assert.equal(f.written.length, 1);
+  assert.equal(f.run('clientState.loading.endpointRecovery'), false);
+});
+
+test('confirmed empty settings still enforce the default identity boundary', async t => {
+  const f = authenticatedStartupFixture('fulfilled');
+  t.after(() => f.run('authSession?.stopAutoRefresh()'));
+  f.context.readStartupSnapshot = async () => ({ installId: { status: 'fulfilled', value: 'install' },
+    bindings: { status: 'fulfilled', value: [] }, endpoint: { status: 'fulfilled', value: null } });
+  await f.run('bootstrapRuntime()');
+  assert.equal(f.values.has(f.key), false);
+  assert.ok(f.removed.includes(f.key));
+  assert.equal(f.run('endpointProfile.id'), 'local-site');
+});
+
+test('a late credential read cannot authenticate an unconfirmed endpoint', async () => {
+  const f = authenticatedStartupFixture('timeout'), pending = deferred();
+  const read = f.tokenStore.getJson;
+  f.tokenStore.getJson = async key => { await pending.promise; return read(key); };
+  f.context.saved = f.saved;
+  const restore = f.run('configureAuthSession(saved)');
+  await f.run('activateEndpoint(saved, { configurationVerified: false, persistProfile: false, startupReady: async () => true })');
+  pending.resolve();
+  const oldManager = await restore;
+  oldManager.stopAutoRefresh();
+  assert.equal(f.values.has(f.key), true);
+  assert.deepEqual(f.removed, []);
+  assert.deepEqual(f.adapters, []);
+  assert.equal(f.run('authSession'), null);
+  assert.equal(f.run('tokenProvider()'), null);
+  assert.equal(f.run('clientState.auth.status'), 'configuration_pending');
+});
+
+test('the actual rejected repository read preserves session and does not migrate settings', async () => {
+  const f = authenticatedStartupFixture('rejected'), options = [];
+  f.context.readStartupSnapshot = readStartupSnapshot;
+  f.context.runtimeReadOptions = options;
+  f.run(`runtimeConfigRepository.load = async value => { runtimeReadOptions.push(value); throw new Error('I/O denied'); };`);
+  await f.run('bootstrapRuntime()');
+  assert.equal(options.length, 1);
+  assert.equal(options[0].migrate, false);
+  assert.equal(f.values.has(f.key), true);
+  assert.deepEqual(f.written, []);
+  assert.deepEqual(f.reads, []);
+  assert.deepEqual(f.adapters, []);
+});
+
+test('a timed-out actual endpoint read stays inert after returning the old configuration', async () => {
+  const f = authenticatedStartupFixture('timeout'), pending = deferred();
+  f.context.pending = pending.promise;
+  f.context.readStartupSnapshot = (readers, options) => readStartupSnapshot(readers, { ...options, timeoutMs: 1 });
+  f.run('runtimeConfigRepository.load = () => pending');
+  await f.run('bootstrapRuntime()');
+  assert.equal(f.run('clientState.auth.status'), 'configuration_pending');
+  pending.resolve(f.saved);
+  await new Promise(setImmediate);
+  assert.equal(f.values.has(f.key), true);
+  assert.deepEqual(f.written, []);
+  assert.deepEqual(f.adapters, []);
+  assert.equal(f.run('clientState.auth.authenticated'), false);
+});
+
+test('sign-out invalidates a pending settings retry before it can restore authentication', async () => {
+  const f = authenticatedStartupFixture('timeout'), pending = deferred();
+  await f.run('bootstrapRuntime()');
+  f.context.pending = pending.promise;
+  f.run('runtimeConfigRepository.load = () => pending');
+  const retry = f.run('retryEndpointConfiguration()');
+  await f.run('signOut()');
+  pending.resolve(f.saved);
+  await retry;
+  assert.deepEqual(f.adapters, []);
+  assert.deepEqual(f.written, []);
+  assert.equal(f.run('clientState.auth.authenticated'), false);
+  assert.equal(f.run('clientState.loading.endpointRecovery'), false);
+});
+
+test('disposing startup cancels permanent reads without activating the late endpoint', async () => {
+  const f = authenticatedStartupFixture('timeout'), pending = deferred();
+  f.context.pending = pending.promise;
+  f.context.readStartupSnapshot = readStartupSnapshot;
+  f.run('runtimeConfigRepository.load = () => pending');
+  const startup = f.run('bootstrapRuntime()');
+  await new Promise(setImmediate);
+  f.run('startupDisposed = true; startupAbort.abort()');
+  await startup;
+  pending.resolve(f.saved); await new Promise(setImmediate);
+  assert.equal(f.values.has(f.key), true);
+  assert.deepEqual(f.reads, []);
+  assert.deepEqual(f.written, []);
+  assert.deepEqual(f.adapters, []);
+});
+
+test('a failed installation read cannot restore bindings from a different installation', () => {
+  const f = fixture();
+  f.run(`appInstallId = null; restoreLocalBindings([{ appInstallId: 'other', pluginDeviceId: 'old' }]);`);
+  assert.equal(f.store.getState().devices.length, 0);
 });

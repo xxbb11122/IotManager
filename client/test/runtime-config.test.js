@@ -16,6 +16,51 @@ function fakePreferences() {
   };
 }
 
+test('startup reads strip legacy tokens without migration writes', async () => {
+  let writes = 0;
+  const repository = new RuntimeConfigRepository({ preferences: {
+    get: async () => ({ value: JSON.stringify({ id: 'a', accessRoute: 'SITE_API', apiBaseUrl: 'https://a.invalid',
+      wsUrl: 'wss://a.invalid', accessToken: 'legacy-token' }) }),
+    set: async () => { writes++; }
+  } });
+  assert.equal((await repository.load({ migrate: false })).accessToken, null);
+  assert.equal(writes, 0);
+  await repository.load();
+  assert.equal(writes, 1);
+});
+
+test('an older pure read cannot migrate over a newer manual endpoint save', async () => {
+  let resolveRead, saved;
+  const read = new Promise(resolve => { resolveRead = resolve; });
+  const repository = new RuntimeConfigRepository({ preferences: {
+    get: () => read, set: async ({ value }) => { saved = JSON.parse(value); }
+  } });
+  const pending = repository.load({ migrate: false });
+  await repository.save({ id: 'new', accessRoute: 'SITE_API', apiBaseUrl: 'https://new.invalid', wsUrl: 'wss://new.invalid' });
+  resolveRead({ value: JSON.stringify({ id: 'old', accessRoute: 'SITE_API', apiBaseUrl: 'https://old.invalid',
+    wsUrl: 'wss://old.invalid', accessToken: 'legacy' }) });
+  assert.equal((await pending).accessToken, null);
+  assert.equal(saved.id, 'new');
+});
+
+test('endpoint writes are ordered and a rejected write does not prevent the next save', async () => {
+  const calls = []; let rejectFirst;
+  const repository = new RuntimeConfigRepository({ preferences: { set: async ({ value }) => {
+    calls.push(JSON.parse(value).id);
+    if (calls.length === 1) await new Promise((_, reject) => { rejectFirst = reject; });
+  } } });
+  const profile = id => ({ id, accessRoute: 'SITE_API', apiBaseUrl: 'https://a.invalid', wsUrl: 'wss://a.invalid' });
+  const first = repository.save(profile('first'));
+  const rejection = assert.rejects(first, /storage denied/);
+  const second = repository.save(profile('second'));
+  await new Promise(setImmediate);
+  assert.deepEqual(calls, ['first']);
+  rejectFirst(new Error('storage denied'));
+  await rejection;
+  assert.equal((await second).id, 'second');
+  assert.deepEqual(calls, ['first', 'second']);
+});
+
 test('normalizes a site endpoint into immutable API and WebSocket URLs', () => {
   const profile = normalizeEndpointProfile({
     id: 'factory-a',
