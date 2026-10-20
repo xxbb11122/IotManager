@@ -72,15 +72,15 @@ RUN --mount=type=cache,id=iot-manager-walg-go-mod,target=/go/pkg/mod \
 
 FROM postgres:16-alpine3.24@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea AS pgvector-build
 ARG PGVECTOR_COMMIT=8ee86c96f0fd72390f890aa8a336fda6d3ab4c6c
-RUN apk add --no-cache build-base git clang llvm-dev ca-certificates
+RUN apk add --no-cache build-base git ca-certificates
 WORKDIR /tmp/pgvector
 RUN git init \
     && git remote add origin https://github.com/pgvector/pgvector.git \
     && git fetch --depth 1 origin "${PGVECTOR_COMMIT}" \
     && git checkout --detach FETCH_HEAD \
     && test "$(git rev-parse HEAD)" = "${PGVECTOR_COMMIT}" \
-    && make OPTFLAGS="" CLANG=clang \
-    && make install CLANG=clang
+    && make OPTFLAGS="" with_llvm=no \
+    && make install with_llvm=no
 
 FROM postgres:16-alpine3.24@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
 
