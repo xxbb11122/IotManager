@@ -82,15 +82,15 @@ jobs:
           export IOT_SOURCE_SHA="$SOURCE_SHA" IOT_RELEASE_CANDIDATE_ID="$CANDIDATE_ID"
           export IOT_IMAGE_MANIFEST_SHA256="$(sha256sum artifacts/release/image-digests.json | cut -d' ' -f1)"
           cp deploy/.env.integration.example deploy/.env.integration
-          bash scripts/runtime/start-integration.sh --mode immutable \
+          # Only the executable bit changes; the frozen script body is unchanged.
+          # Current production tooling invokes it with Bash instead.
+          chmod u+x scripts/runtime/verify-stack.sh
+          bash scripts/runtime/start-integration.sh --verify --mode immutable \
             --digest-manifest artifacts/release/image-digests.json \
             --digest-env-file artifacts/release/image-digests.env \
             --release-services artifacts/release/release-services.json \
             --release-candidate artifacts/release/release-candidate.json \
             --release-topology artifacts/release/release-topology.json
-          # This frozen candidate predates the launcher executable-mode fix.
-          # Invoke its unchanged verifier explicitly with Bash; retain every check.
-          IOT_RUNTIME_EVIDENCE_DIR="$GITHUB_WORKSPACE/artifacts/simulation/stack" bash scripts/runtime/verify-stack.sh
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           import assert from 'node:assert/strict';
@@ -123,5 +123,31 @@ jobs:
           path: |
             artifacts/release/
             artifacts/simulation/
+          if-no-files-found: error
+          retention-days: 30
+
+  alert-api-lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Fetch actual candidate manifest and run internal alert lifecycle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 39384244657 --repo "$GITHUB_REPOSITORY" --name image-manifest-r1-rc-simulation-20261020-62b0938abdde --dir artifacts/alert-image
+          image="$(node scripts/ci/release-tools.mjs list-digest-artifacts --manifest artifacts/alert-image/image-digests.json | awk -F '\t' '$1 == "IMG-R06" { print $2 }')"
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker pull "$image"
+          node scripts/validation/alert-api-simulation.mjs --image "$image" --output artifacts/alert-simulation
+      - name: Upload internal alert simulation results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: alert-api-simulation-${{ github.run_id }}
+          path: artifacts/alert-simulation/
           if-no-files-found: error
           retention-days: 30
