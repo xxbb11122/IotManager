@@ -82,6 +82,24 @@ jobs:
           export IOT_SOURCE_SHA="$SOURCE_SHA" IOT_RELEASE_CANDIDATE_ID="$CANDIDATE_ID"
           export IOT_IMAGE_MANIFEST_SHA256="$(sha256sum artifacts/release/image-digests.json | cut -d' ' -f1)"
           cp deploy/.env.integration.example deploy/.env.integration
+          # Start this disposable repository before PostgreSQL, so every WAL
+          # segment for subsequent base backups belongs to the same repository.
+          docker network create --label "com.docker.compose.project=$IOT_COMPOSE_PROJECT" --label com.docker.compose.network=egress "${IOT_COMPOSE_PROJECT}_egress"
+          docker run -d --name "iot-immutable-s3-$GITHUB_RUN_ID" --network "${IOT_COMPOSE_PROJECT}_egress" --network-alias lab-s3 \
+            --label "iot.lab.run=$GITHUB_RUN_ID" -p 127.0.0.1:19000:9000 -e MOTO_PORT=9000 -e S3_IGNORE_SUBDOMAIN_BUCKETNAME=true \
+            motoserver/moto:5.1.14@sha256:800719627036dc38dc699e9f314f624f2c98ac3d8bb754db078cb2698f08ee77
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:19000/ >/dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent --request PUT http://127.0.0.1:19000/iot-isolated-lab >/dev/null
+          cat >> deploy/.env.integration <<EOF
+          WALG_STORAGE_MODE=s3
+          WALG_S3_PREFIX=s3://iot-isolated-lab/$GITHUB_RUN_ID
+          AWS_ENDPOINT=http://lab-s3:9000
+          AWS_REGION=us-east-1
+          AWS_S3_FORCE_PATH_STYLE=true
+          EOF
           # Only the executable bit changes; the frozen script body is unchanged.
           # Current production tooling invokes it with Bash instead.
           chmod u+x scripts/runtime/verify-stack.sh
@@ -117,11 +135,18 @@ jobs:
           set -euo pipefail
           expected_project="iot-manager-immutable-sim-$GITHUB_RUN_ID"
           test "$IOT_COMPOSE_PROJECT" = "$expected_project"
+          fixture="iot-immutable-s3-$GITHUB_RUN_ID"
+          if docker container inspect "$fixture" >/dev/null 2>&1; then
+            test "$(docker inspect --format '{{index .Config.Labels "iot.lab.run"}}' "$fixture")" = "$GITHUB_RUN_ID"
+            docker rm -f "$fixture"
+          fi
           docker ps -aq --filter "label=com.docker.compose.project=$expected_project" | xargs -r docker rm -f
           docker volume ls -q --filter "label=com.docker.compose.project=$expected_project" | xargs -r docker volume rm
+          docker network ls -q --filter "label=com.docker.compose.project=$expected_project" | xargs -r docker network rm
           test -z "$(docker ps -aq --filter "label=com.docker.compose.project=$expected_project")"
           test -z "$(docker volume ls -q --filter "label=com.docker.compose.project=$expected_project")"
-          printf '{"passed":true,"containersRemaining":0,"volumesRemaining":0}\n' > artifacts/simulation/cleanup.json
+          test -z "$(docker network ls -q --filter "label=com.docker.compose.project=$expected_project")"
+          printf '{"passed":true,"containersRemaining":0,"volumesRemaining":0,"networksRemaining":0}\n' > artifacts/simulation/cleanup.json
           rm -rf "deploy/.runtime/$expected_project"
       - name: Upload public simulation evidence
         if: ${{ always() }}

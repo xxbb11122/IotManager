@@ -17,13 +17,7 @@ s3_name="iot-immutable-s3-$GITHUB_RUN_ID"
 export IOT_RECOVERY_TIMEOUT_SECONDS=180 IOT_WAL_ARCHIVE_TIMEOUT_SECONDS=180
 export IOT_RECOVERY_TARGET_NAME=simulation_validation IOT_RECOVERY_BASE_BACKUP=base_validation
 cp "$IOT_ENVIRONMENT_FILE" "$lab/original.env"
-cat >> "$IOT_ENVIRONMENT_FILE" <<EOF
-WALG_STORAGE_MODE=s3
-WALG_S3_PREFIX=s3://iot-isolated-lab/$GITHUB_RUN_ID
-AWS_ENDPOINT=http://lab-s3:9000
-AWS_REGION=us-east-1
-AWS_S3_FORCE_PATH_STYLE=true
-EOF
+grep -Fq 'WALG_STORAGE_MODE=s3' "$IOT_ENVIRONMENT_FILE"
 source_compose=(compose --project-name "$IOT_COMPOSE_PROJECT" --profile application --profile observability
   --env-file "$IOT_ENVIRONMENT_FILE" --env-file "deploy/.runtime/$IOT_COMPOSE_PROJECT/runtime.env"
   --env-file artifacts/release/image-digests.env -f deploy/docker-compose.yml
@@ -37,6 +31,8 @@ finish() {
   local result=$? cleanup=true
   trap - EXIT
   set +e
+  docker "${source_compose[@]}" logs --no-color --tail 80 wal-g-archive wal-g-backup > "$out/source-walg.log" 2>&1
+  if [[ -x "$lab/python/bin/python" && -f "$lab/s3.py" ]]; then "$lab/python/bin/python" "$lab/s3.py" inventory; fi
   if docker container inspect "$s3_name" >/dev/null 2>&1; then
     if [[ "$(docker inspect --format '{{index .Config.Labels "iot.lab.run"}}' "$s3_name")" == "$GITHUB_RUN_ID" ]]; then
       docker rm -f "$s3_name" >/dev/null || cleanup=false
@@ -58,14 +54,7 @@ finish() {
 }
 trap finish EXIT
 
-docker run -d --name "$s3_name" --network "${IOT_COMPOSE_PROJECT}_egress" --network-alias lab-s3 \
-  --label "iot.lab.run=$GITHUB_RUN_ID" -p 127.0.0.1:19000:9000 -e MOTO_PORT=9000 \
-  -e S3_IGNORE_SUBDOMAIN_BUCKETNAME=true \
-  motoserver/moto:5.1.14@sha256:800719627036dc38dc699e9f314f624f2c98ac3d8bb754db078cb2698f08ee77 >/dev/null
-for attempt in $(seq 1 60); do
-  if curl --fail --silent http://127.0.0.1:19000/ >/dev/null; then break; fi
-  sleep 1
-done
+test "$(docker inspect --format '{{index .Config.Labels "iot.lab.run"}}' "$s3_name")" = "$GITHUB_RUN_ID"
 python3 -m venv "$lab/python"
 "$lab/python/bin/pip" --quiet install boto3==1.40.43
 export LAB_PRIVATE="$lab" LAB_PUBLIC="$out"
@@ -77,7 +66,10 @@ secrets=Path(os.environ['IOT_SECRET_DIR'])
 s3=boto3.client('s3',endpoint_url='http://127.0.0.1:19000',region_name='us-east-1',
  aws_access_key_id=(secrets/'walg_s3_access_key').read_text().strip(),
  aws_secret_access_key=(secrets/'walg_s3_secret_key').read_text().strip())
-if sys.argv[1]=='create': s3.create_bucket(Bucket='iot-isolated-lab')
+if sys.argv[1]=='create': s3.head_bucket(Bucket='iot-isolated-lab')
+elif sys.argv[1]=='inventory':
+ objects=s3.list_objects_v2(Bucket='iot-isolated-lab',Prefix=os.environ['GITHUB_RUN_ID']+'/').get('Contents',[])
+ (Path(os.environ['LAB_PUBLIC'])/'s3-inventory.json').write_text(json.dumps([{'key':v['Key'],'bytes':v['Size']} for v in objects],indent=2)+'\n')
 else:
  saved=private/'sentinel.json'
  if sys.argv[1]=='corrupt':
@@ -95,7 +87,13 @@ for project in "${projects[@]}"; do
   docker network create --label "com.docker.compose.project=$project" --label com.docker.compose.network=egress "${project}_egress" >/dev/null
   docker network connect --alias lab-s3 "${project}_egress" "$s3_name"
 done
-docker "${source_compose[@]}" up -d --no-build --no-deps wal-g-archive wal-g-backup
+deadline=$((SECONDS+180))
+while true; do
+  if docker "${source_compose[@]}" exec -T wal-g-backup /usr/local/bin/wal-g-env.sh /usr/local/bin/wal-g backup-list --json | \
+    node -e 'let input="";process.stdin.on("data",s=>input+=s);process.stdin.on("end",()=>process.exit(JSON.parse(input).length>0?0:1));'; then break; fi
+  (( SECONDS < deadline )) || exit 1
+  sleep 2
+done
 pg_id="$(docker "${source_compose[@]}" ps -q postgres)"
 admin="$(sed -n 's/^POSTGRES_BOOTSTRAP_USERNAME=//p' "$IOT_ENVIRONMENT_FILE" | tail -n1)"
 database="$(sed -n 's/^IOT_DB_DATABASE=//p' "$IOT_ENVIRONMENT_FILE" | tail -n1)"
@@ -109,6 +107,8 @@ SELECT i, string_agg(md5(random()::text || j::text), '')
 FROM generate_series(1,32768) i CROSS JOIN generate_series(1,64) j GROUP BY i;
 CHECKPOINT;
 SQL
+# Keep the explicit backup distinct from the completed scheduler backup.
+docker exec -u postgres "$pg_id" psql -U "$admin" -d "$database" -v ON_ERROR_STOP=1 -c 'SELECT pg_switch_wal(); CHECKPOINT' >/dev/null
 fingerprint="SELECT count(*) || '|' || sum(octet_length(body)) || '|' || md5(string_agg(md5(body),'' ORDER BY id)) FROM remaining_simulation.payload"
 docker exec -u postgres "$pg_id" psql -U "$admin" -d "$database" -Atc "$fingerprint" > "$out/original-data.txt"
 export IOT_RECOVERY_PROJECT="$first" IOT_RECOVERY_REPORT_DIR="$out/baseline"
