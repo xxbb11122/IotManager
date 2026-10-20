@@ -35,7 +35,7 @@ import { createSnapshotRefreshGate } from './js/snapshot-refresh-gate.js';
 import { createStartupTransition } from './js/platform/startup-transition.js';
 import { createNativeStartupVisual } from './js/platform/native-startup-visual.js';
 import { createStartupTrace, startupFeatures } from './js/platform/startup-policy.js';
-import { readStartupSnapshot, createStartupPrefetch } from './js/platform/startup-bootstrap.js';
+import { boundedStartupRead, readStartupSnapshot, createStartupPrefetch } from './js/platform/startup-bootstrap.js';
 import { createClientUi } from './js/ui.js';
 import { createWeatherRefreshCooldown } from './js/weather-refresh-cooldown.js';
 import { resourceState, beginResource, resolveResource, rejectResource, createRuntimeTaskRegistry, parseWeatherCoordinates, refreshPresentation } from './js/runtime-resource-state.js';
@@ -194,6 +194,7 @@ const ui = createClientUi(document.getElementById('app'), {
   reconnectRealtime,
   switchSite,
   switchEndpoint,
+  retryEndpointConfiguration,
   signIn,
   signOut,
   testEndpoint: (draft) => probeEndpoint({
@@ -480,7 +481,7 @@ function invalidateRuntimeContext({ preserveSites = false } = {}) {
   clientState = {
     ...clientState,
     resources: Object.fromEntries(Object.keys(clientState.resources).map((key) => [key, resourceState()])),
-    loading: { ...clientState.loading, lanDiscovery: false, lanClaim: false, weatherForecast: false, weatherLocationPhase: null },
+    loading: { ...clientState.loading, endpointRecovery: false, lanDiscovery: false, lanClaim: false, weatherForecast: false, weatherLocationPhase: null },
     sites: preserveSites ? clientState.sites : [],
     weatherSettings: null, pendingWeatherLocation: null, error: null,
     lanCandidates: [], notices: clientState.notices.filter((notice) => notice.id === 'startup-storage'), commandObservation: {}
@@ -570,8 +571,16 @@ function tokenProvider() {
   return authSession?.getAccessToken() ?? endpointProfile?.accessToken ?? null;
 }
 
-async function configureAuthSession(profile, { deferRefresh = false } = {}) {
+async function configureAuthSession(profile, { deferRefresh = false, configurationVerified = true } = {}) {
   authSession?.invalidatePendingOperations();
+  if (!configurationVerified) {
+    // A failed read does not establish a new identity. Suspend access without
+    // letting restore() compare a saved session against fallback metadata.
+    authSession = null;
+    setClientState({ auth: { configured: false, authenticated: false, status: 'configuration_pending',
+      cachePartition: null, expiresAt: null, error: null } });
+    return null;
+  }
   const config = normalizeOidcConfig(profile);
   if (!config) {
     authSession = null;
@@ -636,8 +645,8 @@ async function synchronizePlatformEndpoint({ prefetchKey = null } = {}) {
   return endpointProfile;
 }
 
-async function activateEndpoint(profile, { startupReady = null, launchUrl = null, persistProfile = true } = {}) {
-  const normalizedProfile = normalizeEndpointProfile(profile);
+async function activateEndpoint(profile, { startupReady = null, launchUrl = null, persistProfile = true, configurationVerified = true } = {}) {
+  const normalizedProfile = normalizeEndpointProfile(configurationVerified ? profile : { ...profile, accessToken: null });
   const activation = ++endpointActivationRevision;
   setClientState({ loading: { endpointPhase: 'saving' } });
   try {
@@ -649,7 +658,7 @@ async function activateEndpoint(profile, { startupReady = null, launchUrl = null
     try {
       // Startup already read this profile. Do not put a repeated Preferences
       // write on the first-frame path; serialize persistence after reveal.
-      if (!startupReady && persistProfile) savedProfile = await runtimeConfigRepository.save(normalizedProfile);
+      if (!startupReady && persistProfile && configurationVerified) savedProfile = await runtimeConfigRepository.save(normalizedProfile);
     } catch {
       if (activation === endpointActivationRevision) storageNotice('连接设置已在本次会话生效，但本机保存失败；重启后需要重新填写。', 'endpoint-preference');
     }
@@ -662,20 +671,20 @@ async function activateEndpoint(profile, { startupReady = null, launchUrl = null
     setClientState({ sites: [], weatherSettings: null, pendingWeatherLocation: null });
     setWeatherRefreshCooldown(0);
     setClientState({ loading: { endpointPhase: 'restoring_auth' } });
-    await configureAuthSession(endpointProfile, { deferRefresh: Boolean(startupReady) });
+    await configureAuthSession(endpointProfile, { deferRefresh: Boolean(startupReady), configurationVerified });
     if (activation !== endpointActivationRevision) return null;
     const endpointAuth = authSession;
     const activatedProfile = endpointProfile;
-    platformSession = createPlatformAdapter({
+    platformSession = configurationVerified ? createPlatformAdapter({
       endpointProfile,
       siteCodeProvider: () => clientState.context.siteCode,
       accessTokenProvider: () => endpointAuth?.getAccessToken() ?? activatedProfile.accessToken ?? null,
       onUnauthorized: () => endpointAuth?.tryRefresh() ?? Promise.resolve(false)
-    });
-    platform = platformSession.adapter;
+    }) : null;
+    platform = platformSession?.adapter ?? null;
     realtimeState = 'idle';
     clientState = { ...clientState, endpointProfile, lanCandidates: [] };
-    bindPlatformEvents(platform);
+    if (platform) bindPlatformEvents(platform);
     store.setRuntimeContext({
       accessRoute: endpointProfile.accessRoute,
       endpointId: endpointProfile.id,
@@ -702,6 +711,10 @@ async function activateEndpoint(profile, { startupReady = null, launchUrl = null
         if (!startupDisposed && visible !== true) setClientState({ startup: { phase: 'error', error: '启动显示未完成，请使用恢复入口重新加载。' } });
         return null;
       }
+      if (!configurationVerified) {
+        setClientState({ startup: { phase: 'configuration_pending', error: null } });
+        return endpointProfile;
+      }
       if (persistProfile) void runtimeConfigRepository.save(normalizedProfile).catch(() => {
         if (activation === endpointActivationRevision && !startupDisposed) storageNotice('连接设置已在本次会话生效，但本机保存失败。', 'endpoint-preference');
       });
@@ -721,6 +734,10 @@ async function activateEndpoint(profile, { startupReady = null, launchUrl = null
     }
     setClientState({ loading: { endpointPhase: 'synchronizing' } });
     await synchronizePlatformEndpoint();
+    if (activation !== endpointActivationRevision || startupDisposed) return null;
+    if (configurationVerified && clientState.startup.phase === 'configuration_pending') {
+      setClientState({ startup: { phase: 'data_settled', error: null } });
+    }
     render();
     return endpointProfile;
   } finally {
@@ -857,6 +874,9 @@ async function switchEndpoint(profile) {
 }
 
 async function signIn() {
+  if (clientState.auth.status === 'configuration_pending') {
+    throw new Error('请先重新读取已保存设置，或在连接设置中确认服务器地址；已有登录信息已保留。');
+  }
   if (!authSession?.isConfigured()) {
     throw new Error('当前端点尚未配置登录服务。请在连接设置中填写 Keycloak 地址、客户端 ID 和回调地址。');
   }
@@ -1401,6 +1421,35 @@ async function handleNativeOidcRedirect(url) {
   }
 }
 
+function resolveSavedEndpoint(savedProfile) {
+  const defaults = nativeRuntime ? DEFAULT_NATIVE_ENDPOINT : resolveClientConfig();
+  const saved = nativeRuntime ? repairLegacyNativeEndpoint(savedProfile, DEFAULT_NATIVE_ENDPOINT) : savedProfile;
+  return withDefaultOidcFields(saved ?? {
+    id: 'local-site', accessRoute: ACCESS_ROUTES.SITE_API,
+    apiBaseUrl: defaults.apiBaseUrl, wsUrl: defaults.wsUrl,
+    organizationCode: clientState.context.organizationCode,
+    accessToken: defaults.accessToken ?? null,
+    ...defaultOidcFields({ native: nativeRuntime })
+  });
+}
+
+async function retryEndpointConfiguration() {
+  if (clientState.auth.status !== 'configuration_pending' || clientState.loading.endpointRecovery) return null;
+  const task = runtimeTasks.begin('endpointRecovery');
+  setLoading('endpointRecovery', true);
+  try {
+    const result = await boundedStartupRead(() => runtimeConfigRepository.load({ migrate: false }), { signal: startupAbort.signal });
+    if (!runtimeTasks.current(task) || startupDisposed) return null;
+    if (result.status !== 'fulfilled') {
+      storageNotice('仍无法读取已保存设置，登录信息已保留。请重试，或在连接设置中确认地址。', 'endpoint-recovery');
+      return null;
+    }
+    return await activateEndpoint(resolveSavedEndpoint(result.value));
+  } finally {
+    if (runtimeTasks.current(task)) setLoading('endpointRecovery', false);
+  }
+}
+
 async function bootstrapRuntime() {
   startupTrace.record('web_bootstrap_start');
   const snapshot = await readStartupSnapshot({
@@ -1435,28 +1484,15 @@ async function bootstrapRuntime() {
     // The built-in demo context remains the safe fallback.
   }
   const savedProfile = snapshot.endpoint?.value ?? null;
-  if (snapshot.endpoint?.status !== 'fulfilled') {
-    storageNotice('本机连接设置读取失败，已使用默认连接；可在连接设置中重新配置。', 'startup-storage');
-  }
-  const defaults = nativeRuntime
-    ? DEFAULT_NATIVE_ENDPOINT
-    : resolveClientConfig();
-  const saved = nativeRuntime ? repairLegacyNativeEndpoint(savedProfile, DEFAULT_NATIVE_ENDPOINT) : savedProfile;
-  const profile = withDefaultOidcFields(saved ?? {
-    id: 'local-site',
-    accessRoute: ACCESS_ROUTES.SITE_API,
-    apiBaseUrl: defaults.apiBaseUrl,
-    wsUrl: defaults.wsUrl,
-    organizationCode: clientState.context.organizationCode,
-    accessToken: defaults.accessToken ?? null,
-    ...defaultOidcFields({ native: nativeRuntime })
-  });
+  const configurationVerified = snapshot.endpoint?.status === 'fulfilled';
+  const profile = resolveSavedEndpoint(savedProfile);
   const launch = snapshot.launch?.value;
   const activated = await activateEndpoint(profile, {
     launchUrl: launch?.url ?? null,
     // A failed or timed-out read does not prove storage is empty. Keep the
     // default in memory and preserve the operator's existing saved profile.
-    persistProfile: snapshot.endpoint?.status === 'fulfilled',
+    persistProfile: configurationVerified,
+    configurationVerified,
     startupReady: async () => {
       // Pending locations are only restored for their original endpoint/site.
       if (pendingWeatherLocation?.scopeKey === JSON.stringify(platformCacheScope())) {
@@ -1468,7 +1504,7 @@ async function bootstrapRuntime() {
     }
   });
   if (!activated || startupDisposed) return;
-  setClientState({ startup: { phase: 'data_settled', error: null } });
+  setClientState({ startup: { phase: configurationVerified ? 'data_settled' : 'configuration_pending', error: null } });
   if (nativeRuntime && !authUrlListener) {
     authUrlListener = await App.addListener('appUrlOpen', ({ url }) => handleNativeOidcRedirect(url));
   }

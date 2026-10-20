@@ -19,7 +19,7 @@ const expectedVersionCode = Number(process.env.IOT_RELEASE_VERSION_CODE ?? gradl
 assert.ok(Number.isSafeInteger(expectedVersionCode) && expectedVersionCode > 0, 'A valid expected Android version code is required');
 const appId = 'com.iot.manager.glassnext', port = 9224, reversePort = 18891;
 const results = [];
-const expectedChecks = 16;
+const expectedChecks = 18;
 let browser, page, originalPreferencesXml, mock, originalChromeFlags, browserFixture = false, forwarded = false, reversed = false;
 let installedApkSha256 = null;
 let preferencesWritten = false;
@@ -144,18 +144,48 @@ try {
       expiresAt: Date.now() + 3600000, issuerUrl: 'http://127.0.0.1:18891/mock-oidc', clientId: 'native-ai-smoke'
     }) });
     await window.Capacitor.Plugins.SecureSession.remove({ key: 'iot-manager.oidc-transaction.v1' });
+    // A corrupt saved profile deterministically exercises the same unverified
+    // configuration gate as a timeout, without adding a production test hook.
+    await window.Capacitor.Plugins.Preferences.set({ key: 'iot-manager.active-endpoint.v1', value: '{"native-smoke-corrupt":' });
   });
   // Restart the native process after seeding secure fixture storage. A DOM
   // reload retains native listener registrations and can duplicate lifecycle
   // callbacks while resetting JavaScript callback IDs.
+  // Backgrounding lets Android flush queued Preferences writes before the
+  // explicit process stop, so this fixture survives the tested restart.
+  adb('shell', 'input', 'keyevent', 'KEYCODE_HOME');
+  await delay(500);
   adb('shell', 'am', 'force-stop', appId);
   adb('shell', 'am', 'start', '-n', appId + '/.MainActivity');
   adb('shell', 'wm', 'user-rotation', 'lock', '0');
   await connect();
-  await expect.poll(() => page.evaluate(async () => JSON.parse((await window.Capacitor.Plugins.Preferences.get({
-    key: 'iot-manager.active-endpoint.v1' })).value).id)).toBe('native-ai-smoke');
+  await expect(page.getByText('连接设置未确认', { exact: true })).toBeVisible({ timeout: 15000 });
+  await expect.poll(() => page.evaluate(async () => (await window.Capacitor.Plugins.StartupVisual.getLaunchState()).phase),
+    { timeout: 10000 }).toBe('COMPLETE');
+  assert.equal(mock.calls.filter(row => row.pathname.startsWith('/api/v1/')).length, 0,
+    'The App must not contact its fallback endpoint before saved settings are confirmed');
+  const retained = await page.evaluate(async () => {
+    const raw = (await window.Capacitor.Plugins.SecureSession.get({ key: 'iot-manager.oidc-session.v1' })).value;
+    return raw && JSON.parse(raw).accessToken === 'isolated-native-smoke-token';
+  });
+  assert.equal(retained, true, 'An unverified endpoint must preserve the native encrypted session');
+  const anonymous = await page.evaluate(async () => (await window.Capacitor.Plugins.CapacitorHttp.get({
+    url: 'http://127.0.0.1:18891/api/v1/me', connectTimeout: 1500, readTimeout: 1500 })).status);
+  assert.equal(anonymous, 401, 'The fixture must not silently authenticate anonymous App traffic');
+  record('unconfirmed settings retain native credentials, reveal the App and block fallback traffic');
+  await page.evaluate(async profile => {
+    await window.Capacitor.Plugins.Preferences.set({ key: 'iot-manager.active-endpoint.v1', value: JSON.stringify(profile) });
+  }, profile);
+  const recoveryStart = mock.calls.length;
+  await page.getByRole('button', { name: '重新读取已保存设置', exact: true }).click();
+  await expect(page.getByRole('button', { name: '退出当前账号', exact: true })).toBeVisible();
+  await expect(page.getByText('连接设置未确认', { exact: true })).toHaveCount(0);
+  await expect.poll(() => mock.calls.slice(recoveryStart).filter(row => row.pathname.startsWith('/api/v1/')).length).toBeGreaterThan(0);
+  assert.ok(mock.calls.slice(recoveryStart).filter(row => row.pathname.startsWith('/api/v1/')).every(row => row.authorized));
+  record('saved settings retry restores authenticated native access without signing in again');
   await expect.poll(() => page.evaluate(async () => (await window.Capacitor.Plugins.CapacitorHttp.get({
-    url: 'http://127.0.0.1:18891/api/v1/me', connectTimeout: 1500, readTimeout: 1500 })).status).catch(() => 0),
+    url: 'http://127.0.0.1:18891/api/v1/me', headers: { Authorization: 'Bearer isolated-native-smoke-token' },
+    connectTimeout: 1500, readTimeout: 1500 })).status).catch(() => 0),
     { timeout: 15000 }).toBe(200);
   await expect.poll(() => page.evaluate(() => navigator.onLine), { timeout: 15000 }).toBe(true);
   await page.getByRole('button', { name: 'AI', exact: true }).click();
@@ -437,9 +467,11 @@ try {
     })));
     console.error('Mock network diagnostic: ' + JSON.stringify(await page.evaluate(async () => {
       const network = await window.Capacitor.Plugins.Network.getStatus();
-      const config = JSON.parse((await window.Capacitor.Plugins.Preferences.get({ key: 'iot-manager.active-endpoint.v1' })).value ?? '{}');
+      let config = {};
+      try { config = JSON.parse((await window.Capacitor.Plugins.Preferences.get({ key: 'iot-manager.active-endpoint.v1' })).value ?? '{}'); } catch {}
       try {
-        const response = await window.Capacitor.Plugins.CapacitorHttp.get({ url: 'http://127.0.0.1:18891/api/v1/me', connectTimeout: 1500, readTimeout: 1500 });
+        const response = await window.Capacitor.Plugins.CapacitorHttp.get({ url: 'http://127.0.0.1:18891/api/v1/me',
+          headers: { Authorization: 'Bearer isolated-native-smoke-token' }, connectTimeout: 1500, readTimeout: 1500 });
         return { network, apiBaseUrl: config.apiBaseUrl, nativeStatus: response.status, online: navigator.onLine };
       } catch (error) { return { network, apiBaseUrl: config.apiBaseUrl, online: navigator.onLine, nativeError: String(error) }; }
     })));

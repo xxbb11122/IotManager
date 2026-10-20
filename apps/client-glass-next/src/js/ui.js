@@ -1252,6 +1252,13 @@ class ClientUi {
     if (this.model.auth.error && this.model.auth.error !== issue) feedback.append(this.buildNotice(this.model.auth.error, 'danger', null, '登录状态'));
     const authPhase = { restoring: '正在恢复登录状态，平台控制暂不可用。', processing_callback: '正在校验登录回调，请稍候。', redirecting: '正在准备身份提供方登录页面。', signing_out: '本机已停止平台控制，正在完成退出。' }[this.model.auth.status];
     if (authPhase) feedback.append(this.buildNotice(authPhase, 'info', null, '登录状态'));
+    if (this.model.auth.status === 'configuration_pending') {
+      feedback.append(this.buildNotice('连接设置尚未确认，登录信息已保留。可重新读取已保存设置，或打开连接设置确认地址；平台控制暂不可用。', 'warning', null, '连接设置未确认'));
+      const retrying = this.isBusy('endpoint-recovery') || this.model.loading.endpointRecovery;
+      feedback.append(actionButton(retrying ? '正在读取…' : '重新读取已保存设置', 'retry-endpoint-settings', {
+        className: 'button button--secondary', disabled: retrying
+      }));
+    }
     const endpointPhase = { saving: '正在保存连接配置。', restoring_auth: '新端点已激活，正在恢复授权状态。', synchronizing: '正在同步新端点的站点、设备和天气；收到最新状态前保持只读。' }[this.model.loading.endpointPhase];
     if (endpointPhase) feedback.append(this.buildNotice(endpointPhase, 'info', null, '连接切换'));
     for (const notice of this.model.notices) feedback.append(this.buildNotice(notice.message, notice.tone ?? 'warning', null, '操作提示'));
@@ -2774,6 +2781,9 @@ class ClientUi {
         break;
       case 'sign-in':
         this.invoke('signIn', {}, { busy: 'sign-in' });
+        break;
+      case 'retry-endpoint-settings':
+        this.invoke('retryEndpointConfiguration', {}, { busy: 'endpoint-recovery' });
         break;
       case 'sign-out':
         this.invoke('signOut', {}, { busy: 'sign-out' });

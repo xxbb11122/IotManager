@@ -246,3 +246,4 @@ H02 当前 `pointercancel` 与 `pointerup` 共用处理，需要分离；设备�
 | A90 | `set-display-material` | 切换玻璃或实色；保留当前页面、草稿与连接状态，不发送设备命令。 |
 | A91 | `toggle-display-motion` | 开关减少动画；保留材质和原生控件，遵守系统的减少动态偏好。 |
 | A92 | `load-local-history` | P07、C01 | 本地活动按游标读取，保留现有记录与焦点；加载失败不重复提交设备命令。 |
+| A93 | `retry-endpoint-settings` | C01、C07 | 重新读取已保存连接；等待期间禁用重复操作，失败保留登录信息，读取结果过期时不改变当前端点。 |

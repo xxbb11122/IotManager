@@ -33,7 +33,9 @@ export async function startNativeAiMock({ port = 8080 } = {}) {
         if (raw.length > 32768) return fail(res, 413, 'Mock request too large');
       }
       const body = raw ? JSON.parse(raw) : null;
-      calls.push({ method, pathname, key: req.headers['idempotency-key'] ?? null, body });
+      const authorized = req.headers.authorization === 'Bearer isolated-native-smoke-token';
+      calls.push({ method, pathname, authorized, key: req.headers['idempotency-key'] ?? null, body });
+      if (pathname.startsWith('/api/v1/') && !authorized) return fail(res, 401, 'Native fixture requires its test session', 'UNAUTHORIZED');
       if (pathname === '/mock-login') {
         res.writeHead(200, { 'content-type': 'text/html' });
         return res.end('<!doctype html><title>Native mock browser</title><p>Native browser plugin fixture</p>');
