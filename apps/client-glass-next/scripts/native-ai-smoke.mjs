@@ -42,6 +42,9 @@ const keyboardShown = () => /mInputShown=true/.test(adb('shell', 'dumpsys input_
 async function enableNetwork() {
   adb('shell', 'svc', 'wifi', 'enable');
   adb('shell', 'svc', 'data', 'enable');
+  // A freshly booted emulator may remember Wi-Fi as disabled. Enabling the
+  // interface alone does not guarantee association with its synthetic AP.
+  adb('shell', 'cmd', 'wifi', 'connect-network', 'AndroidWifi', 'open');
   for (let i = 0; i < 20; i++) {
     if (/inet\s+10\.0\.2\./.test(adb('shell', 'ip', '-4', 'addr'))) return;
     await delay(250);
@@ -68,6 +71,15 @@ async function connect() {
   expect.setTimeout?.(15000);
 }
 function record(name, details = {}) { results.push({ name, passed: true, ...details }); console.log('PASS ' + name); }
+function nativeWindowXml() {
+  const target = '/data/local/tmp/iot-native-smoke-window.xml';
+  try {
+    adb('shell', 'uiautomator', 'dump', target);
+    const xml = adb('shell', 'cat', target);
+    assert.ok(xml.includes('<hierarchy'), 'Android accessibility hierarchy must exist');
+    return xml;
+  } finally { adb('shell', 'rm', '-f', target); }
+}
 async function screenshot(name) {
   // DOM assertions may complete before WebView and SurfaceFlinger paint the
   // glass and navigation transitions. Capture their settled native frame.
@@ -128,10 +140,27 @@ try {
   writePreferencesXml(fixtureXml);
   preferencesWritten = true;
   await enableNetwork();
+  // Chromium's documented emulator test flags avoid account onboarding. No
+  // browser account, terms dialog, trust setting or security feature is changed.
+  const priorFlags = spawnSync(adbPath, ['-s', serial, 'shell', 'cat', '/data/local/tmp/chrome-command-line'], { encoding: 'utf8', windowsHide: true });
+  originalChromeFlags = priorFlags.status === 0 ? priorFlags.stdout : null;
+  const flagsWrite = spawnSync(adbPath, ['-s', serial, 'shell', 'tee', '/data/local/tmp/chrome-command-line'], {
+    input: 'chrome --disable-fre --no-first-run --no-default-browser-check\n', encoding: 'utf8', windowsHide: true });
+  if (flagsWrite.status !== 0) throw new Error('Cannot configure the emulator browser fixture');
+  browserFixture = true;
+  adb('shell', 'am', 'set-debug-app', '--persistent', 'com.android.chrome');
+  adb('shell', 'am', 'force-stop', 'com.android.chrome');
+  // Stop Chrome before Capacitor binds its custom-tabs service, otherwise
+  // the active client/session binder belongs to the killed browser process.
   adb('shell', 'am', 'start', '-n', appId + '/.MainActivity');
   adb('shell', 'wm', 'user-rotation', 'lock', '0');
   await connect();
   await expect.poll(() => page.evaluate(() => innerHeight > innerWidth), { timeout: 15000 }).toBe(true);
+  // Complete the setup launch before corrupting its saved profile. Bootstrap
+  // persists the confirmed profile after reveal; seeding earlier lets that
+  // legitimate write overwrite the failure fixture in a faster emulator.
+  await expect(page.locator('html')).toHaveAttribute('data-startup-phase', 'interactive', { timeout: 15000 });
+  await page.evaluate(() => window.Capacitor.Plugins.Preferences.get({ key: 'iot-manager.active-endpoint.v1' }));
   originalSecureValues = await page.evaluate(async () => {
     const values = {};
     for (const key of ['iot-manager.oidc-session.v1', 'iot-manager.oidc-transaction.v1'])
@@ -148,21 +177,26 @@ try {
     // configuration gate as a timeout, without adding a production test hook.
     await window.Capacitor.Plugins.Preferences.set({ key: 'iot-manager.active-endpoint.v1', value: '{"native-smoke-corrupt":' });
   });
+  assert.equal(await page.evaluate(async () => (await window.Capacitor.Plugins.Preferences.get({
+    key: 'iot-manager.active-endpoint.v1' })).value), '{"native-smoke-corrupt":');
   // Restart the native process after seeding secure fixture storage. A DOM
   // reload retains native listener registrations and can duplicate lifecycle
   // callbacks while resetting JavaScript callback IDs.
   // Backgrounding lets Android flush queued Preferences writes before the
   // explicit process stop, so this fixture survives the tested restart.
   adb('shell', 'input', 'keyevent', 'KEYCODE_HOME');
-  await delay(500);
+  await expect.poll(() => page.evaluate(async () => (await window.Capacitor.Plugins.App.getState()).isActive)).toBe(false);
+  await expect.poll(() => adb('shell', 'run-as', appId, 'cat', 'shared_prefs/CapacitorStorage.xml')
+    .includes('native-smoke-corrupt'), { timeout: 5000 }).toBe(true);
   adb('shell', 'am', 'force-stop', appId);
+  const configurationCallsStart = mock.calls.length;
   adb('shell', 'am', 'start', '-n', appId + '/.MainActivity');
   adb('shell', 'wm', 'user-rotation', 'lock', '0');
   await connect();
   await expect(page.getByText('连接设置未确认', { exact: true })).toBeVisible({ timeout: 15000 });
   await expect.poll(() => page.evaluate(async () => (await window.Capacitor.Plugins.StartupVisual.getLaunchState()).phase),
     { timeout: 10000 }).toBe('COMPLETE');
-  assert.equal(mock.calls.filter(row => row.pathname.startsWith('/api/v1/')).length, 0,
+  assert.equal(mock.calls.slice(configurationCallsStart).filter(row => row.pathname.startsWith('/api/v1/')).length, 0,
     'The App must not contact its fallback endpoint before saved settings are confirmed');
   const retained = await page.evaluate(async () => {
     const raw = (await window.Capacitor.Plugins.SecureSession.get({ key: 'iot-manager.oidc-session.v1' })).value;
@@ -397,26 +431,49 @@ try {
   await screenshot('native-ai-landscape');
   record('Android rotation preserves chat, safe area and no horizontal overflow', { topInsetCssPixels: headerSafeArea.top });
 
-  // Chromium's documented emulator test flags avoid account onboarding. No
-  // browser account, terms dialog, trust setting or security feature is changed.
-  const priorFlags = spawnSync(adbPath, ['-s', serial, 'shell', 'cat', '/data/local/tmp/chrome-command-line'], { encoding: 'utf8', windowsHide: true });
-  originalChromeFlags = priorFlags.status === 0 ? priorFlags.stdout : null;
-  const flagsWrite = spawnSync(adbPath, ['-s', serial, 'shell', 'tee', '/data/local/tmp/chrome-command-line'], {
-    input: 'chrome --disable-fre --no-first-run --no-default-browser-check\n', encoding: 'utf8', windowsHide: true });
-  if (flagsWrite.status !== 0) throw new Error('Cannot configure the emulator browser fixture');
-  browserFixture = true;
-  adb('shell', 'am', 'set-debug-app', '--persistent', 'com.android.chrome');
-  adb('shell', 'am', 'force-stop', 'com.android.chrome');
+  // The custom-tabs service was initialized by the setup launch.
+  await page.evaluate(async () => {
+    window.__nativeSmokeBrowserFinished = false;
+    window.__nativeSmokeBrowserListener = await window.Capacitor.Plugins.Browser.addListener('browserFinished', () => {
+      window.__nativeSmokeBrowserFinished = true;
+    });
+  });
   await page.evaluate(() => window.Capacitor.Plugins.Browser.open({ url: 'http://127.0.0.1:18891/mock-login' }));
   await expect.poll(() => mock.calls.some(row => row.pathname === '/mock-login'), { timeout: 15000 }).toBe(true);
   // Receiving the HTTP request does not imply that Android has focused the
   // custom tab yet. A Back sent during its launch can be consumed elsewhere.
   await expect.poll(() => adb('shell', 'dumpsys window | grep -m 1 mCurrentFocus').includes('com.android.chrome'),
     { timeout: 15000 }).toBe(true);
+  await expect.poll(() => adb('shell', 'dumpsys activity activities | grep -m 1 topResumedActivity').includes('com.android.chrome'),
+    { timeout: 15000 }).toBe(true);
+  await expect.poll(() => page.evaluate(async () => (await window.Capacitor.Plugins.App.getState()).isActive)).toBe(false);
+  // Back first dismisses an IME left open by the chat or browser. Verify that
+  // state separately before sending the Back which must close the custom tab.
+  if (keyboardShown()) {
+    adb('shell', 'input', 'keyevent', 'KEYCODE_BACK');
+    await expect.poll(keyboardShown).toBe(false);
+  }
+  // Chrome can show this first-use education bubble even with --no-first-run.
+  // Its first Back dismisses the bubble rather than closing the custom tab.
+  const browserPromo = 'Minimize tab to return to it later';
+  const browserMinimizePromoDismissed = nativeWindowXml().includes(browserPromo);
+  if (browserMinimizePromoDismissed) {
+    await screenshot('native-ai-browser-promo');
+    adb('shell', 'input', 'keyevent', 'KEYCODE_BACK');
+    await expect.poll(() => nativeWindowXml().includes(browserPromo)).toBe(false);
+  }
+  await screenshot('native-ai-browser');
   adb('shell', 'input', 'keyevent', 'KEYCODE_BACK');
   await expect.poll(() => adb('shell', 'dumpsys window | grep -m 1 mCurrentFocus').includes(appId),
     { timeout: 10000 }).toBe(true);
-  record('native Browser plugin opens isolated page and returns to App');
+  await expect.poll(() => page.evaluate(() => window.__nativeSmokeBrowserFinished)).toBe(true);
+  await expect.poll(() => page.evaluate(async () => (await window.Capacitor.Plugins.App.getState()).isActive)).toBe(true);
+  await page.evaluate(async () => {
+    await window.__nativeSmokeBrowserListener.remove();
+    delete window.__nativeSmokeBrowserListener;
+    delete window.__nativeSmokeBrowserFinished;
+  });
+  record('native Browser plugin opens isolated page and returns to App', { browserMinimizePromoDismissed });
 
   // Run attempted document navigation last: Android WebView may dispatch
   // beforeunload (and App teardown) even when Java subsequently blocks it.
