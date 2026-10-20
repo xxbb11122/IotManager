@@ -85,6 +85,7 @@ jobs:
     needs: [candidate, image-security]
     uses: ./.github/workflows/runtime-e2e.yml
     with:
+      release_mode: true
       source_sha: ${{ needs.candidate.outputs.source_sha }}
       release_candidate_id: ${{ needs.candidate.outputs.release_candidate_id }}
       manifest_sha256: ${{ needs['image-security'].outputs.manifest_sha256 }}
@@ -100,6 +101,7 @@ jobs:
     needs: [candidate, image-security]
     uses: ./.github/workflows/recovery-drill.yml
     with:
+      release_mode: true
       source_sha: ${{ needs.candidate.outputs.source_sha }}
       release_candidate_id: ${{ needs.candidate.outputs.release_candidate_id }}
       manifest_sha256: ${{ needs['image-security'].outputs.manifest_sha256 }}
@@ -180,7 +182,7 @@ jobs:
               --approved-producer-path .github/workflows/runtime-e2e.yml \
               --approved-producer-path .github/workflows/recovery-drill.yml \
               --approved-caller-path .github/workflows/release-gate.yml \
-              --allowed-event workflow_call \
+              --allowed-event push --allowed-event workflow_dispatch \
               --allowed-invocation-mode orchestrated-reusable
           }
           validate_stage "$image_stage" "$IMAGE_RUN_ID" "$IMAGE_RUN_ATTEMPT" image-security-aggregate "release-evidence-${{ needs.candidate.outputs.release_candidate_id }}"

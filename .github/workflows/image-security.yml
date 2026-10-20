@@ -135,6 +135,11 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Initialize attestation-capable Buildx builder
+        run: |
+          set -euo pipefail
+          docker buildx create --name iot-release-build --driver docker-container --use --bootstrap
+          docker buildx inspect --bootstrap
       - name: Build and push exact image
         env:
           SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
@@ -168,8 +173,8 @@ jobs:
             --invocation-mode orchestrated-reusable \
             --producer-run-id "$GITHUB_RUN_ID" \
             --producer-run-attempt "$GITHUB_RUN_ATTEMPT" \
-            --producer-workflow-ref-raw "${{ job.workflow_ref || github.workflow_ref }}" \
-            --producer-workflow-sha "${{ job.workflow_sha || github.workflow_sha }}" \
+            --producer-workflow-ref-raw "${{ github.repository }}/.github/workflows/image-security.yml@${{ github.workflow_sha }}" \
+            --producer-workflow-sha "${{ github.workflow_sha }}" \
             --producer-job "build-${{ matrix.artifact_id }}" \
             --runner-class github-hosted \
             "${caller_args[@]}" \
@@ -353,8 +358,8 @@ jobs:
             --invocation-mode orchestrated-reusable \
             --producer-run-id "$GITHUB_RUN_ID" \
             --producer-run-attempt "$GITHUB_RUN_ATTEMPT" \
-            --producer-workflow-ref-raw "${{ job.workflow_ref || github.workflow_ref }}" \
-            --producer-workflow-sha "${{ job.workflow_sha || github.workflow_sha }}" \
+            --producer-workflow-ref-raw "${{ github.repository }}/.github/workflows/image-security.yml@${{ github.workflow_sha }}" \
+            --producer-workflow-sha "${{ github.workflow_sha }}" \
             --producer-job "image-scan-$artifact_id" \
             --runner-class github-hosted \
             "${caller_args[@]}" \
@@ -449,8 +454,8 @@ jobs:
             --invocation-mode "$invocation_mode" \
             --producer-run-id "$GITHUB_RUN_ID" \
             --producer-run-attempt "$GITHUB_RUN_ATTEMPT" \
-            --producer-workflow-ref-raw "${{ job.workflow_ref || github.workflow_ref }}" \
-            --producer-workflow-sha "${{ job.workflow_sha || github.workflow_sha }}" \
+            --producer-workflow-ref-raw "${{ github.repository }}/.github/workflows/image-security.yml@${{ github.workflow_sha }}" \
+            --producer-workflow-sha "${{ github.workflow_sha }}" \
             --producer-job image-security-aggregate \
             --artifact-name "release-evidence-$candidate_id" \
             --orchestrator-run-id "$ORCHESTRATOR_RUN_ID" \

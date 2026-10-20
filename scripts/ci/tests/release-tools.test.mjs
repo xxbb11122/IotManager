@@ -72,10 +72,10 @@ try {
     '--approved-repository', 'xxbb11122/IotManager',
     '--approved-producer-path', '.github/workflows/image-security.yml',
     '--approved-caller-path', '.github/workflows/release-gate.yml',
-    '--allowed-event', 'workflow_call',
+    '--allowed-event', 'push', '--allowed-event', 'workflow_dispatch',
     '--allowed-invocation-mode', 'orchestrated-reusable',
     '--producer-repository', 'xxbb11122/IotManager',
-    '--producer-event', 'workflow_call',
+    '--producer-event', 'workflow_dispatch',
     '--invocation-mode', 'orchestrated-reusable',
     '--caller-repository', 'xxbb11122/IotManager',
     '--caller-workflow-ref-raw', 'xxbb11122/IotManager/.github/workflows/release-gate.yml@refs/heads/main',
@@ -97,6 +97,16 @@ try {
     '--release-candidate-id', candidateId
   ];
   assert.equal(run('validate-trusted-producer', trustedArguments), 'TRUSTED');
+
+  for (const event of ['push', 'workflow_dispatch', 'pull_request', 'workflow_call']) {
+    const inheritedEvent = [...trustedArguments];
+    inheritedEvent[inheritedEvent.indexOf('--producer-event') + 1] = event;
+    const allowed = ['push', 'workflow_dispatch'].includes(event);
+    assert.equal(run('validate-trusted-producer', inheritedEvent, allowed ? 0 : 1), allowed ? 'TRUSTED' : 'UNTRUSTED_EVENT');
+  }
+  const standaloneDispatch = [...trustedArguments];
+  standaloneDispatch[standaloneDispatch.indexOf('--invocation-mode') + 1] = 'protected-fallback-dispatch';
+  assert.equal(run('validate-trusted-producer', standaloneDispatch, 1), 'UNTRUSTED_EVENT');
 
   const invalidTrusted = [...trustedArguments];
   invalidTrusted[invalidTrusted.indexOf('--producer-workflow-identity') + 1] = 'xxbb11122/IotManager/.github/workflows/image-security.yml@' + 'e'.repeat(40);

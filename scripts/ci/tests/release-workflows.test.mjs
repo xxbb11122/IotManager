@@ -24,6 +24,42 @@ const runtimeWorkflow = read('.github/workflows/runtime-e2e.yml');
 const recoveryWorkflow = read('.github/workflows/recovery-drill.yml');
 const quickCi = read('.github/workflows/ci.yml');
 const monitoringDockerfile = read('deploy/monitoring/Dockerfile');
+const imageWorkflow = read('.github/workflows/image-security.yml');
+
+// Reusable workflows inherit the caller event (push/dispatch), not
+// workflow_call. Evaluate the actual job conditions for both entry paths.
+for (const [workflow, ordinary, immutable] of [
+  [runtimeWorkflow, 'full-stack', 'immutable-release-runtime'],
+  [recoveryWorkflow, 'physical-recovery', 'immutable-physical-recovery']
+]) {
+  assert.match(workflow, /release_mode:\s*required: true\s*type: boolean/);
+  const condition = job => {
+    const expression = workflow.match(new RegExp(`  ${job}:\\r?\\n    if: \\$\\{\\{ (.*?) \\}\\}`))?.[1];
+    assert.ok(expression, `Missing ${job} condition`);
+    return new Function('inputs', 'github', `return (${expression});`);
+  };
+  for (const event of ['push', 'workflow_dispatch', 'pull_request', 'schedule']) {
+    for (const mode of [undefined, false, true]) {
+      const context = {event_name: event};
+      assert.equal(condition(ordinary)({release_mode: mode}, context), mode !== true);
+      assert.equal(condition(immutable)({release_mode: mode}, context), mode === true);
+    }
+  }
+  assert.doesNotMatch(workflow, /github\.event_name [!=]= 'workflow_call'/);
+  assert.match(workflow, /--allowed-event push --allowed-event workflow_dispatch/);
+  assert.match(workflow, /--allowed-invocation-mode orchestrated-reusable/);
+}
+for (const path of ['runtime-e2e', 'recovery-drill']) {
+  assert.match(releaseGate, new RegExp(`uses: \\./\\.github/workflows/${path}\\.yml\\s+with:\\s+release_mode: true`));
+}
+for (const [workflow, path] of [[imageWorkflow, 'image-security'], [runtimeWorkflow, 'runtime-e2e'], [recoveryWorkflow, 'recovery-drill']]) {
+  assert.doesNotMatch(workflow, /job\.workflow_(?:ref|sha)/, 'Unsupported job context must not label the caller as the producer.');
+  assert.ok(workflow.includes(`--producer-workflow-ref-raw "\${{ github.repository }}/.github/workflows/${path}.yml@\${{ github.workflow_sha }}"`));
+}
+assert.match(imageWorkflow, /docker buildx create[^\n]*--driver docker-container[^\n]*--use --bootstrap/);
+assert.ok(imageWorkflow.indexOf('Initialize attestation-capable Buildx builder') < imageWorkflow.indexOf('name: Build and push exact image'));
+assert.match(read('deploy/docker-bake.hcl'), /type=provenance/);
+assert.match(read('deploy/docker-bake.hcl'), /type=sbom/);
 
 // Strict verification must exercise the real client presentation regressions,
 // not only the former happy-path mobile smoke test.
