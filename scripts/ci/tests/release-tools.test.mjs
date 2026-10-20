@@ -232,6 +232,32 @@ try {
   assert.equal(JSON.parse(fs.readFileSync(buildOutput, 'utf8')).digest, digest);
   assert.ok(fs.existsSync(buildOutput + '.sha256'));
 
+  fs.writeFileSync(dockerStub, `
+    import cp from 'node:child_process';
+    import {syncBuiltinESMExports} from 'node:module';
+    cp.spawnSync = (command, args) => {
+      if(command !== 'docker') throw Error('Unexpected command');
+      if(args[0] === 'compose') {
+        if(!args.some((v,i)=>v==='--profile'&&args[i+1]==='application') ||
+           !args.some((v,i)=>v==='--profile'&&args[i+1]==='observability')) return {status:1,stderr:'no such service: backend'};
+        return {status:0,stdout:'fixture-container'};
+      }
+      if(args[0] === 'inspect') return {status:0,stdout:JSON.stringify([{Image:'fixture-image',
+        Config:{Image:'ghcr.io/unit-test-only@'+${JSON.stringify(digest)}},State:{Status:'running',Health:{Status:'healthy'}}}])};
+      if(args[0] === 'image') return {status:0,stdout:'[]'};
+      throw Error('Unexpected Docker command');
+    };
+    syncBuiltinESMExports();
+  `);
+  const inspectionManifest=writeJson('inspection-manifest.json',{artifacts:artifactIds.map(artifactId=>({artifactId,immutableRef:'ghcr.io/unit-test-only@'+digest}))});
+  const inspection=spawnSync(process.execPath,['--import',new URL('file:///' + dockerStub.replaceAll('\\','/')).href,
+    tool,'verify-service-digests','--phase','runtime','--project','unit-test-only',
+    '--env',topologyFile,'--base-compose',topologyFile,'--runtime-compose',topologyFile,
+    '--services',servicesFile,'--manifest',inspectionManifest,'--output',path.join(temporaryRoot,'inspection.json')],
+    {cwd:repositoryRoot,encoding:'utf8'});
+  assert.equal(inspection.status,0,inspection.stderr);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(temporaryRoot,'inspection.json'),'utf8')).verifiedServiceCount,12);
+
   const strictManifestFile = writeJson('strict-image-digests.json', {
     schemaVersion: 1,
     releaseCandidateId: candidateId,

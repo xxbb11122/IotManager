@@ -145,6 +145,7 @@ jobs:
           SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
           CALLER_REF_RAW: ${{ inputs.caller_workflow_ref_raw }}
           CALLER_WORKFLOW_SHA: ${{ inputs.caller_workflow_sha }}
+          INVOCATION_MODE: ${{ inputs.caller_workflow_ref_raw != '' && 'orchestrated-reusable' || 'protected-fallback-dispatch' }}
         run: |
           set -euo pipefail
           repository_cache_key="$(tr '/' '-' <<< "$GITHUB_REPOSITORY")"
@@ -170,7 +171,7 @@ jobs:
             --checked-out-source-sha "$SOURCE_SHA" \
             --producer-repository "$GITHUB_REPOSITORY" \
             --producer-event "$GITHUB_EVENT_NAME" \
-            --invocation-mode orchestrated-reusable \
+            --invocation-mode "$INVOCATION_MODE" \
             --producer-run-id "$GITHUB_RUN_ID" \
             --producer-run-attempt "$GITHUB_RUN_ATTEMPT" \
             --producer-workflow-ref-raw "${{ github.repository }}/.github/workflows/image-security.yml@${{ github.workflow_sha }}" \
@@ -327,6 +328,7 @@ jobs:
           SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
           CALLER_REF_RAW: ${{ inputs.caller_workflow_ref_raw }}
           CALLER_WORKFLOW_SHA: ${{ inputs.caller_workflow_sha }}
+          INVOCATION_MODE: ${{ inputs.caller_workflow_ref_raw != '' && 'orchestrated-reusable' || 'protected-fallback-dispatch' }}
         run: |
           set -euo pipefail
           artifact_id="${{ matrix.artifact_id }}"
@@ -355,7 +357,7 @@ jobs:
             --checked-out-source-sha "$SOURCE_SHA" \
             --producer-repository "$GITHUB_REPOSITORY" \
             --producer-event "$GITHUB_EVENT_NAME" \
-            --invocation-mode orchestrated-reusable \
+            --invocation-mode "$INVOCATION_MODE" \
             --producer-run-id "$GITHUB_RUN_ID" \
             --producer-run-attempt "$GITHUB_RUN_ATTEMPT" \
             --producer-workflow-ref-raw "${{ github.repository }}/.github/workflows/image-security.yml@${{ github.workflow_sha }}" \

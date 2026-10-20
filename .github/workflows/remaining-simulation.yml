@@ -26,6 +26,8 @@ jobs:
       CANDIDATE_ID: r1-rc-simulation-20261020-62b0938abdde
       IOT_COMPOSE_PROJECT: iot-manager-immutable-sim-${{ github.run_id }}
       IOT_ENABLE_OBSERVABILITY: 'true'
+      # Required by inspection in this frozen pre-fix candidate as well as startup.
+      COMPOSE_PROFILES: application,observability
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

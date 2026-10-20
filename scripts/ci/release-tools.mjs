@@ -1977,6 +1977,9 @@ function composeForInspection(parsed, phase) {
   const stateEnvironment = option(parsed, 'state-env', false) ? resolveRepositoryPath(option(parsed, 'state-env', false), true) : undefined;
   const imageEnvironment = option(parsed, 'image-env', false) ? resolveRepositoryPath(option(parsed, 'image-env', false), true) : undefined;
   const command = ['compose', '--project-name', project, '--env-file', environmentFile];
+  // The frozen runtime service set includes both profiles. Without them,
+  // Compose can hide existing application/observability containers from ps.
+  if (phase === 'runtime') command.push('--profile', 'application', '--profile', 'observability');
   if (stateEnvironment && fs.existsSync(stateEnvironment)) {
     command.push('--env-file', stateEnvironment);
   }
