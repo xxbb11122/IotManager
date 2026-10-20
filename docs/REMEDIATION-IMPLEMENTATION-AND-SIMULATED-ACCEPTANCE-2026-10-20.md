@@ -84,13 +84,14 @@ Release APK 的 SHA-256 为 `3a23a8b548353ac43027846d05d3595b9d5114c8d771f66696b
 
 1. Backend 的 4 条对应 Spring 3 个 CVE：47884、47890、47892。运行上下文测试提供适用性证据，仍待独立审核。保留 Boot 3.5/Framework 6.2；没有强行混入 Framework 7。[Spring 公告](https://spring.io/security/cve-2026-47890/)列出的 6.2.20 为企业支持线，不能假设拥有该补丁来源。
 2. WAL-G 的 1 条为 CVE-2021-38599，扫描器根据主模块伪版本识别。上游修复祖先和最终二进制的两种加密拒绝行为均已验证，通过的证据已形成草稿；没有独立批准，门禁继续 FAIL。另实际验证了这份未批准草稿被 VEX 校验器拒绝，不能仅凭技术测试或版本文本放行。[上游修复](https://github.com/wal-g/wal-g/pull/1062)
-3. PostgreSQL/备份共 105 条没有该稳定发行版修复版本的 OS 条目，涉及 util-linux、systemd 库、libxml2、ncurses、ACL、GnuPG/Perl 等。不能视为已修复。例如 Debian 仍将 Trixie 的 [CVE-2026-76642](https://security-tracker.debian.org/tracker/CVE-2026-76642) 和 [CVE-2026-16742](https://security-tracker.debian.org/tracker/CVE-2026-16742) 标为 vulnerable；不把不稳定发行版的软件包混装到候选中。
+3. PostgreSQL/备份共 105 条扫描未给出 `FixedVersion` 的 OS 条目，涉及 util-linux、systemd 库、libxml2、ncurses、ACL、GnuPG/Perl 等。缺少该字段不能单独证明供应商没有补丁，仍须逐项核实。已核对的两个例子中，Debian 仍将 Trixie 的 [CVE-2026-76642](https://security-tracker.debian.org/tracker/CVE-2026-76642) 和 [CVE-2026-16742](https://security-tracker.debian.org/tracker/CVE-2026-16742) 标为 vulnerable。其余条目的批量供应商数据查询超时，未据此生成“全部无补丁”结论；不把不稳定发行版的软件包混装到候选中。
 
 ## 4. CI、运行与恢复结果
 
 | 运行 | 结果 |
 | --- | --- |
 | [Quick CI 39432721776](https://github.com/xxbb11122/IotManager/actions/runs/39432721776) | PASS。Backend 198、Edge 7 在 UTC/Asia-Shanghai 两个时区均 0 失败/错误/跳过；旧端 252、Glass 257 单元通过；严格页面共 133 项通过（旧端 54、Glass 77、前台/控制台各 1），0 skipped |
+| [代码最终复核 CI 39435144184](https://github.com/xxbb11122/IotManager/actions/runs/39435144184) | PASS，源码 `b066b14`；覆盖后补的历史回退兼容校验及上述严格验证 |
 | [最终候选隔离实验 39432996157](https://github.com/xxbb11122/IotManager/actions/runs/39432996157) | PASS。使用扫描清单中的实际 digest，12 服务及 13 服务并集一致；64 MiB/32768 行清理后 PITR，行数和指纹一致，基础恢复读写及目标点隔离检查通过 |
 | 同一隔离实验的拒绝与清理 | 错误源码、篡改清单、已有恢复卷、损坏备份均拒绝；容器/卷/网络清理通过 |
 | 同一实验的 WAL-G 探针 | 最终 R04 digest 包含上游修复历史；实际 `wal-push` 对内联 key 和 key 文件均明确拒绝不支持的 libsodium，加密不静默降级 |
