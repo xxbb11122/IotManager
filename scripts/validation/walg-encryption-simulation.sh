@@ -14,7 +14,7 @@ docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=4m
   --entrypoint /bin/sh "$image" -ec '/usr/local/bin/wal-g --version; sha256sum /usr/local/bin/wal-g' > "$out/binary.txt"
 grep -Fq "$source" "$out/binary.txt"
 for setting in WALG_LIBSODIUM_KEY WALG_LIBSODIUM_KEY_PATH; do
-  if docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=4m --cap-drop ALL \
+  if docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m --cap-drop ALL \
     -e "SIMULATION_KEY_SETTING=$setting" --entrypoint /bin/sh "$image" -ec '
       mkdir /tmp/walg
       key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
@@ -25,7 +25,10 @@ for setting in WALG_LIBSODIUM_KEY WALG_LIBSODIUM_KEY_PATH; do
         export WALG_LIBSODIUM_KEY_PATH=/tmp/key
       fi
       export WALG_FILE_PREFIX=/tmp/walg
-      exec /usr/local/bin/wal-g backup-list --json
+      # Listing an empty repository never creates a crypter. Exercise the
+      # actual archive write path instead, entirely inside disposable tmpfs.
+      head -c 16777216 /dev/zero > /tmp/000000010000000000000001
+      exec /usr/local/bin/wal-g wal-push /tmp/000000010000000000000001
     ' > "$out/$setting.log" 2>&1; then
     printf 'Unsupported encryption was silently accepted: %s\n' "$setting" >&2
     exit 1
