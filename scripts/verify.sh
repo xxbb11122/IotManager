@@ -85,7 +85,10 @@ maven() {
 verify_maven_jdk() {
   require_command java 'Configure JDK 17 and put it on PATH.'
   local maven_version
-  maven_version="$(maven --version 2>&1)"
+  if ! maven_version="$(maven --version 2>&1)"; then
+    printf 'Unable to inspect Maven Wrapper. Version probe output:\n%s\n' "$maven_version" >&2
+    exit 1
+  fi
   if ! grep -Eq '^Apache Maven 3\.9\.[0-9]+' <<<"$maven_version"; then
     printf 'Maven Wrapper must resolve Maven 3.9 or newer. Maven reported:\n%s\n' "$maven_version" >&2
     exit 1

@@ -133,7 +133,7 @@ function Invoke-MavenJdkCheck {
     $script:mavenWrapper = Get-MavenWrapperPath
     $mavenVersion = (& $script:mavenWrapper --version 2>&1 | Out-String)
     if ($LASTEXITCODE -ne 0) {
-        throw "Unable to inspect Maven Wrapper (exit code $LASTEXITCODE)."
+        throw "Unable to inspect Maven Wrapper (exit code $LASTEXITCODE):`n$mavenVersion"
     }
     $mavenMatch = [regex]::Match($mavenVersion, '(?m)^Apache Maven (\d+)\.(\d+)\.(\d+)')
     if (-not $mavenMatch.Success) {

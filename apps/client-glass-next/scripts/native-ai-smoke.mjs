@@ -42,10 +42,16 @@ const keyboardShown = () => /mInputShown=true/.test(adb('shell', 'dumpsys input_
 async function enableNetwork() {
   adb('shell', 'svc', 'wifi', 'enable');
   adb('shell', 'svc', 'data', 'enable');
-  // A freshly booted emulator may remember Wi-Fi as disabled. Enabling the
-  // interface alone does not guarantee association with its synthetic AP.
-  adb('shell', 'cmd', 'wifi', 'connect-network', 'AndroidWifi', 'open');
-  for (let i = 0; i < 20; i++) {
+  // Android enables Wi-Fi asynchronously. Associate only after that state is
+  // visible, and bound this pre-launch fixture setup independently of the
+  // App's unchanged 8-second startup budget.
+  const deadline = Date.now() + 30000;
+  let associated = false;
+  while (Date.now() < deadline) {
+    if (!associated && /^Wifi is enabled$/m.test(adb('shell', 'cmd', 'wifi', 'status'))) {
+      adb('shell', 'cmd', 'wifi', 'connect-network', 'AndroidWifi', 'open');
+      associated = true;
+    }
     if (/inet\s+10\.0\.2\./.test(adb('shell', 'ip', '-4', 'addr'))) return;
     await delay(250);
   }
@@ -71,15 +77,6 @@ async function connect() {
   expect.setTimeout?.(15000);
 }
 function record(name, details = {}) { results.push({ name, passed: true, ...details }); console.log('PASS ' + name); }
-function nativeWindowXml() {
-  const target = '/data/local/tmp/iot-native-smoke-window.xml';
-  try {
-    adb('shell', 'uiautomator', 'dump', target);
-    const xml = adb('shell', 'cat', target);
-    assert.ok(xml.includes('<hierarchy'), 'Android accessibility hierarchy must exist');
-    return xml;
-  } finally { adb('shell', 'rm', '-f', target); }
-}
 async function screenshot(name) {
   // DOM assertions may complete before WebView and SurfaceFlinger paint the
   // glass and navigation transitions. Capture their settled native frame.
@@ -453,17 +450,11 @@ try {
     adb('shell', 'input', 'keyevent', 'KEYCODE_BACK');
     await expect.poll(keyboardShown).toBe(false);
   }
-  // Chrome can show this first-use education bubble even with --no-first-run.
-  // Its first Back dismisses the bubble rather than closing the custom tab.
-  const browserPromo = 'Minimize tab to return to it later';
-  const browserMinimizePromoDismissed = nativeWindowXml().includes(browserPromo);
-  if (browserMinimizePromoDismissed) {
-    await screenshot('native-ai-browser-promo');
-    adb('shell', 'input', 'keyevent', 'KEYCODE_BACK');
-    await expect.poll(() => nativeWindowXml().includes(browserPromo)).toBe(false);
-  }
+  // Exercise the native close API used after the App's OIDC redirect. Chrome's
+  // asynchronous first-use education popup can consume a system Back; it is
+  // independent of the App's open/close bridge contract tested here.
   await screenshot('native-ai-browser');
-  adb('shell', 'input', 'keyevent', 'KEYCODE_BACK');
+  await page.evaluate(() => window.Capacitor.Plugins.Browser.close());
   await expect.poll(() => adb('shell', 'dumpsys window | grep -m 1 mCurrentFocus').includes(appId),
     { timeout: 10000 }).toBe(true);
   await expect.poll(() => page.evaluate(() => window.__nativeSmokeBrowserFinished)).toBe(true);
@@ -473,7 +464,7 @@ try {
     delete window.__nativeSmokeBrowserListener;
     delete window.__nativeSmokeBrowserFinished;
   });
-  record('native Browser plugin opens isolated page and returns to App', { browserMinimizePromoDismissed });
+  record('native Browser plugin opens isolated page and returns to App', { closeMethod: 'native-plugin-close' });
 
   // Run attempted document navigation last: Android WebView may dispatch
   // beforeunload (and App teardown) even when Java subsequently blocks it.
