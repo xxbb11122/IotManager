@@ -1,4 +1,4 @@
-FROM quay.io/keycloak/keycloak:26.7.2@sha256:9d1f1b2b7261ff53c66cb1092dfcdc34a5fb77e81f9e6a6e75b8b6a795de8067
+FROM quay.io/keycloak/keycloak:26.7.5@sha256:37dbaf6f0722c9ec246335f36e1ef8b2e6cb960f7c27e0d8c615121a3d475a85
 
 USER root
 COPY --chmod=0555 keycloak/entrypoint.sh /opt/keycloak/bin/iot-manager-entrypoint.sh

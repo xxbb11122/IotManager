@@ -175,7 +175,7 @@ try {
     schemaVersion: 1,
     artifacts: artifactIds.map((artifactId, index) => ({
       artifactId,
-      origin: index < 6 ? 'built' : 'external',
+      origin: index < 7 ? 'built' : 'external',
       image: 'ghcr.io/example/' + artifactId.toLowerCase() + '@' + digest
     }))
   });
@@ -203,7 +203,7 @@ try {
     sourceSha,
     topologySha256: sha256File(topologyFile),
     servicesSha256: sha256File(servicesFile),
-    expected: { artifacts: 8, buildableArtifacts: 6, normalRuntimeServices: 12, recoveryAddedServices: 1, releaseCandidateServices: 13 }
+    expected: { artifacts: 8, buildableArtifacts: 7, normalRuntimeServices: 12, recoveryAddedServices: 1, releaseCandidateServices: 13 }
   });
   // Stub only Docker at the process boundary: the real CLI must create a
   // previously absent metadata parent before invoking Buildx on a fresh runner.
@@ -265,7 +265,7 @@ try {
     topologySha256: sha256File(topologyFile),
     artifacts: artifactIds.map((artifactId, index) => ({
       artifactId,
-      origin: index < 6 ? 'built' : 'external',
+      origin: index < 7 ? 'built' : 'external',
       immutableRef: 'ghcr.io/example/' + artifactId.toLowerCase() + '@' + digest
     }))
   });
@@ -446,7 +446,7 @@ try {
 
   const buildResultsDirectory = path.join(temporaryRoot, 'build-results');
   fs.mkdirSync(buildResultsDirectory);
-  for (const artifactId of artifactIds.slice(0, 6)) {
+  for (const artifactId of artifactIds.slice(0, 7)) {
     const resultFile = writeJson(path.join('build-results', artifactId + '.json'), {
       artifactId,
       status: 'PASS',

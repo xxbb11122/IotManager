@@ -31,10 +31,21 @@
              CVE-2026-68497, CVE-2026-91776, and CVE-2026-91777. -->
         <jackson-bom.version>2.21.7</jackson-bom.version>
         <spring-ai.version>1.1.8</spring-ai.version>
+        <mcp-sdk.version>1.0.0</mcp-sdk.version>
+        <!-- Keep all embedded Tomcat modules on the same patched 10.1 line. -->
+        <tomcat.version>10.1.60</tomcat.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
+            <!-- Align the JSON binding and core SDK; never override only core. -->
+            <dependency>
+                <groupId>io.modelcontextprotocol.sdk</groupId>
+                <artifactId>mcp-bom</artifactId>
+                <version>${mcp-sdk.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <dependency>
                 <groupId>org.springframework.ai</groupId>
                 <artifactId>spring-ai-bom</artifactId>

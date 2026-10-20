@@ -252,8 +252,8 @@ jobs:
           export IOT_POSTGRES_IMAGE=ghcr.io/example/postgres@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
           export IOT_PROMETHEUS_IMAGE=ghcr.io/example/prometheus@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
           export IOT_ALERTMANAGER_IMAGE=ghcr.io/example/alertmanager@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-          export IOT_LOGICAL_BACKUP_IMAGE=postgres:16-bookworm@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-          export IOT_VOLUME_INIT_IMAGE=alpine:3.20@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          export IOT_LOGICAL_BACKUP_IMAGE=ghcr.io/example/logical-backup@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          export IOT_VOLUME_INIT_IMAGE=alpine:3.24.2@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
           docker compose --env-file deploy/.env.integration.example \
             -f deploy/docker-compose.yml \
             -f deploy/docker-compose.integration.yml \

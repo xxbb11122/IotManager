@@ -2,7 +2,7 @@
 # fixed Go toolchain and transitive security updates. The release image is
 # intentionally minimal so curl/OpenSSL packages from a general-purpose base
 # cannot become part of the public reverse-proxy attack surface.
-FROM golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36 AS caddy-build
+FROM golang:1.26.10-bookworm@sha256:ee3901c61e423732605a51f1b8157c849ec01194ea0a274213b5202b2c11e7bf AS caddy-build
 ARG CADDY_VERSION=v2.11.4
 # v2.11.4 is an annotated tag; this is its peeled source commit.
 ARG CADDY_SOURCE_COMMIT=e2eee6a7fce366321294c9c2a79f3146891dcbdf
@@ -19,7 +19,7 @@ RUN --mount=type=cache,id=iot-manager-caddy-go-mod,target=/go/pkg/mod \
     # Retry only transient module resolution work; a final checksum/compile
     # failure remains fatal and therefore cannot be hidden by this loop.
     for attempt in 1 2 3 4 5; do \
-      if go get golang.org/x/crypto@v0.55.0 golang.org/x/net@v0.57.0 google.golang.org/grpc@v1.82.1 && go mod tidy; then \
+      if go get golang.org/x/crypto@v0.55.0 golang.org/x/net@v0.60.0 google.golang.org/grpc@v1.83.2 && go mod tidy; then \
         break; \
       fi; \
       if [ "$attempt" -eq 5 ]; then \

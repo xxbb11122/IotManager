@@ -116,6 +116,7 @@ jobs:
           - artifact_id: IMG-R04
           - artifact_id: IMG-R05
           - artifact_id: IMG-R06
+          - artifact_id: IMG-R07
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

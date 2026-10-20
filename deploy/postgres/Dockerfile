@@ -2,7 +2,7 @@
 # deployment contract exposes: local filesystem and S3.  Omitting unrelated
 # Azure/GCS/Swift/SSH adapters removes their unused cloud SDK attack surface
 # from the backup binary while preserving every documented runtime mode.
-FROM golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36 AS wal-g-build
+FROM golang:1.26.10-bookworm@sha256:ee3901c61e423732605a51f1b8157c849ec01194ea0a274213b5202b2c11e7bf AS wal-g-build
 
 ARG WAL_G_VERSION=v3.0.7
 ARG WAL_G_SOURCE_COMMIT=6ea13b90a3198bd5c8f8ac2ae323f28e33cf9f06
@@ -41,7 +41,7 @@ RUN --mount=type=cache,id=iot-manager-walg-go-mod,target=/go/pkg/mod \
     # Keep externally fetched module resolution resilient to temporary Go
     # proxy transport failures without accepting an incomplete dependency set.
     for attempt in 1 2 3 4 5; do \
-      if go get github.com/golang-jwt/jwt/v4@v4.5.2 github.com/jackc/pgx/v5@v5.9.0 golang.org/x/oauth2@v0.36.0 golang.org/x/crypto@v0.55.0 golang.org/x/net@v0.57.0 google.golang.org/grpc@v1.82.1 && go mod tidy; then \
+      if go get github.com/golang-jwt/jwt/v4@v4.5.2 github.com/jackc/pgx/v5@v5.9.0 golang.org/x/oauth2@v0.36.0 golang.org/x/crypto@v0.55.0 golang.org/x/net@v0.60.0 google.golang.org/grpc@v1.83.2 && go mod tidy; then \
         break; \
       fi; \
       if [ "$attempt" -eq 5 ]; then \
@@ -60,7 +60,7 @@ RUN --mount=type=cache,id=iot-manager-walg-go-mod,target=/go/pkg/mod \
     /out/wal-g --version; \
     chmod 0555 /out/wal-g
 
-FROM postgres:16-bookworm@sha256:bb3e1a57e5407e0a5280b4211980a5e537f4abd234a87014ac979849a78dd825 AS pgvector-build
+FROM postgres:16-trixie@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d AS pgvector-build
 ARG PGVECTOR_COMMIT=8ee86c96f0fd72390f890aa8a336fda6d3ab4c6c
 # Debian's official ftp endpoint avoids the current deb.debian.org route,
 # which returned 503 for Bookworm package downloads in Docker Desktop.
@@ -77,7 +77,7 @@ RUN git init \
     && make \
     && make install
 
-FROM postgres:16-bookworm@sha256:bb3e1a57e5407e0a5280b4211980a5e537f4abd234a87014ac979849a78dd825
+FROM postgres:16-trixie@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
 
 COPY --from=wal-g-build /out/wal-g /usr/local/bin/wal-g
 COPY --from=pgvector-build /usr/lib/postgresql/16/lib/vector.so /usr/lib/postgresql/16/lib/vector.so

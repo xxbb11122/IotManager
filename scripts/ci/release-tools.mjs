@@ -371,8 +371,8 @@ function collectTopology(parameters, sourceSha) {
     fail('Resolved topology does not cover the approved eight-artifact catalog.', 65);
   }
   const buildableCount = orderedArtifacts.filter((item) => item.origin === 'built').length;
-  if (orderedArtifacts.length !== 8 || buildableCount !== 6) {
-    fail('Release image baseline drift: expected 8 artifacts / 6 buildable, got ' + orderedArtifacts.length + ' / ' + buildableCount + '.', 65);
+  if (orderedArtifacts.length !== 8 || buildableCount !== 7) {
+    fail('Release image baseline drift: expected 8 artifacts / 7 buildable, got ' + orderedArtifacts.length + ' / ' + buildableCount + '.', 65);
   }
 
   const topology = {
@@ -381,7 +381,7 @@ function collectTopology(parameters, sourceSha) {
     profiles: String(parameters.profiles).split(',').map((value) => value.trim()).filter(Boolean),
     expected: {
       artifacts: 8,
-      buildableArtifacts: 6,
+      buildableArtifacts: 7,
       normalRuntimeServices: 12,
       recoveryAddedServices: 1,
       releaseCandidateServices: 13
@@ -523,8 +523,8 @@ function commandVerifyImageSet(parsed) {
   const added = services.recoveryAddedServices || [];
   const union = services.releaseCandidateUnion || [];
   const serviceArtifactIds = new Set(union.map((item) => item.artifactId));
-  if (artifactIds.size !== 8 || buildableCount !== 6 || normal.length !== 12 || added.length !== 1 || union.length !== 13) {
-    fail('Release image/service counts do not match the approved 8/6/12/1/13 baseline.', 65);
+  if (artifactIds.size !== 8 || buildableCount !== 7 || normal.length !== 12 || added.length !== 1 || union.length !== 13) {
+    fail('Release image/service counts do not match the expected 8/7/12/1/13 baseline.', 65);
   }
   if (!exactSet(artifactIds, scanIds)) {
     fail('Runtime/recovery artifact set differs from scanned artifact set.', 65);
@@ -543,7 +543,7 @@ function commandVerifyImageSet(parsed) {
   }
   const result = {
     status: 'PASS',
-    expected: { artifacts: 8, buildableArtifacts: 6, normalRuntimeServices: 12, recoveryAddedServices: 1, releaseCandidateServices: 13 },
+    expected: { artifacts: 8, buildableArtifacts: 7, normalRuntimeServices: 12, recoveryAddedServices: 1, releaseCandidateServices: 13 },
     actual: { artifacts: artifactIds.size, buildableArtifacts: buildableCount, normalRuntimeServices: normal.length, recoveryAddedServices: added.length, releaseCandidateServices: union.length },
     topologySha256: sha256File(topologyFile),
     servicesSha256: sha256File(servicesFile),
@@ -897,9 +897,9 @@ function commandValidateDigestManifest(parsed) {
   const normal = services.normalRuntimeServices || [];
   const recoveryAdded = services.recoveryAddedServices || [];
   const union = services.releaseCandidateUnion || [];
-  if (artifacts.length !== 8 || artifacts.filter((item) => item.origin === 'built').length !== 6 ||
+  if (artifacts.length !== 8 || artifacts.filter((item) => item.origin === 'built').length !== 7 ||
       normal.length !== 12 || recoveryAdded.length !== 1 || union.length !== 13) {
-    fail('Release topology does not match the approved 8/6/12/1/13 baseline.', 65);
+    fail('Release topology does not match the approved 8/7/12/1/13 baseline.', 65);
   }
   const serviceArtifactIds = new Set(union.map((item) => item.artifactId));
   if (![...serviceArtifactIds].every((artifactId) => manifestArtifacts.has(artifactId))) {
@@ -1050,7 +1050,8 @@ function commandBuildImage(parsed) {
     'IMG-R03': 'keycloak',
     'IMG-R04': 'postgres',
     'IMG-R05': 'prometheus',
-    'IMG-R06': 'alertmanager'
+    'IMG-R06': 'alertmanager',
+    'IMG-R07': 'logical-backup'
   };
   const repositoryByArtifact = {
     'IMG-R01': 'iot-manager-backend',
@@ -1058,10 +1059,11 @@ function commandBuildImage(parsed) {
     'IMG-R03': 'iot-manager-keycloak',
     'IMG-R04': 'iot-manager-postgres',
     'IMG-R05': 'iot-manager-prometheus',
-    'IMG-R06': 'iot-manager-alertmanager'
+    'IMG-R06': 'iot-manager-alertmanager',
+    'IMG-R07': 'iot-manager-logical-backup'
   };
   if (!targetByArtifact[artifactId]) {
-    fail('Only buildable artifacts IMG-R01 through IMG-R06 can be built.', 64);
+    fail('Only buildable artifacts IMG-R01 through IMG-R07 can be built.', 64);
   }
   const candidate = readJson(resolveRepositoryPath(option(parsed, 'candidate', true), true));
   const topologyFile = resolveRepositoryPath(option(parsed, 'topology', true), true);
