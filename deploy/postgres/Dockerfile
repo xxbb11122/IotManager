@@ -79,8 +79,8 @@ RUN git init \
     && git fetch --depth 1 origin "${PGVECTOR_COMMIT}" \
     && git checkout --detach FETCH_HEAD \
     && test "$(git rev-parse HEAD)" = "${PGVECTOR_COMMIT}" \
-    && make OPTFLAGS="" \
-    && make install
+    && make OPTFLAGS="" CLANG=clang \
+    && make install CLANG=clang
 
 FROM postgres:16-alpine3.24@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
 
