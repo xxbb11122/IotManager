@@ -205,6 +205,33 @@ try {
     servicesSha256: sha256File(servicesFile),
     expected: { artifacts: 8, buildableArtifacts: 6, normalRuntimeServices: 12, recoveryAddedServices: 1, releaseCandidateServices: 13 }
   });
+  // Stub only Docker at the process boundary: the real CLI must create a
+  // previously absent metadata parent before invoking Buildx on a fresh runner.
+  const dockerStub = path.join(temporaryRoot, 'docker-boundary-stub.mjs');
+  fs.writeFileSync(dockerStub, `
+    import cp from 'node:child_process';
+    import fs from 'node:fs';
+    import path from 'node:path';
+    import {syncBuiltinESMExports} from 'node:module';
+    cp.spawnSync = (command, args) => {
+      if (command !== 'docker' || args[0] !== 'buildx') throw new Error('Unexpected external command');
+      if (args[1] === 'imagetools') return {status:0, stdout:JSON.stringify(${JSON.stringify(digest)}), stderr:''};
+      const metadata = args[args.indexOf('--metadata-file') + 1];
+      if (!fs.existsSync(path.dirname(metadata))) return {status:42, stderr:'Missing Buildx metadata parent'};
+      fs.writeFileSync(metadata, JSON.stringify({backend:{'containerimage.digest':${JSON.stringify(digest)}}}));
+      return {status:0, stdout:'', stderr:''};
+    };
+    syncBuiltinESMExports();
+  `);
+  const buildOutput = path.join(temporaryRoot, 'fresh-runner', 'image-build', 'IMG-R01.json');
+  const stubBuild = spawnSync(process.execPath, ['--import', new URL('file:///' + dockerStub.replaceAll('\\', '/')).href,
+    tool, 'build-image', '--artifact-id', 'IMG-R01', '--candidate', strictCandidateFile, '--topology', topologyFile,
+    '--registry', 'ghcr.io/unit-test-only', '--tag', 'fixture', '--push', 'true', '--output', buildOutput],
+    {cwd:repositoryRoot, encoding:'utf8'});
+  assert.equal(stubBuild.status, 0, stubBuild.stderr);
+  assert.equal(JSON.parse(fs.readFileSync(buildOutput, 'utf8')).digest, digest);
+  assert.ok(fs.existsSync(buildOutput + '.sha256'));
+
   const strictManifestFile = writeJson('strict-image-digests.json', {
     schemaVersion: 1,
     releaseCandidateId: candidateId,

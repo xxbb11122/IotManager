@@ -1077,6 +1077,9 @@ function commandBuildImage(parsed) {
   }
   const outputFile = resolveRepositoryPath(option(parsed, 'output', true), true);
   const metadataFile = outputFile + '.buildx-metadata.json';
+  // Buildx writes this file before writeJson creates the result directory.
+  // Fresh runners must have the parent before the build starts.
+  fs.mkdirSync(path.dirname(metadataFile), { recursive: true });
   const registry = option(parsed, 'registry', true).replace(/\/+$/, '');
   const tag = option(parsed, 'tag', true);
   const platform = option(parsed, 'platform', false) || 'linux/amd64';
