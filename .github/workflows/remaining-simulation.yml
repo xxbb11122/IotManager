@@ -100,6 +100,23 @@ jobs:
           AWS_REGION=us-east-1
           AWS_S3_FORCE_PATH_STYLE=true
           EOF
+          # integration.yml deliberately hard-codes filesystem storage for
+          # ordinary P0. This isolated S3 experiment replaces only those three
+          # fixture settings; it does not change production Compose or images.
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          import crypto from 'node:crypto';
+          const file='deploy/docker-compose.integration.yml', before=fs.readFileSync(file,'utf8');
+          assert.equal((before.match(/WALG_STORAGE_MODE: filesystem/g)||[]).length,3);
+          assert.equal((before.match(/WALG_FILE_PREFIX: \/var\/lib\/wal-g/g)||[]).length,3);
+          const after=before.replaceAll('WALG_STORAGE_MODE: filesystem','WALG_STORAGE_MODE: s3').replaceAll('WALG_FILE_PREFIX: /var/lib/wal-g','WALG_FILE_PREFIX: ""');
+          fs.writeFileSync(file,after);
+          const hash=value=>crypto.createHash('sha256').update(value).digest('hex');
+          fs.writeFileSync('artifacts/simulation/storage-fixture.json',JSON.stringify({testIntegrationOverrideModified:true,
+            originalSha256:hash(before),s3FixtureSha256:hash(after),productionApproved:false,
+            boundary:'Only the integration fixture storage selection changes; frozen image references and production Compose remain unchanged'},null,2)+'\n');
+          NODE
           # Only the executable bit changes; the frozen script body is unchanged.
           # Current production tooling invokes it with Bash instead.
           chmod u+x scripts/runtime/verify-stack.sh

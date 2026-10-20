@@ -55,6 +55,17 @@ finish() {
 trap finish EXIT
 
 test "$(docker inspect --format '{{index .Config.Labels "iot.lab.run"}}' "$s3_name")" = "$GITHUB_RUN_ID"
+for service in wal-g-archive wal-g-backup; do
+  service_id="$(docker "${source_compose[@]}" ps -q "$service")"
+  test -n "$service_id"
+  docker inspect --format '{{json .Config.Env}}' "$service_id" | node -e '
+    const assert=require("node:assert/strict");let input="";
+    process.stdin.on("data",v=>input+=v);process.stdin.on("end",()=>{
+      const values=JSON.parse(input);assert.ok(values.includes("WALG_STORAGE_MODE=s3"),"Source container must actually archive to S3");
+      assert.ok(values.includes("WALG_FILE_PREFIX="),"The S3 fixture must not retain a filesystem prefix");
+      assert.ok(values.includes("WALG_S3_PREFIX=s3://iot-isolated-lab/"+process.env.GITHUB_RUN_ID));
+    });'
+done
 python3 -m venv "$lab/python"
 "$lab/python/bin/pip" --quiet install boto3==1.40.43
 export LAB_PRIVATE="$lab" LAB_PUBLIC="$out"
