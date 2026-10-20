@@ -6,6 +6,8 @@ FROM golang:1.26.10-bookworm@sha256:ee3901c61e423732605a51f1b8157c849ec01194ea0a
 
 ARG WAL_G_VERSION=v3.0.9
 ARG WAL_G_SOURCE_COMMIT=3e493188db28335fb93a45bd680c6ff8fc3028c1
+# Required by the pinned upstream release's own Makefile and json/v2 imports.
+ENV GOEXPERIMENT=jsonv2
 
 WORKDIR /src
 # Real compatible v1 tag history lets Go stamp its own canonical module
@@ -49,7 +51,7 @@ RUN --mount=type=cache,id=iot-manager-walg-go-mod,target=/go/pkg/mod \
     # Keep externally fetched module resolution resilient to temporary Go
     # proxy transport failures without accepting an incomplete dependency set.
     for attempt in 1 2 3 4 5; do \
-      if go get github.com/jackc/pgx/v5@v5.10.0 golang.org/x/oauth2@v0.36.0 golang.org/x/crypto@v0.57.0 golang.org/x/net@v0.60.0 google.golang.org/grpc@v1.83.2; then \
+      if go get github.com/jackc/pgx/v5@v5.10.0 github.com/golang-jwt/jwt/v4@v4.5.3 golang.org/x/oauth2@v0.36.0 golang.org/x/crypto@v0.57.0 golang.org/x/net@v0.60.0 google.golang.org/grpc@v1.83.2; then \
         break; \
       fi; \
       if [ "$attempt" -eq 5 ]; then \

@@ -18,6 +18,8 @@ Spring 6.2.19 的阻断涉及 CVE-2026-47884、CVE-2026-47890、CVE-2026-47892�
 
 WAL-G 源码模块路径没有 /v3；构建取真实 v1 标签及其祖先，允许 Go 生成兼容该模块路径的规范版本。应用显示版本和源提交保持真实 v3.0.9，不用 ldflags 覆盖模块版本。libsodium 不受支持时必须拒绝配置，不能静默明文写入。
 
+v3.0.9 使用 encoding/json/v2，构建沿用[上游 Makefile](https://github.com/wal-g/wal-g/blob/3e493188db28335fb93a45bd680c6ff8fc3028c1/Makefile)的 GOEXPERIMENT=jsonv2；实际备份与 PITR 演练必须覆盖新二进制的元数据读写。
+
 pgvector 只部署正常编译的原生 vector.so 与扩展 SQL；构建显式 with_llvm=no，避免供应镜像使用 LLVM 21、Alpine 默认开发包 LLVM 22 的 bitcode 工具链混用。PostgreSQL 自身已有的 JIT 配置不在本次变更范围。
 
 方案审核结论：可进入隔离开发与模拟验收；数据库 libc 改变必须执行下述迁移，不能直接把旧卷挂到新镜像，也不能仅靠风险豁免跳过漏洞扫描。
