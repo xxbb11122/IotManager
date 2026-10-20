@@ -25,7 +25,7 @@ RUN set -eux; \
 RUN --mount=type=cache,id=iot-manager-prometheus-go-mod,target=/go/pkg/mod \
     set -eux; \
     for attempt in 1 2 3 4 5; do \
-      if go get golang.org/x/crypto@v0.55.0 && go mod verify; then \
+      if go get golang.org/x/crypto@v0.57.0 && go mod verify; then \
         break; \
       fi; \
       if [ "$attempt" -eq 5 ]; then \
@@ -40,7 +40,7 @@ RUN --mount=type=cache,id=iot-manager-prometheus-go-mod,target=/go/pkg/mod \
       -ldflags "-s -w -X github.com/prometheus/common/version.Version=${PROMETHEUS_VERSION#v} -X github.com/prometheus/common/version.Revision=${PROMETHEUS_SOURCE_COMMIT}" \
       -o /out/prometheus ./cmd/prometheus; \
     /out/prometheus --version; \
-    go version -m /out/prometheus | grep -Eq '^[[:space:]]*dep[[:space:]]+golang.org/x/crypto[[:space:]]+v0.55.0'; \
+    go version -m /out/prometheus | grep -Eq '^[[:space:]]*dep[[:space:]]+golang.org/x/crypto[[:space:]]+v0.57.0'; \
     go version -m /out/prometheus | grep -Eq '^[[:space:]]*mod[[:space:]]+github.com/prometheus/prometheus[[:space:]]+v0[.]314[.]0([+]dirty)?([[:space:]]|$)'
 RUN mkdir -p /out/rootfs/etc/prometheus
 
@@ -82,7 +82,7 @@ RUN set -eux; \
 RUN --mount=type=cache,id=iot-manager-alertmanager-go-mod,target=/go/pkg/mod \
     set -eux; \
     for attempt in 1 2 3 4 5; do \
-      if go get golang.org/x/crypto@v0.55.0 golang.org/x/net@v0.60.0 golang.org/x/text@v0.41.0 golang.org/x/mod@v0.40.0 google.golang.org/grpc@v1.83.2 && go mod verify; then \
+      if go get golang.org/x/crypto@v0.57.0 golang.org/x/net@v0.60.0 golang.org/x/text@v0.42.0 golang.org/x/mod@v0.40.0 google.golang.org/grpc@v1.83.2 && go mod verify; then \
         break; \
       fi; \
       if [ "$attempt" -eq 5 ]; then \
@@ -97,9 +97,9 @@ RUN --mount=type=cache,id=iot-manager-alertmanager-go-mod,target=/go/pkg/mod \
       -ldflags "-s -w -X github.com/prometheus/common/version.Version=${ALERTMANAGER_VERSION#v} -X github.com/prometheus/common/version.Revision=${ALERTMANAGER_SOURCE_COMMIT}" \
       -o /out/alertmanager ./cmd/alertmanager; \
     /out/alertmanager --version; \
-    go version -m /out/alertmanager | grep -Eq '^[[:space:]]*dep[[:space:]]+golang.org/x/crypto[[:space:]]+v0.55.0'; \
+    go version -m /out/alertmanager | grep -Eq '^[[:space:]]*dep[[:space:]]+golang.org/x/crypto[[:space:]]+v0.57.0'; \
     go version -m /out/alertmanager | grep -Eq '^[[:space:]]*dep[[:space:]]+golang.org/x/net[[:space:]]+v0.60.0'; \
-    go version -m /out/alertmanager | grep -Eq '^[[:space:]]*dep[[:space:]]+golang.org/x/text[[:space:]]+v0.41.0'; \
+    go version -m /out/alertmanager | grep -Eq '^[[:space:]]*dep[[:space:]]+golang.org/x/text[[:space:]]+v0.42.0'; \
     go list -m -f '{{.Version}}' golang.org/x/mod | grep -Fx 'v0.40.0'; \
     go version -m /out/alertmanager | grep -Eq '^[[:space:]]*dep[[:space:]]+google.golang.org/grpc[[:space:]]+v1.83.2'
 RUN mkdir -p /out/rootfs/etc/alertmanager

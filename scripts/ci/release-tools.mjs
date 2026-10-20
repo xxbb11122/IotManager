@@ -1995,6 +1995,10 @@ function composeForInspection(parsed, phase) {
   if (runtimeCompose) {
     command.push('-f', runtimeCompose);
   }
+  for (const extra of options(parsed, 'runtime-extra-compose')) {
+    if (phase !== 'runtime') fail('--runtime-extra-compose is only valid for runtime inspection.', 64);
+    command.push('-f', resolveRepositoryPath(extra, true));
+  }
   for (const immutableCompose of immutableComposes) {
     command.push('-f', immutableCompose);
   }

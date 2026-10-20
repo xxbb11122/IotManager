@@ -21,7 +21,9 @@ grep -Fq 'WALG_STORAGE_MODE=s3' "$IOT_ENVIRONMENT_FILE"
 source_compose=(compose --project-name "$IOT_COMPOSE_PROJECT" --profile application --profile observability
   --env-file "$IOT_ENVIRONMENT_FILE" --env-file "deploy/.runtime/$IOT_COMPOSE_PROJECT/runtime.env"
   --env-file artifacts/release/image-digests.env -f deploy/docker-compose.yml
-  -f deploy/docker-compose.integration.yml -f deploy/docker-compose.immutable.yml)
+  -f deploy/docker-compose.integration.yml)
+[[ "${IOT_INTEGRATION_STORAGE_MODE:-filesystem}" == s3 ]] && source_compose+=(-f deploy/docker-compose.integration.s3.yml)
+source_compose+=(-f deploy/docker-compose.immutable.yml)
 recovery_compose() {
   docker compose --project-name "$1" --env-file "$IOT_ENVIRONMENT_FILE" --env-file artifacts/release/image-digests.env \
     -f deploy/docker-compose.yml -f deploy/docker-compose.recovery.yml -f deploy/docker-compose.immutable.yml \

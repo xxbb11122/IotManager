@@ -1,10 +1,20 @@
 name: Isolated Immutable Runtime Simulation
 
 on:
-  push:
-    branches: ['codex/**']
-    paths: ['.github/workflows/remaining-simulation.yml']
   workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact laboratory source commit
+        type: string
+        required: true
+      image_run_id:
+        description: Completed eight-image producer run
+        type: string
+        required: true
+      release_candidate_id:
+        description: Candidate ID bound to that image manifest
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -21,9 +31,10 @@ jobs:
     timeout-minutes: 50
     env:
       # Frozen laboratory inputs, deliberately independent of Release Gate.
-      SOURCE_SHA: 62b0938abdde6591489d2e4a912b709a33f5a1fa
-      IMAGE_RUN_ID: '39384244657'
-      CANDIDATE_ID: r1-rc-simulation-20261020-62b0938abdde
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      IMAGE_RUN_ID: ${{ inputs.image_run_id }}
+      CANDIDATE_ID: ${{ inputs.release_candidate_id }}
+      IOT_INTEGRATION_STORAGE_MODE: s3
       IOT_COMPOSE_PROJECT: iot-manager-immutable-sim-${{ github.run_id }}
       IOT_ENABLE_OBSERVABILITY: 'true'
       # Required by inspection in this frozen pre-fix candidate as well as startup.
@@ -100,26 +111,8 @@ jobs:
           AWS_REGION=us-east-1
           AWS_S3_FORCE_PATH_STYLE=true
           EOF
-          # integration.yml deliberately hard-codes filesystem storage for
-          # ordinary P0. This isolated S3 experiment replaces only those three
-          # fixture settings; it does not change production Compose or images.
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          import assert from 'node:assert/strict';
-          import crypto from 'node:crypto';
-          const file='deploy/docker-compose.integration.yml', before=fs.readFileSync(file,'utf8');
-          assert.equal((before.match(/WALG_STORAGE_MODE: filesystem/g)||[]).length,3);
-          assert.equal((before.match(/WALG_FILE_PREFIX: \/var\/lib\/wal-g/g)||[]).length,3);
-          const after=before.replaceAll('WALG_STORAGE_MODE: filesystem','WALG_STORAGE_MODE: s3').replaceAll('WALG_FILE_PREFIX: /var/lib/wal-g','WALG_FILE_PREFIX: ""');
-          fs.writeFileSync(file,after);
-          const hash=value=>crypto.createHash('sha256').update(value).digest('hex');
-          fs.writeFileSync('artifacts/simulation/storage-fixture.json',JSON.stringify({testIntegrationOverrideModified:true,
-            originalSha256:hash(before),s3FixtureSha256:hash(after),productionApproved:false,
-            boundary:'Only the integration fixture storage selection changes; frozen image references and production Compose remain unchanged'},null,2)+'\n');
-          NODE
-          # Only the executable bit changes; the frozen script body is unchanged.
-          # Current production tooling invokes it with Bash instead.
-          chmod u+x scripts/runtime/verify-stack.sh
+          # The committed overlay selects S3; integration.yml is never rewritten.
+          sha256sum deploy/docker-compose.integration.yml deploy/docker-compose.integration.s3.yml > artifacts/simulation/storage-fixture.sha256
           bash scripts/runtime/start-integration.sh --verify --mode immutable \
             --digest-manifest artifacts/release/image-digests.json \
             --digest-env-file artifacts/release/image-digests.env \
@@ -177,6 +170,9 @@ jobs:
           retention-days: 30
 
   alert-api-lab:
+    env:
+      IMAGE_RUN_ID: ${{ inputs.image_run_id }}
+      CANDIDATE_ID: ${{ inputs.release_candidate_id }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -188,7 +184,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh run download 39384244657 --repo "$GITHUB_REPOSITORY" --name image-manifest-r1-rc-simulation-20261020-62b0938abdde --dir artifacts/alert-image
+          gh run download "$IMAGE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "image-manifest-$CANDIDATE_ID" --dir artifacts/alert-image
           image="$(node scripts/ci/release-tools.mjs list-digest-artifacts --manifest artifacts/alert-image/image-digests.json | awk -F '\t' '$1 == "IMG-R06" { print $2 }')"
           printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           docker pull "$image"

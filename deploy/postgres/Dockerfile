@@ -41,7 +41,7 @@ RUN --mount=type=cache,id=iot-manager-walg-go-mod,target=/go/pkg/mod \
     # Keep externally fetched module resolution resilient to temporary Go
     # proxy transport failures without accepting an incomplete dependency set.
     for attempt in 1 2 3 4 5; do \
-      if go get github.com/golang-jwt/jwt/v4@v4.5.2 github.com/jackc/pgx/v5@v5.9.0 golang.org/x/oauth2@v0.36.0 golang.org/x/crypto@v0.55.0 golang.org/x/net@v0.60.0 google.golang.org/grpc@v1.83.2 && go mod tidy; then \
+      if go get github.com/golang-jwt/jwt/v4@v4.5.2 github.com/jackc/pgx/v5@v5.9.0 golang.org/x/oauth2@v0.36.0 golang.org/x/crypto@v0.57.0 golang.org/x/net@v0.60.0 google.golang.org/grpc@v1.83.2 && go mod tidy; then \
         break; \
       fi; \
       if [ "$attempt" -eq 5 ]; then \

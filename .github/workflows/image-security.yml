@@ -409,7 +409,7 @@ jobs:
           pattern: image-scan-${{ needs.prepare.outputs.candidate_id }}-*
           path: artifacts/image-scan
           merge-multiple: true
-      - name: Aggregate exact scan results and validate the 8/6/12/1/13 set
+      - name: Aggregate exact scan results and validate the 8/7/12/1/13 set
         run: |
           set -euo pipefail
           bash scripts/ci/generate-security-summary.sh \
