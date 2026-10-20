@@ -103,6 +103,14 @@ jobs:
             boundaries:['Isolated GitHub runner; no protected production recovery environment',
               'Runtime result does not approve or override image vulnerability scan results']},null,2)+'\n');
           NODE
+      - name: Check out the laboratory recovery driver
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          path: simulation-tools
+          persist-credentials: false
+      - name: Prove cleanup-then-PITR, 13 service digests and recovery rejection
+        run: bash simulation-tools/scripts/validation/immutable-recovery-simulation.sh
       - name: Remove only this disposable project and verify cleanup
         if: ${{ always() }}
         run: |
