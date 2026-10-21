@@ -38,6 +38,8 @@ pgvector 只部署正常编译的原生 vector.so 与扩展 SQL；构建显式 w
 
 入口对旧卷返回 78，并且不写 ABI 标记。禁止手工给旧卷补标记来绕过检查；即使 PostgreSQL 主版本都是 16，也不把物理目录兼容性视为已证明。
 
+2026-10-21 的第二次演练发现旧 glibc 镜像的 pgvector 使用默认 -march=native，在部分 runner 上加载扩展触发 SIGILL。新发布镜像已使用 OPTFLAGS=""。旧环境模拟采用单独的实验夹具：固定旧镜像 digest，仅以同一 pgvector 0.8.6 源提交重新编译通用指令集版本，保留旧 glibc/PG16。报告记录夹具实际镜像 ID、Dockerfile 哈希和 runner CPU；这不是未修改历史镜像的通过证明。若既有运行环境有此故障，先在隔离恢复环境使用匹配 libc/PG 主版本的可移植扩展完成逻辑导出，再按迁移步骤验收，不修改原始生产卷。
+
 ## 3. 开发与验收项目
 
 - 后端：完整 Java 测试在 UTC 与 Asia/Shanghai 执行，Docker 环境中的 PostgreSQL Testcontainers 项目必须真正运行，不能把跳过计为通过。

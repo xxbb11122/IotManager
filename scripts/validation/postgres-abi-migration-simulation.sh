@@ -19,6 +19,7 @@ old="$project-old"
 new="$project-new"
 rejected="$project-refused"
 owner="iot.abi.lab=$project"
+legacy_fixture="$project-legacy:lab"
 cleanup() {
   local status=$?
   trap - EXIT
@@ -39,10 +40,25 @@ cleanup() {
     test "$(docker network inspect --format '{{index .Labels "iot.abi.lab"}}' "$project")" = "$project" || exit 70
     docker network rm "$project" >/dev/null || exit 70
   fi
+  if docker image inspect "$legacy_fixture" >/dev/null 2>&1; then
+    test "$(docker image inspect --format '{{index .Config.Labels "iot.abi.lab"}}' "$legacy_fixture")" = "$project" || exit 70
+    docker image rm "$legacy_fixture" >/dev/null || exit 70
+  fi
   printf '{"passed":true,"ownedResourcesRemaining":0}\n' > "$out/cleanup.json"
   exit "$status"
 }
 trap cleanup EXIT
+# The original pgvector was built with -march=native. Some hosted CPUs crash
+# while loading it. Keep that failure evidence; use an explicitly declared
+# portable rebuild of the same 0.8.6 source for the cross-libc migration lab.
+lscpu --json > "$out/runner-cpu.json"
+sha256sum scripts/testing/postgres-abi/legacy-fixture.Dockerfile > "$out/fixture-dockerfile.sha256"
+docker build --label "$owner" -f scripts/testing/postgres-abi/legacy-fixture.Dockerfile \
+  -t "$legacy_fixture" . > "$out/legacy-fixture-build.log" 2>&1
+legacy_fixture_id="$(docker image inspect --format '{{.Id}}' "$legacy_fixture")"
+[[ "$legacy_fixture_id" =~ ^sha256:[a-f0-9]{64}$ ]] || exit 70
+docker run --rm --network none --read-only --entrypoint /bin/sh "$legacy_fixture" -ec \
+  'getconf GNU_LIBC_VERSION; pg_config --version; sha256sum /usr/lib/postgresql/16/lib/vector.so' > "$out/source-runtime.txt"
 # Resource creation fails on collisions; cleanup only accepts our exact label.
 docker network create --internal --label "$owner" "$project" >/dev/null
 for volume in "$old" "$new"; do
@@ -66,7 +82,7 @@ start_database() {
   return 1
 }
 sql() { docker exec -i "$1" psql -X -U postgres -d migration -v ON_ERROR_STOP=1 -At; }
-start_database "$old" "$old_image"
+start_database "$old" "$legacy_fixture"
 sql "$old" <<'SQL'
 CREATE EXTENSION vector;
 CREATE TABLE migration_probe(id bigint PRIMARY KEY, label text NOT NULL, at timestamptz NOT NULL,
@@ -127,7 +143,7 @@ for attempt in $(seq 1 60); do
   sleep 1
 done
 test "$(printf 'SELECT count(*) FROM migration_probe;\n' | sql "$new")" = 301
-export ABI_OLD_IMAGE="$old_image" ABI_NEW_IMAGE="$new_image" ABI_CLIENT_IMAGE="$client_image"
+export ABI_OLD_IMAGE="$old_image" ABI_SOURCE_FIXTURE="$legacy_fixture_id" ABI_NEW_IMAGE="$new_image" ABI_CLIENT_IMAGE="$client_image"
 node --input-type=module <<'NODE'
 import fs from 'node:fs';
 import crypto from 'node:crypto';
@@ -136,11 +152,15 @@ const manifest=JSON.parse(raw);
 fs.writeFileSync('artifacts/simulation/postgres-abi/summary.json',JSON.stringify({
   passed:true,productionApproved:false,sourceSha:manifest.sourceSha,
   candidateId:manifest.releaseCandidateId,manifestSha256:crypto.createHash('sha256').update(raw).digest('hex'),
-  sourceImage:process.env.ABI_OLD_IMAGE,targetImage:process.env.ABI_NEW_IMAGE,clientImage:process.env.ABI_CLIENT_IMAGE,
+  sourceBaseImage:process.env.ABI_OLD_IMAGE,sourceImage:process.env.ABI_SOURCE_FIXTURE,
+  sourceFixtureMode:'Historical glibc PG16 base with portable rebuild of the same pgvector 0.8.6 source',
+  laboratoryDriverSha:process.env.GITHUB_SHA,targetImage:process.env.ABI_NEW_IMAGE,clientImage:process.env.ABI_CLIENT_IMAGE,
   checks:['Unknown glibc volume refused with exit 78 without changing PG_VERSION/pg_control',
     'Fresh musl volume initialized with its own ABI marker',
     'Actual PG16 dump/restore preserves 300 Unicode/JSON/timestamptz/vector rows',
     'Vector 0.8.6 index restored and usable; post-migration write and restart passed'],
-  boundaries:['Synthetic isolated data, no production volume','Application cutover still requires a verified logical migration and a new backup chain']
+  boundaries:['Synthetic isolated data, no production volume',
+    'Source fixture replaces only pgvector with a portable build; it is not the unchanged historical image',
+    'Application cutover still requires a verified logical migration and a new backup chain']
 },null,2)+'\n');
 NODE
