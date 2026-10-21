@@ -25,6 +25,7 @@ cleanup() {
   for name in "$old" "$new" "$rejected"; do
     if docker container inspect "$name" >/dev/null 2>&1; then
       test "$(docker inspect --format '{{index .Config.Labels "iot.abi.lab"}}' "$name")" = "$project" || exit 70
+      docker logs --tail 100 "$name" > "$out/$name.log" 2>&1 || true
       docker rm -f "$name" >/dev/null || exit 70
     fi
   done
@@ -48,7 +49,7 @@ for volume in "$old" "$new"; do
   docker volume create --label "$owner" "$volume" >/dev/null
   docker run --rm --network none --user 0:0 --cap-drop ALL --cap-add CHOWN --cap-add DAC_OVERRIDE \
     --entrypoint /bin/sh -v "$volume:/data" "$new_image" -ec \
-    'test -z "$(ls -A /data)"; chown 999:999 /data; chmod 0700 /data'
+    'test -z "$(ls -A /data)"; chmod 0700 /data; chown 999:999 /data'
 done
 start_database() {
   local name=$1 image=$2
@@ -58,7 +59,7 @@ start_database() {
     -e 'POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=C' \
     -v "$name:/var/lib/postgresql/data" "$image" >/dev/null
   for attempt in $(seq 1 90); do
-    if docker exec "$name" pg_isready -U postgres -d migration >/dev/null 2>&1; then return; fi
+    if docker exec "$name" pg_isready -h 127.0.0.1 -U postgres -d migration >/dev/null 2>&1; then return; fi
     sleep 1
   done
   docker logs "$name" > "$out/$name.log" 2>&1
@@ -122,7 +123,7 @@ grep -Fxq 1 "$out/extension-and-write.txt"
 # The guarded cluster must also survive a normal restart after initialization.
 docker restart "$new" >/dev/null
 for attempt in $(seq 1 60); do
-  if docker exec "$new" pg_isready -U postgres -d migration >/dev/null 2>&1; then break; fi
+  if docker exec "$new" pg_isready -h 127.0.0.1 -U postgres -d migration >/dev/null 2>&1; then break; fi
   sleep 1
 done
 test "$(printf 'SELECT count(*) FROM migration_probe;\n' | sql "$new")" = 301
