@@ -135,6 +135,7 @@ docker exec "$target" psql -U lab_admin -d iot_manager -v ON_ERROR_STOP=1 -c 'SE
 # intentionally required before a production backup handoff. Reset lab sequence.
 docker exec "$target" psql -U lab_admin -d iot_manager -Atc "SELECT setval('migration_probe_id_seq',300,true)" >/dev/null
 if docker exec "$target" psql -U lab_admin -d iot_manager -v ON_ERROR_STOP=1 -c 'SET ROLE iot_manager_app; CREATE TABLE forbidden(id integer)' > "$private/ddl-rejection.log" 2>&1; then exit 1; fi
+docker network create --label "com.docker.compose.project=$project" --label com.docker.compose.network=egress "${project}_egress" >/dev/null
 docker run -d --name "$project-s3" --label "com.docker.compose.project=$project" --network "${project}_egress" --network-alias ops-s3 \
  -p 127.0.0.1:19090:9000 -e MOTO_PORT=9000 -e S3_IGNORE_SUBDOMAIN_BUCKETNAME=true \
  motoserver/moto:5.1.14@sha256:800719627036dc38dc699e9f314f624f2c98ac3d8bb754db078cb2698f08ee77 >/dev/null
