@@ -1,6 +1,6 @@
 # 测试失败根因与整改方案
 
-> 本报告保留整改前的失败基线；后续开发与复测结果见 [整改实施与模拟验收报告](REMEDIATION-IMPLEMENTATION-AND-SIMULATED-ACCEPTANCE-2026-10-20.md)。
+> 本报告保留整改前的失败基线；后续开发与复测结果见 [最新剩余整改与模拟验收报告](REMAINING-RELEASE-FIXES-AND-ACCEPTANCE-2026-10-21.md)及 [10-20 实施记录](REMEDIATION-IMPLEMENTATION-AND-SIMULATED-ACCEPTANCE-2026-10-20.md)。
 
 日期：2026-10-20，Asia/Shanghai。分析基线：`de5e8ebab3a47ce583379987e4fce6e0da2cd3ab`。本报告承接《未完成测试的模拟补测与发布评估》，交付失败原因、整改顺序及复测关闭标准。
 
