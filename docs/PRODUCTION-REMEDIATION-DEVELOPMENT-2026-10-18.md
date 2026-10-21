@@ -38,7 +38,7 @@ Quick CI gate 的 needs、结果变量及判断循环纳入 `android-glass-debug
 
 新增手动 `android-release.yml`，独立 `android-release` 环境；前置无密钥 source-policy job 检查默认分支，非法来源明确失败，签名 job 依赖其通过。源码 SHA 必须完整且在默认分支历史上。原客户端/Glass 选项使用固定白名单映射路径、包名、Java 版本。两者共用严格身份核验脚本，源码中不接受任意命令。
 
-受保护 secrets：`IOT_RELEASE_KEYSTORE_BASE64`、`IOT_RELEASE_STORE_PASSWORD`、`IOT_RELEASE_KEY_ALIAS`、`IOT_RELEASE_KEY_PASSWORD`；每个 app 另配可信 `ANDROID_*_CERT_SHA256` 与 `ANDROID_*_LAST_RELEASE_VERSION_CODE` variable。已分发最高版本必须由发布责任人维护，新 code 同时大于源码默认值和该记录。默认 token 无权读取治理配置时配置只读 `RELEASE_GOVERNANCE_READ_TOKEN`；无法预检时不得签名。缺少值提前失败。将 keystore 解码至 RUNNER_TEMP，不写入工作区；构建 APK 与 AAB，运行 apksigner verify 与 jarsigner verify，校验实际证书指纹、包名和输入 versionCode。
+受保护 secrets 于 2026-10-21 按 App 分离：Client 使用 `IOT_CLIENT_RELEASE_KEYSTORE_BASE64`、`IOT_CLIENT_RELEASE_STORE_PASSWORD`、`IOT_CLIENT_RELEASE_KEY_ALIAS`、`IOT_CLIENT_RELEASE_KEY_PASSWORD`，Glass 使用对应的 `IOT_GLASS_RELEASE_*`；配置和迁移入口见[发布运维手册](RELEASE-OPERATIONS-DEVELOPMENT-AND-RUNBOOK-2026-10-21.md)。每个 app 另配可信 `ANDROID_*_CERT_SHA256` 与 `ANDROID_*_LAST_RELEASE_VERSION_CODE` variable。已分发最高版本必须由发布责任人维护，新 code 同时大于源码默认值和该记录。默认 token 无权读取治理配置时配置只读 `RELEASE_GOVERNANCE_READ_TOKEN`；无法预检时不得签名。缺少值提前失败。将 keystore 解码至 RUNNER_TEMP，不写入工作区；构建 APK 与 AAB，运行 apksigner verify 与 jarsigner verify，校验实际证书指纹、包名和输入 versionCode。
 
 产物清单包含 source SHA、dirty 状态、appId、versionName/code、APK/AAB SHA256、APK signer SHA256。非默认信任来源、旧版本号、证书不匹配、debuggable 或 cleartext release manifest 一律失败。仅上传通过校验的产物和清单；always 清理私钥。既有 release Gradle 验证继续有效。
 

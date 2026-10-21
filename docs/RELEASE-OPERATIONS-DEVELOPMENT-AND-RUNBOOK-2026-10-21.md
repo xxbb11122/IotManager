@@ -128,4 +128,4 @@ node scripts/ops/backup-migrated-database.mjs run --config /private/migration.js
 
 新增 `Release Operations Simulation` 工作流在 GitHub 托管 Linux runner 执行；不注册正式 runner、不上传正式签名密钥、不调用外部 AI、不连接生产数据库。使用此前八镜像候选作为固定实验运行时，新工具源码单独记录工作流 SHA，不能把二者标为同一发布候选。
 
-本地已完成工作流语法及新工具单元测试；双数据库迁移、新备份链等实际 Docker 验证结果待本轮执行后补入。
+最终运维工具源码 c95fb447f95e46ec09e4d85061ff06b8d2f91e61 的 Linux 7/7 重点测试、实际双数据库迁移、新 S3 全量备份/WAL 恢复、恢复后业务权限指纹核对及资源清理已通过；同一提交的分支与 PR 严格 CI 也通过。完整证据、首次失败修复及真实接入待办见[本轮验收报告](RELEASE-OPERATIONS-ACCEPTANCE-2026-10-21.md)。
