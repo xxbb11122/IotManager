@@ -15,10 +15,12 @@ export IOT_RUNNER_HOME=/opt/iot-runner/attempt-001
 export IOT_RUNNER_ARCHIVE=/private/actions-runner-linux-x64.tar.gz
 export IOT_RUNNER_ARCHIVE_SHA256=<GitHub页面给出的完整哈希>
 export IOT_RUNNER_NAME=iot-recovery-001
+# 由管理端取得短期 registration token，经安全渠道设置到 VM 会话；
+# 不将管理员 PAT 或 gh 登录状态复制到 runner 主机。
 bash scripts/ops/recovery-runner.sh register
 ```
 
-先验证 archive 哈希，再解包到全新、位于源码目录之外的私有目录；临时注册 token 由 gh 取得，不输出。注册为单任务 ephemeral runner，附加 `iot-manager-recovery` 标签；GitHub 默认提供 `self-hosted/linux/x64`。随后以该账号启动生成目录中的 `run.sh`，每个任务结束后重新注册。预检通过不表示 runner 已注册或在线。
+先验证 archive 哈希，再解包到全新、位于源码目录之外的私有目录；管理端通过 `gh api --method POST repos/xxbb11122/IotManager/actions/runners/registration-token --jq .token` 取得短期 token，通过安全渠道设置 VM 的 `IOT_RUNNER_REGISTRATION_TOKEN`，不输出到公共日志。注册为单任务 ephemeral runner，附加 `iot-manager-recovery` 标签；GitHub 默认提供 `self-hosted/linux/x64`。随后按脚本输出的 `env -u ... run.sh` 命令启动，避免继承管理凭据；每个任务结束后重新注册。预检通过不表示 runner 已注册或在线。
 
 仓库为公开仓库，专用 VM 仅放经过批准的恢复源和所需权限；不用于普通 PR 构建，不与开发机共用 Docker socket。网络访问策略由 VM/网络管理员配置。恢复、回滚、Release Gate 新增托管 runner 上的源码检查：仅默认分支或允许的发布 tag；候选源码和工作流提交都必须已进入默认分支历史，再调度受保护主机。该检查覆盖这些发布入口，不能替代 GitHub 对其他工作流的访问管理。[GitHub runner 说明](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/add-runners)
 

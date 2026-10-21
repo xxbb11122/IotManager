@@ -39,7 +39,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Test guards, plans and real laboratory keystore
-        run: node --test scripts/ci/tests/release-operations.test.mjs scripts/ci/tests/android-signing-setup.test.mjs
+        run: node --test scripts/ci/tests/release-operations.test.mjs scripts/ci/tests/android-signing-setup.test.mjs scripts/ci/tests/recovery-runner-setup.test.mjs
       - name: Check Linux host prerequisites without registering a runner
         run: bash scripts/ops/recovery-runner.sh check
       - name: Download frozen laboratory image manifest

@@ -21,6 +21,7 @@ fi
 : "${IOT_RUNNER_ARCHIVE:?Official Linux x64 runner archive is required}"
 : "${IOT_RUNNER_ARCHIVE_SHA256:?Checksum copied from GitHub runner setup is required}"
 : "${IOT_RUNNER_NAME:?Unique runner name is required}"
+: "${IOT_RUNNER_REGISTRATION_TOKEN:?Supply a fresh short-lived registration token obtained on the administrator machine}"
 [[ "$IOT_RUNNER_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
 [[ "$IOT_RUNNER_NAME" =~ ^[A-Za-z0-9_-]{1,64}$ ]]
 [[ "$IOT_RUNNER_ARCHIVE_SHA256" =~ ^[a-f0-9]{64}$ ]]
@@ -38,13 +39,13 @@ mkdir -m 0700 "$runner_home"
 tar -xzf "$IOT_RUNNER_ARCHIVE" --no-same-owner -C "$runner_home"
 cd "$runner_home"
 test -x ./config.sh
-token="$(gh api --method POST "repos/$IOT_RUNNER_REPOSITORY/actions/runners/registration-token" --jq .token)"
+token="$IOT_RUNNER_REGISTRATION_TOKEN"
 test -n "$token"
-trap 'unset token' EXIT
+trap 'unset token IOT_RUNNER_REGISTRATION_TOKEN' EXIT
 if ! ./config.sh --unattended --ephemeral --url "https://github.com/$IOT_RUNNER_REPOSITORY" \
   --token "$token" --name "$IOT_RUNNER_NAME" --labels iot-manager-recovery --work _work > registration.private.log 2>&1; then
   echo 'Runner registration failed; inspect the mode-0600 registration.private.log locally.' >&2
   exit 1
 fi
-unset token GH_TOKEN GITHUB_TOKEN
-printf 'Registered one-job runner. Start %s/run.sh using the dedicated account. Re-register after each job.\n' "$runner_home"
+unset token IOT_RUNNER_REGISTRATION_TOKEN GH_TOKEN GITHUB_TOKEN
+printf 'Registered one-job runner. Use env -u GH_TOKEN -u GITHUB_TOKEN -u IOT_RUNNER_REGISTRATION_TOKEN %s/run.sh with the dedicated account. Re-register after each job.\n' "$runner_home"
