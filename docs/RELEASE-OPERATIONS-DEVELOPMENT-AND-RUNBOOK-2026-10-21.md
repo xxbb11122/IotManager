@@ -120,7 +120,7 @@ node scripts/ops/backup-migrated-database.mjs run --config /private/migration.js
   --output /private/new-chain-evidence-001
 ```
 
-该入口先重验迁移结果，核对 Compose 指向的就是新集群，且 PostgreSQL/WAL-G 三服务镜像及 S3 prefix 均匹配。随后复用真正的 immutable WAL-G 演练：新全量备份、命名恢复点、WAL 上传、另卷恢复、恢复点之后事务排除及恢复库读写，保留独立恢复项目供检查。该步骤会向新集群的专用演练 schema 写标记。检查结果后使用限定该 recoveryProject 的 Compose 命令清理；旧库/旧链不清理。
+该入口先重验迁移结果，核对 Compose 指向的就是新集群，且 PostgreSQL/WAL-G 三服务镜像及 S3 prefix 均匹配。随后复用真正的 immutable WAL-G 演练：新全量备份、命名恢复点、WAL 上传、另卷恢复、恢复点之后事务排除及恢复库读写；再将恢复实例的两个业务库、序列、大对象和权限与迁移导出清单完整比对，结果增加 `businessDataVerified=true`。比对仅排除工具保留的 `r1_recovery_drill` 演练 schema，保留独立恢复项目供检查。该步骤会向新集群的专用演练 schema 写标记。检查结果后使用限定该 recoveryProject 的 Compose 命令清理；旧库/旧链不清理。
 
 最后通过受保护工作流保留可信证据，完成应用登录、API、WSS、权限和数据冒烟后再批准切流。新库开始接受业务写入后，回退旧库需要数据同步方案；保留旧卷不代表无损回退。[PostgreSQL pg_dump](https://www.postgresql.org/docs/16/app-pgdump.html)、[pg_restore](https://www.postgresql.org/docs/16/app-pgrestore.html)
 

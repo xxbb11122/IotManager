@@ -118,6 +118,22 @@ async function inventory(config,host) {
   return {roles:json(host,'postgres',rolesSql,config.adminUser),databases};
 }
 export function sameInventory(source,target) { assert.deepEqual(target,source,'Database data, sequences, large objects, ownership, ACL, roles, extensions or indexes differ'); }
+function withoutDrillSchema(value) {
+  const copy=structuredClone(value);
+  for(const db of Object.values(copy.databases)) {
+    for(const [key,rows] of Object.entries(db))if(Array.isArray(rows))db[key]=rows.filter(row=>
+      row.schema!=='r1_recovery_drill' && row.nspname!=='r1_recovery_drill' && row.schemaname!=='r1_recovery_drill' &&
+      !String(row.relation??'').startsWith('r1_recovery_drill.') && !String(row.name??'').startsWith('r1_recovery_drill.'));
+    for(const key of Object.keys(db.data))if(key.startsWith('"r1_recovery_drill".'))delete db.data[key];
+  }
+  return copy;
+}
+export async function verifyRecoveredMigration(config,folder,recoveredContainer) {
+  const exported=JSON.parse(readFileSync(join(resolve(folder),'migration.json'),'utf8'));
+  assert.deepEqual(exported.config,config);
+  sameInventory(withoutDrillSchema(exported.source),withoutDrillSchema(await inventory(config,recoveredContainer)));
+  return {businessDataVerified:true,excludedSchema:'r1_recovery_drill'};
+}
 function emptyTargets(config) {
   for(const db of config.databases)assert.equal(Number(psql(config.targetContainer,db,"SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname !~ '^pg_' AND n.nspname<>'information_schema' AND c.relkind IN ('r','p','S','v','m','f')",config.adminUser)),0,'Target database must be empty; no automatic clean/drop is permitted');
 }

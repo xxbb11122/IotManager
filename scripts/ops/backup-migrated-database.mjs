@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {readFileSync,mkdirSync} from 'node:fs';
 import {resolve,join} from 'node:path';
 import {args,main,run,report,fail} from './common.mjs';
-import {migrate} from './postgres-migrate.mjs';
+import {migrate,verifyRecoveredMigration} from './postgres-migrate.mjs';
 
 // Reuse the actual base-backup + named-restore-point + WAL replay drill.
 // This intentionally changes only the new cluster's drill marker schema.
@@ -31,8 +31,12 @@ export async function backupMigrated(config,options) {
     '--digest-env-file',paths.images,'--release-candidate',paths.candidate,'--release-topology',paths.topology,'--release-services',paths.services],{env});
   const evidence=JSON.parse(readFileSync(join(output,'report.json'),'utf8'));
   assert.equal(evidence.status,'passed');
+  const recovered=run('docker',['ps','-q','--filter',`label=com.docker.compose.project=${recoveryProject}`,
+    '--filter','label=com.docker.compose.service=postgres']).trim();
+  assert.match(recovered,/^[a-f0-9]{12,64}$/,'Expected exactly one recovered PostgreSQL container');
+  const dataProof=await verifyRecoveredMigration(config,options.directory,recovered);
   return {status:'MIGRATION_AND_NEW_CHAIN_VERIFIED',productionApproved:false,id:config.id,newBackupPrefix:config.newBackupPrefix,recoveryProject,
-    report:join(output,'report.json'),next:'Retain protected release evidence and approve application smoke checks and traffic switch.'};
+    ...dataProof,report:join(output,'report.json'),next:'Retain protected release evidence and approve application smoke checks and traffic switch.'};
 }
 if(main(import.meta.url))try {
   const {command,options}=args();assert.equal(command,'run');
