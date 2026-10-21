@@ -7,4 +7,5 @@
     <string name="startup_recovery_icon">设备运营图标</string>
     <string name="startup_recovery_message">界面启动未完成，请重新加载。</string>
     <string name="startup_recovery_retry">重新加载</string>
+    <string name="startup_waiting_message">正在准备设备运营界面…</string>
 </resources>

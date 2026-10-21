@@ -535,7 +535,7 @@ class ClientUi {
     main.classList.remove('screen-region--motion-peer', 'screen-region--motion-forward', 'screen-region--motion-back', 'screen-region--motion-context');
     if (!this.motionPolicy.snapshot().animate) return;
     // Restoring the startup endpoint/site is hydration, not user navigation.
-    if (hint === 'context' && ['loading', 'syncing'].includes(this.model.startup.phase)) return;
+    if (hint === 'context' && ['loading', 'syncing', 'local_ui_ready', 'interactive'].includes(this.model.startup.phase)) return;
     const kind = navigationMotionKind(from, to, hint);
     if (!kind) return;
     // Restart only for another real navigation; a same-screen redraw keeps the main node intact.
@@ -1252,6 +1252,13 @@ class ClientUi {
     if (this.model.auth.error && this.model.auth.error !== issue) feedback.append(this.buildNotice(this.model.auth.error, 'danger', null, '登录状态'));
     const authPhase = { restoring: '正在恢复登录状态，平台控制暂不可用。', processing_callback: '正在校验登录回调，请稍候。', redirecting: '正在准备身份提供方登录页面。', signing_out: '本机已停止平台控制，正在完成退出。' }[this.model.auth.status];
     if (authPhase) feedback.append(this.buildNotice(authPhase, 'info', null, '登录状态'));
+    if (this.model.auth.status === 'configuration_pending') {
+      feedback.append(this.buildNotice('连接设置尚未确认，登录信息已保留。可重新读取已保存设置，或打开连接设置确认地址；平台控制暂不可用。', 'warning', null, '连接设置未确认'));
+      const retrying = this.isBusy('endpoint-recovery') || this.model.loading.endpointRecovery;
+      feedback.append(actionButton(retrying ? '正在读取…' : '重新读取已保存设置', 'retry-endpoint-settings', {
+        className: 'button button--secondary', disabled: retrying
+      }));
+    }
     const endpointPhase = { saving: '正在保存连接配置。', restoring_auth: '新端点已激活，正在恢复授权状态。', synchronizing: '正在同步新端点的站点、设备和天气；收到最新状态前保持只读。' }[this.model.loading.endpointPhase];
     if (endpointPhase) feedback.append(this.buildNotice(endpointPhase, 'info', null, '连接切换'));
     for (const notice of this.model.notices) feedback.append(this.buildNotice(notice.message, notice.tone ?? 'warning', null, '操作提示'));
@@ -1288,7 +1295,7 @@ class ClientUi {
     if (resource.error) surface.append(this.buildNotice(resource.error, 'warning', null, devices.length ? '保留已有设备' : '设备读取失败'));
     if (devices.length === 0) {
       const list = element('div', 'device-list device-list--cards', { data: { region: 'device-list' } });
-      const empty = element('div', 'empty-state');
+      const empty = element('div', 'empty-state empty-state--panel');
       const iconWrap = element('div', 'empty-state__icon', { ariaHidden: 'true' });
       iconWrap.append(icon('Boxes', 27));
       empty.append(iconWrap);
@@ -2273,6 +2280,7 @@ class ClientUi {
         className: `mode-button${value === current ? ' mode-button--selected' : ''}${disabled && value === current ? ' mode-button--pending' : ''}`,
         data: capabilityActionData(device, capability, option.value),
         disabled,
+        ariaPressed: String(value === current),
         ariaLabel: `设置 ${capability.label} 为 ${option.label}`
       }));
     });
@@ -2314,36 +2322,6 @@ class ClientUi {
       disabled
     }));
     row.append(heading);
-    return row;
-  }
-
-  buildLevelControl(device, capability, disabled) {
-    const reported = plainObject(device.reportedState ?? device.state);
-    const desired = plainObject(device.desiredState);
-    const stored = this.local.commandValues[`level:${deviceKey(device)}`];
-    const value = clampNumber(disabled
-      ? stored ?? desired.level ?? desired.brightness ?? reported.level ?? reported.brightness ?? 0
-      : reported.level ?? reported.brightness ?? 0, 0, 100);
-    const row = element('div', 'control-row');
-    const heading = element('div', 'control-row__heading');
-    const copy = element('div');
-    copy.append(element('h4', '', { text: capability.label ?? '强度' }));
-    copy.append(element('p', '', { text: '拖动后松开以发送新命令。' }));
-    heading.append(copy);
-    row.append(heading);
-    const rangeRow = element('div', 'range-row');
-    rangeRow.append(element('input', 'range-input', {
-      type: 'range',
-      min: '0',
-      max: '100',
-      step: '1',
-      value: String(value),
-      disabled,
-      data: { deviceId: deviceKey(device), commandType: capability.commandType ?? 'set_level', field: 'level' },
-      ariaLabel: `${capability.label ?? '强度'} ${value}%`
-    }));
-    rangeRow.append(element('output', `range-value${disabled ? ' range-value--pending' : ''}`, { text: `${value}%` }));
-    row.append(rangeRow);
     return row;
   }
 
@@ -2441,6 +2419,11 @@ class ClientUi {
     heading.append(openAll);
     surface.append(heading);
     const activities = this.activitiesForDevice(device).slice(0, limit);
+    const resource = this.model.resources.activity ?? {};
+    if (String(resource.entityId) === String(device.id)) {
+      if (resource.phase === 'loading' || resource.refreshing) surface.append(this.buildResourceMessage('正在读取动态…', true));
+      if (resource.error) surface.append(this.buildNotice(resource.error, 'warning', null, '动态读取失败'));
+    }
     const timeline = this.buildActivityTimeline(activities, `device:${deviceKey(device)}`, 'timeline');
     if (!activities.length) {
       surface.append(element('p', 'empty-inline', { text: '暂无活动记录。' }));
@@ -2491,7 +2474,10 @@ class ClientUi {
     const resource = this.model.resources.activity ?? {};
     if (resource.phase === 'loading' || resource.refreshing) surface.append(this.buildResourceMessage('正在读取动态…', true));
     if (resource.error) surface.append(this.buildNotice(resource.error, 'warning', null, '动态读取失败'));
-    const list = this.buildActivityTimeline(activities.slice(0, 30), `all:${this.model.context.siteCode}`, 'activity-list');
+    const list = this.buildActivityTimeline(resource.local ? activities : activities.slice(0, 30), `all:${this.model.context.siteCode}`, 'activity-list');
+    if (resource.local && resource.hasMore) surface.append(actionButton('加载更多本地动态', 'load-local-history', {
+      className: 'button button--secondary', data: { deviceId: resource.entityId }, disabled: Boolean(resource.refreshing)
+    }));
     if (!activities.length) {
       const empty = element('div', 'empty-state');
       const iconWrap = element('div', 'empty-state__icon', { ariaHidden: 'true' });
@@ -2732,6 +2718,9 @@ class ClientUi {
       case 'retry-command':
         this.invoke('retryCommand', { commandId: target.dataset.commandId, deviceId: target.dataset.deviceId }, { busy: 'retry-command' });
         break;
+      case 'load-local-history':
+        this.invoke('loadLocalHistory', { deviceId: target.dataset.deviceId }, { busy: 'load-local-history' });
+        break;
       case 'reconnect-realtime':
         this.invoke('reconnectRealtime', {}, { busy: 'reconnect-realtime' });
         break;
@@ -2792,6 +2781,9 @@ class ClientUi {
         break;
       case 'sign-in':
         this.invoke('signIn', {}, { busy: 'sign-in' });
+        break;
+      case 'retry-endpoint-settings':
+        this.invoke('retryEndpointConfiguration', {}, { busy: 'endpoint-recovery' });
         break;
       case 'sign-out':
         this.invoke('signOut', {}, { busy: 'sign-out' });

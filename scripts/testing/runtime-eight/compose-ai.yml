@@ -1,0 +1,34 @@
+# Test-only overlay, used after the normal integration stack has started.
+services:
+  ai-fixture:
+    image: node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
+    profiles: [application]
+    user: node
+    read_only: true
+    command: [node, /fixture/ai-fixture.mjs]
+    volumes:
+      - ${IOT_EIGHT_TOOLS:?set tools directory}:/fixture:ro
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [internal]
+  caddy:
+    volumes:
+      - ${IOT_EIGHT_ROOT:?set evidence directory}/Caddyfile:/etc/caddy/Caddyfile:ro
+    networks:
+      internal:
+        aliases: [ai-fixture.test]
+      egress: {}
+  backend:
+    environment:
+      IOT_AI_ENABLED: "true"
+      IOT_AI_KNOWLEDGE_ENABLED: "false"
+      IOT_AI_CHAT_PROVIDER: openai
+      IOT_AI_CHAT_BASE_URL: https://ai-fixture.test
+      IOT_AI_CHAT_COMPLETIONS_PATH: /chat/completions
+      IOT_AI_CHAT_MODEL: runtime-fixture
+      IOT_AI_ALLOWED_HOSTS: ai-fixture.test
+      IOT_AI_EMBEDDING_PROVIDER: none
+      JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/run/test-ca/fixture.p12 -Djavax.net.ssl.trustStorePassword=changeit
+    volumes:
+      - ${IOT_EIGHT_ROOT:?set evidence directory}/fixture.p12:/run/test-ca/fixture.p12:ro
+      - ${IOT_EIGHT_ROOT:?set evidence directory}/JvmZoneProbe.class:/run/test-probe/JvmZoneProbe.class:ro

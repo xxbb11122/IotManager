@@ -3,8 +3,9 @@ package com.iot.manager.ai;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.context.annotation.Bean;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Import;
@@ -26,6 +27,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.when;
 
+@AutoConfigureTestRestTemplate
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "iot.security.enabled=true",
         "iot.web.allowed-origins[0]=https://iot.example.test",
@@ -36,14 +38,14 @@ import static org.mockito.Mockito.when;
         "spring.ai.openai.embedding.base-url=https://example.test",
         "spring.ai.openai.chat.api-key=test-only-chat-key",
         "spring.ai.openai.embedding.api-key=test-only-embedding-key",
-        "spring.ai.openai.embedding.options.model=test-embedding"
+        "spring.ai.openai.embedding.model=test-embedding"
 })
 @ActiveProfiles("test")
 @Import(AiSecurityIntegrationTest.DecoderConfig.class)
 class AiSecurityIntegrationTest {
-    @MockBean org.springframework.ai.chat.model.ChatModel chatModel;
-    @MockBean org.springframework.ai.embedding.EmbeddingModel embeddingModel;
-    @MockBean AiChatService chatService;
+    @MockitoBean org.springframework.ai.chat.model.ChatModel chatModel;
+    @MockitoBean org.springframework.ai.embedding.EmbeddingModel embeddingModel;
+    @MockitoBean AiChatService chatService;
     @Autowired TestRestTemplate rest;
     @Autowired JdbcTemplate jdbc;
 

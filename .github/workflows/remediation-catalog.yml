@@ -1,0 +1,70 @@
+name: Remediation Dependency Catalog
+
+on:
+  push:
+    branches: ['codex/**']
+    paths: ['.github/workflows/remediation-catalog.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  registry-catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Resolve public upstream image identities
+        run: |
+          mkdir -p artifacts/remediation-catalog
+          node --input-type=module <<'NODE'
+          import { spawnSync } from 'node:child_process';
+          import { writeFileSync } from 'node:fs';
+          const references = [
+            'golang:1.26.10-bookworm', 'postgres:16-trixie', 'debian:trixie-slim',
+            'eclipse-temurin:17-jre-noble', 'quay.io/keycloak/keycloak:26.7.5',
+            'quay.io/keycloak/keycloak:26.8.1', 'alpine:3.24.2', 'postgres:16-alpine3.24'
+          ];
+          const results = references.map(reference => {
+            const result = spawnSync('docker', ['buildx', 'imagetools', 'inspect', reference,
+              '--format', '{{json .Manifest.Digest}}'], { encoding: 'utf8', timeout: 90000 });
+            const digest = result.stdout?.trim().replaceAll('"', '');
+            return { reference, digest: /^sha256:[a-f0-9]{64}$/.test(digest) ? digest : null,
+              passed: result.status === 0 && /^sha256:[a-f0-9]{64}$/.test(digest),
+              error: result.status === 0 ? null : (result.stderr || result.error?.message || 'inspect failed').slice(-2000) };
+          });
+          writeFileSync('artifacts/remediation-catalog/images.json', JSON.stringify({
+            sourceSha: process.env.GITHUB_SHA, runId: process.env.GITHUB_RUN_ID,
+            generatedAt: new Date().toISOString(), productionApproved: false, results
+          }, null, 2) + '\n');
+          console.log(JSON.stringify(results));
+          if (results.some(result => !result.passed)) process.exitCode = 1;
+          NODE
+      - name: Inspect the maintained PG16 Alpine ABI before migration
+        run: |
+          set -euo pipefail
+          image="$(node -e 'const j=require("./artifacts/remediation-catalog/images.json");const r=j.results.find(r=>r.reference==="postgres:16-alpine3.24");if(!r?.passed)process.exit(1);console.log(r.reference+"@"+r.digest)')"
+          docker run --rm --entrypoint /bin/sh "$image" -ec '
+            cat /etc/alpine-release
+            id postgres
+            pg_config --bindir --libdir --pkglibdir --sharedir
+            ldd /usr/local/bin/psql
+            ldd /usr/local/lib/libpq.so.5
+            apk info
+          ' > artifacts/remediation-catalog/postgres-alpine-abi.txt
+      - uses: aquasecurity/setup-trivy@e6c2c5e321ed9123bda567646e2f96565e34abe1
+        with:
+          version: v0.70.0
+          cache: true
+      - name: Scan the unmodified Alpine supplier image
+        run: |
+          set -euo pipefail
+          image="$(node -e 'const r=require("./artifacts/remediation-catalog/images.json").results.find(r=>r.reference==="postgres:16-alpine3.24");console.log(r.reference+"@"+r.digest)')"
+          trivy image --scanners vuln --severity HIGH,CRITICAL --format json --output artifacts/remediation-catalog/postgres-alpine-scan.json "$image"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ always() }}
+        with:
+          name: remediation-catalog-${{ github.run_id }}
+          path: artifacts/remediation-catalog/
+          if-no-files-found: error
+          retention-days: 30

@@ -19,8 +19,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.ai.openai.embedding.base-url=https://example.test",
         "spring.ai.openai.chat.api-key=test-only-chat-key",
         "spring.ai.openai.embedding.api-key=test-only-embedding-key",
-        "spring.ai.openai.chat.options.model=test-chat",
-        "spring.ai.openai.embedding.options.model=test-embedding"
+        "spring.ai.openai.chat.model=test-chat",
+        "spring.ai.openai.embedding.model=test-embedding"
 })
 @ActiveProfiles("test")
 class AiAutoConfigurationTest {

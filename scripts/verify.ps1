@@ -133,7 +133,7 @@ function Invoke-MavenJdkCheck {
     $script:mavenWrapper = Get-MavenWrapperPath
     $mavenVersion = (& $script:mavenWrapper --version 2>&1 | Out-String)
     if ($LASTEXITCODE -ne 0) {
-        throw "Unable to inspect Maven Wrapper (exit code $LASTEXITCODE)."
+        throw "Unable to inspect Maven Wrapper (exit code $LASTEXITCODE):`n$mavenVersion"
     }
     $mavenMatch = [regex]::Match($mavenVersion, '(?m)^Apache Maven (\d+)\.(\d+)\.(\d+)')
     if (-not $mavenMatch.Success) {
@@ -344,7 +344,7 @@ function Invoke-WebPlaywrightTests {
             'e2e/mobile-offline-recovery.spec.js', 'e2e/motion-interruptions.spec.js',
             'e2e/motion-preview-visuals.spec.js', 'e2e/motion-preview.spec.js',
             'e2e/motion-render-integrity.spec.js', 'e2e/motion-states.spec.js',
-            'e2e/refresh-stability.spec.js', 'e2e/startup-animation.spec.js')
+            'e2e/refresh-stability.spec.js', 'e2e/startup-animation.spec.js', 'e2e/startup-session-recovery.spec.js', 'e2e/material-contract.spec.js')
     }
     $previousErrorActionPreference = $ErrorActionPreference
     [int]$exitCode = 0
@@ -415,6 +415,7 @@ if (-not $SkipWeb) {
         Write-Host "==> ${app}: install and build"
         Invoke-InDirectory $app {
             Invoke-Native "$app npm ci" { npm ci }
+            Invoke-Native "$app complete dependency security audit" { npm audit --audit-level=high --registry=https://registry.npmjs.org }
             if ($app -eq 'client') {
                 Invoke-ClientUnitTests
                 Invoke-ClientPlaywrightTests

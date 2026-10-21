@@ -1,0 +1,230 @@
+name: Isolated Immutable Runtime Simulation
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact laboratory source commit
+        type: string
+        required: true
+      image_run_id:
+        description: Completed eight-image producer run
+        type: string
+        required: true
+      release_candidate_id:
+        description: Candidate ID bound to that image manifest
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+  packages: read
+
+concurrency:
+  group: immutable-simulation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  immutable-lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      # Frozen laboratory inputs, deliberately independent of Release Gate.
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      IMAGE_RUN_ID: ${{ inputs.image_run_id }}
+      CANDIDATE_ID: ${{ inputs.release_candidate_id }}
+      IOT_INTEGRATION_STORAGE_MODE: s3
+      IOT_COMPOSE_PROJECT: iot-manager-immutable-sim-${{ github.run_id }}
+      IOT_ENABLE_OBSERVABILITY: 'true'
+      # Required by inspection in this frozen pre-fix candidate as well as startup.
+      COMPOSE_PROFILES: application,observability
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+      - name: Assert frozen laboratory source
+        run: bash scripts/ci/assert-source-checkout.sh --source-sha "$SOURCE_SHA"
+      - name: Wait for the actual eight-image manifest
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release artifacts/simulation
+          for attempt in $(seq 1 40); do
+            artifact_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$IMAGE_RUN_ID/artifacts" --jq ".artifacts[] | select(.name == \"image-manifest-$CANDIDATE_ID\") | .id")"
+            if [[ -n "$artifact_id" ]]; then
+              gh run download "$IMAGE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "image-manifest-$CANDIDATE_ID" --dir artifacts/release
+              break
+            fi
+            sleep 15
+          done
+          test -s artifacts/release/image-digests.json
+      - name: Validate actual manifest and reject changed source or checksum
+        run: |
+          set -euo pipefail
+          validation=(node scripts/ci/release-tools.mjs validate-digest-manifest --candidate artifacts/release/release-candidate.json --topology artifacts/release/release-topology.json --services artifacts/release/release-services.json --manifest artifacts/release/image-digests.json --expected-source-sha "$SOURCE_SHA" --expected-release-candidate-id "$CANDIDATE_ID")
+          "${validation[@]}"
+          if "${validation[@]}" --expected-source-sha 0000000000000000000000000000000000000000 > artifacts/simulation/wrong-source-rejection.txt 2>&1; then
+            echo 'Wrong source was accepted' >&2; exit 1
+          fi
+          cp artifacts/release/image-digests.json artifacts/simulation/tampered-digests.json
+          printf '\n ' >> artifacts/simulation/tampered-digests.json
+          expected="$(sha256sum artifacts/release/image-digests.json | cut -d' ' -f1)"
+          if "${validation[@]}" --manifest artifacts/simulation/tampered-digests.json --expected-manifest-sha256 "$expected" > artifacts/simulation/tampered-manifest-rejection.txt 2>&1; then
+            echo 'Changed manifest checksum was accepted' >&2; exit 1
+          fi
+      - name: Pull immutable digests without changing the scan verdict
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          while IFS=$'\t' read -r artifact_id image_ref; do
+            docker pull "$image_ref"
+          done < <(bash scripts/ci/list-digest-artifacts.sh --manifest artifacts/release/image-digests.json)
+      - name: Start the exact candidate and verify all 12 runtime services
+        run: |
+          set -euo pipefail
+          export IOT_ENVIRONMENT_FILE="$GITHUB_WORKSPACE/deploy/.env.integration"
+          export IOT_RUNTIME_STATE_FILE="$GITHUB_WORKSPACE/deploy/.runtime/$IOT_COMPOSE_PROJECT/runtime.env"
+          export IOT_SECRET_DIR="$GITHUB_WORKSPACE/deploy/.runtime/$IOT_COMPOSE_PROJECT/secrets"
+          export IOT_RUNTIME_DIGEST_EVIDENCE_FILE="$GITHUB_WORKSPACE/artifacts/simulation/runtime-service-digests.json"
+          export IOT_SOURCE_SHA="$SOURCE_SHA" IOT_RELEASE_CANDIDATE_ID="$CANDIDATE_ID"
+          export IOT_IMAGE_MANIFEST_SHA256="$(sha256sum artifacts/release/image-digests.json | cut -d' ' -f1)"
+          cp deploy/.env.integration.example deploy/.env.integration
+          # Start this disposable repository before PostgreSQL, so every WAL
+          # segment for subsequent base backups belongs to the same repository.
+          docker network create --label "com.docker.compose.project=$IOT_COMPOSE_PROJECT" --label com.docker.compose.network=egress "${IOT_COMPOSE_PROJECT}_egress"
+          docker run -d --name "iot-immutable-s3-$GITHUB_RUN_ID" --network "${IOT_COMPOSE_PROJECT}_egress" --network-alias lab-s3 \
+            --label "iot.lab.run=$GITHUB_RUN_ID" -p 127.0.0.1:19000:9000 -e MOTO_PORT=9000 -e S3_IGNORE_SUBDOMAIN_BUCKETNAME=true \
+            motoserver/moto:5.1.14@sha256:800719627036dc38dc699e9f314f624f2c98ac3d8bb754db078cb2698f08ee77
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:19000/ >/dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent --request PUT http://127.0.0.1:19000/iot-isolated-lab >/dev/null
+          cat >> deploy/.env.integration <<EOF
+          WALG_STORAGE_MODE=s3
+          WALG_S3_PREFIX=s3://iot-isolated-lab/$GITHUB_RUN_ID
+          AWS_ENDPOINT=http://lab-s3:9000
+          AWS_REGION=us-east-1
+          AWS_S3_FORCE_PATH_STYLE=true
+          EOF
+          # The committed overlay selects S3; integration.yml is never rewritten.
+          sha256sum deploy/docker-compose.integration.yml deploy/docker-compose.integration.s3.yml > artifacts/simulation/storage-fixture.sha256
+          bash scripts/runtime/start-integration.sh --verify --mode immutable \
+            --digest-manifest artifacts/release/image-digests.json \
+            --digest-env-file artifacts/release/image-digests.env \
+            --release-services artifacts/release/release-services.json \
+            --release-candidate artifacts/release/release-candidate.json \
+            --release-topology artifacts/release/release-topology.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          const evidence=JSON.parse(fs.readFileSync('artifacts/simulation/runtime-service-digests.json'));
+          assert.equal(evidence.status,'PASS');
+          assert.equal(evidence.verifiedServiceCount,12);
+          fs.writeFileSync('artifacts/simulation/summary.json',JSON.stringify({passed:true,sourceSha:process.env.SOURCE_SHA,
+            imageProducerRunId:process.env.IMAGE_RUN_ID,candidateId:process.env.CANDIDATE_ID,
+            productionApproved:false,verifiedRuntimeServices:12,negativeChecks:2,
+            boundaries:['Isolated GitHub runner; no protected production recovery environment',
+              'Runtime result does not approve or override image vulnerability scan results']},null,2)+'\n');
+          NODE
+      - name: Check out the laboratory recovery driver
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          path: simulation-tools
+          persist-credentials: false
+      - name: Prove cleanup-then-PITR, 13 service digests and recovery rejection
+        run: bash simulation-tools/scripts/validation/immutable-recovery-simulation.sh
+      - name: Verify WAL-G encryption rejection on the actual candidate digest
+        run: bash simulation-tools/scripts/validation/walg-encryption-simulation.sh
+      - name: Remove only this disposable project and verify cleanup
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          expected_project="iot-manager-immutable-sim-$GITHUB_RUN_ID"
+          test "$IOT_COMPOSE_PROJECT" = "$expected_project"
+          fixture="iot-immutable-s3-$GITHUB_RUN_ID"
+          if docker container inspect "$fixture" >/dev/null 2>&1; then
+            test "$(docker inspect --format '{{index .Config.Labels "iot.lab.run"}}' "$fixture")" = "$GITHUB_RUN_ID"
+            docker rm -f "$fixture"
+          fi
+          docker ps -aq --filter "label=com.docker.compose.project=$expected_project" | xargs -r docker rm -f
+          docker volume ls -q --filter "label=com.docker.compose.project=$expected_project" | xargs -r docker volume rm
+          docker network ls -q --filter "label=com.docker.compose.project=$expected_project" | xargs -r docker network rm
+          test -z "$(docker ps -aq --filter "label=com.docker.compose.project=$expected_project")"
+          test -z "$(docker volume ls -q --filter "label=com.docker.compose.project=$expected_project")"
+          test -z "$(docker network ls -q --filter "label=com.docker.compose.project=$expected_project")"
+          printf '{"passed":true,"containersRemaining":0,"volumesRemaining":0,"networksRemaining":0}\n' > artifacts/simulation/cleanup.json
+          rm -rf "deploy/.runtime/$expected_project"
+      - name: Upload public simulation evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: immutable-simulation-${{ github.run_id }}
+          path: |
+            artifacts/release/
+            artifacts/simulation/
+          if-no-files-found: error
+          retention-days: 30
+
+  alert-api-lab:
+    env:
+      IMAGE_RUN_ID: ${{ inputs.image_run_id }}
+      CANDIDATE_ID: ${{ inputs.release_candidate_id }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Fetch actual candidate manifest and run internal alert lifecycle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download "$IMAGE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "image-manifest-$CANDIDATE_ID" --dir artifacts/alert-image
+          image="$(node scripts/ci/release-tools.mjs list-digest-artifacts --manifest artifacts/alert-image/image-digests.json | awk -F '\t' '$1 == "IMG-R06" { print $2 }')"
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker pull "$image"
+          node scripts/validation/alert-api-simulation.mjs --image "$image" --output artifacts/alert-simulation
+      - name: Upload internal alert simulation results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: alert-api-simulation-${{ github.run_id }}
+          path: artifacts/alert-simulation/
+          if-no-files-found: error
+          retention-days: 30
+
+  postgres-abi-lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      IMAGE_RUN_ID: ${{ inputs.image_run_id }}
+      CANDIDATE_ID: ${{ inputs.release_candidate_id }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Verify candidate identity and pull only immutable laboratory images
+        run: |
+          set -euo pipefail
+          gh run download "$IMAGE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "image-manifest-$CANDIDATE_ID" --dir artifacts/release
+          node scripts/ci/release-tools.mjs validate-digest-manifest --candidate artifacts/release/release-candidate.json --topology artifacts/release/release-topology.json --services artifacts/release/release-services.json --manifest artifacts/release/image-digests.json --expected-source-sha "$SOURCE_SHA" --expected-release-candidate-id "$CANDIDATE_ID"
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Refuse the old physical volume and restore into a fresh musl cluster
+        run: bash scripts/validation/postgres-abi-migration-simulation.sh
+      - name: Upload migration and unchanged-volume evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: postgres-abi-simulation-${{ github.run_id }}
+          path: artifacts/simulation/postgres-abi/
+          if-no-files-found: error
+          retention-days: 30

@@ -72,10 +72,10 @@ try {
     '--approved-repository', 'xxbb11122/IotManager',
     '--approved-producer-path', '.github/workflows/image-security.yml',
     '--approved-caller-path', '.github/workflows/release-gate.yml',
-    '--allowed-event', 'workflow_call',
+    '--allowed-event', 'push', '--allowed-event', 'workflow_dispatch',
     '--allowed-invocation-mode', 'orchestrated-reusable',
     '--producer-repository', 'xxbb11122/IotManager',
-    '--producer-event', 'workflow_call',
+    '--producer-event', 'workflow_dispatch',
     '--invocation-mode', 'orchestrated-reusable',
     '--caller-repository', 'xxbb11122/IotManager',
     '--caller-workflow-ref-raw', 'xxbb11122/IotManager/.github/workflows/release-gate.yml@refs/heads/main',
@@ -97,6 +97,16 @@ try {
     '--release-candidate-id', candidateId
   ];
   assert.equal(run('validate-trusted-producer', trustedArguments), 'TRUSTED');
+
+  for (const event of ['push', 'workflow_dispatch', 'pull_request', 'workflow_call']) {
+    const inheritedEvent = [...trustedArguments];
+    inheritedEvent[inheritedEvent.indexOf('--producer-event') + 1] = event;
+    const allowed = ['push', 'workflow_dispatch'].includes(event);
+    assert.equal(run('validate-trusted-producer', inheritedEvent, allowed ? 0 : 1), allowed ? 'TRUSTED' : 'UNTRUSTED_EVENT');
+  }
+  const standaloneDispatch = [...trustedArguments];
+  standaloneDispatch[standaloneDispatch.indexOf('--invocation-mode') + 1] = 'protected-fallback-dispatch';
+  assert.equal(run('validate-trusted-producer', standaloneDispatch, 1), 'UNTRUSTED_EVENT');
 
   const invalidTrusted = [...trustedArguments];
   invalidTrusted[invalidTrusted.indexOf('--producer-workflow-identity') + 1] = 'xxbb11122/IotManager/.github/workflows/image-security.yml@' + 'e'.repeat(40);
@@ -123,6 +133,26 @@ try {
     '--image', 'ghcr.io/example/backend@' + digest,
     '--cve', 'CVE-2099-0001'
   ]), 'APPROVED_VEX');
+
+  const evidenceVexDirectory = path.join(temporaryRoot, 'evidence-vex');
+  const proofFile = writeJson(path.join('evidence-vex', 'proof.json'), {
+    schemaVersion: 1, artifact: 'IMG-R01', imageDigest: digest, sourceSha,
+    cve: 'CVE-2099-0001', conclusion: 'not_affected', passed: true,
+    checks: [{name: 'Synthetic runtime proof fixture', passed: true}],
+    upstreamReferences: ['https://example.test/advisory']
+  });
+  writeJson(path.join('evidence-vex', 'decision.json'), {
+    schemaVersion: 2, artifact: 'IMG-R01', imageDigest: digest, sourceSha,
+    cve: 'CVE-2099-0001', status: 'not_affected', reason: 'Synthetic test fixture only',
+    preparedBy: 'fixture-author', approvedBy: 'fixture-reviewer',
+    approvedAt: '2026-01-01T00:00:00Z', expiresAt: '2099-01-01T00:00:00Z', trackingIssue: 'TEST-1',
+    approvalUrl: 'https://github.com/example/test/pull/1#pullrequestreview-1',
+    evidence: [{path: 'proof.json', sha256: sha256File(proofFile)}]
+  });
+  const evidenceVexArguments = ['--vex-dir', evidenceVexDirectory, '--artifact-id', 'IMG-R01',
+    '--image', 'ghcr.io/example/backend@' + digest, '--cve', 'CVE-2099-0001', '--source-sha', sourceSha];
+  assert.equal(run('validate-vex', evidenceVexArguments), 'APPROVED_VEX');
+  assert.equal(run('validate-vex', [...evidenceVexArguments.slice(0, -1), 'd'.repeat(40)], 1), 'NO_VALID_VEX');
 
   const stageFile = path.join(temporaryRoot, 'stage-image.json');
   run('write-stage-result', [
@@ -165,7 +195,7 @@ try {
     schemaVersion: 1,
     artifacts: artifactIds.map((artifactId, index) => ({
       artifactId,
-      origin: index < 6 ? 'built' : 'external',
+      origin: index < 7 ? 'built' : 'external',
       image: 'ghcr.io/example/' + artifactId.toLowerCase() + '@' + digest
     }))
   });
@@ -193,8 +223,61 @@ try {
     sourceSha,
     topologySha256: sha256File(topologyFile),
     servicesSha256: sha256File(servicesFile),
-    expected: { artifacts: 8, buildableArtifacts: 6, normalRuntimeServices: 12, recoveryAddedServices: 1, releaseCandidateServices: 13 }
+    expected: { artifacts: 8, buildableArtifacts: 7, normalRuntimeServices: 12, recoveryAddedServices: 1, releaseCandidateServices: 13 }
   });
+  // Stub only Docker at the process boundary: the real CLI must create a
+  // previously absent metadata parent before invoking Buildx on a fresh runner.
+  const dockerStub = path.join(temporaryRoot, 'docker-boundary-stub.mjs');
+  fs.writeFileSync(dockerStub, `
+    import cp from 'node:child_process';
+    import fs from 'node:fs';
+    import path from 'node:path';
+    import {syncBuiltinESMExports} from 'node:module';
+    cp.spawnSync = (command, args) => {
+      if (command !== 'docker' || args[0] !== 'buildx') throw new Error('Unexpected external command');
+      if (args[1] === 'imagetools') return {status:0, stdout:JSON.stringify(${JSON.stringify(digest)}), stderr:''};
+      const metadata = args[args.indexOf('--metadata-file') + 1];
+      if (!fs.existsSync(path.dirname(metadata))) return {status:42, stderr:'Missing Buildx metadata parent'};
+      fs.writeFileSync(metadata, JSON.stringify({backend:{'containerimage.digest':${JSON.stringify(digest)}}}));
+      return {status:0, stdout:'', stderr:''};
+    };
+    syncBuiltinESMExports();
+  `);
+  const buildOutput = path.join(temporaryRoot, 'fresh-runner', 'image-build', 'IMG-R01.json');
+  const stubBuild = spawnSync(process.execPath, ['--import', new URL('file:///' + dockerStub.replaceAll('\\', '/')).href,
+    tool, 'build-image', '--artifact-id', 'IMG-R01', '--candidate', strictCandidateFile, '--topology', topologyFile,
+    '--registry', 'ghcr.io/unit-test-only', '--tag', 'fixture', '--push', 'true', '--output', buildOutput],
+    {cwd:repositoryRoot, encoding:'utf8'});
+  assert.equal(stubBuild.status, 0, stubBuild.stderr);
+  assert.equal(JSON.parse(fs.readFileSync(buildOutput, 'utf8')).digest, digest);
+  assert.ok(fs.existsSync(buildOutput + '.sha256'));
+
+  fs.writeFileSync(dockerStub, `
+    import cp from 'node:child_process';
+    import {syncBuiltinESMExports} from 'node:module';
+    cp.spawnSync = (command, args) => {
+      if(command !== 'docker') throw Error('Unexpected command');
+      if(args[0] === 'compose') {
+        if(!args.some((v,i)=>v==='--profile'&&args[i+1]==='application') ||
+           !args.some((v,i)=>v==='--profile'&&args[i+1]==='observability')) return {status:1,stderr:'no such service: backend'};
+        return {status:0,stdout:'fixture-container'};
+      }
+      if(args[0] === 'inspect') return {status:0,stdout:JSON.stringify([{Image:'fixture-image',
+        Config:{Image:'ghcr.io/unit-test-only@'+${JSON.stringify(digest)}},State:{Status:'running',Health:{Status:'healthy'}}}])};
+      if(args[0] === 'image') return {status:0,stdout:'[]'};
+      throw Error('Unexpected Docker command');
+    };
+    syncBuiltinESMExports();
+  `);
+  const inspectionManifest=writeJson('inspection-manifest.json',{artifacts:artifactIds.map(artifactId=>({artifactId,immutableRef:'ghcr.io/unit-test-only@'+digest}))});
+  const inspection=spawnSync(process.execPath,['--import',new URL('file:///' + dockerStub.replaceAll('\\','/')).href,
+    tool,'verify-service-digests','--phase','runtime','--project','unit-test-only',
+    '--env',topologyFile,'--base-compose',topologyFile,'--runtime-compose',topologyFile,
+    '--services',servicesFile,'--manifest',inspectionManifest,'--output',path.join(temporaryRoot,'inspection.json')],
+    {cwd:repositoryRoot,encoding:'utf8'});
+  assert.equal(inspection.status,0,inspection.stderr);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(temporaryRoot,'inspection.json'),'utf8')).verifiedServiceCount,12);
+
   const strictManifestFile = writeJson('strict-image-digests.json', {
     schemaVersion: 1,
     releaseCandidateId: candidateId,
@@ -202,7 +285,7 @@ try {
     topologySha256: sha256File(topologyFile),
     artifacts: artifactIds.map((artifactId, index) => ({
       artifactId,
-      origin: index < 6 ? 'built' : 'external',
+      origin: index < 7 ? 'built' : 'external',
       immutableRef: 'ghcr.io/example/' + artifactId.toLowerCase() + '@' + digest
     }))
   });
@@ -216,6 +299,25 @@ try {
     '--expected-source-sha', sourceSha
   ]), /"status":"PASS"/);
 
+  const legacyTopology = JSON.parse(fs.readFileSync(topologyFile, 'utf8'));
+  legacyTopology.artifacts.find(row => row.artifactId === 'IMG-R07').origin = 'external';
+  const legacyTopologyFile = writeJson('legacy-topology.json', legacyTopology);
+  const legacyManifest = JSON.parse(fs.readFileSync(strictManifestFile, 'utf8'));
+  legacyManifest.topologySha256 = sha256File(legacyTopologyFile);
+  legacyManifest.artifacts.find(row => row.artifactId === 'IMG-R07').origin = 'external';
+  const legacyManifestFile = writeJson('legacy-manifest.json', legacyManifest);
+  const legacyCandidate = JSON.parse(fs.readFileSync(strictCandidateFile, 'utf8'));
+  legacyCandidate.topologySha256 = sha256File(legacyTopologyFile);
+  legacyCandidate.expected.buildableArtifacts = 6;
+  const legacyCandidateFile = writeJson('legacy-candidate.json', legacyCandidate);
+  const legacyArguments = ['--candidate', legacyCandidateFile, '--topology', legacyTopologyFile,
+    '--services', servicesFile, '--manifest', legacyManifestFile];
+  run('validate-digest-manifest', legacyArguments, 65);
+  assert.match(run('validate-digest-manifest', [...legacyArguments, '--allow-legacy-external-backup', 'true']), /"legacyBackupRollback":true/);
+  legacyManifest.artifacts.find(row => row.artifactId === 'IMG-R06').origin = 'external';
+  writeJson('legacy-manifest.json', legacyManifest);
+  run('validate-digest-manifest', [...legacyArguments, '--allow-legacy-external-backup', 'true'], 65);
+
   const highReportFile = writeJson('high-report.json', {
     Results: [{ Vulnerabilities: [{ VulnerabilityID: 'CVE-2099-0001', Severity: 'HIGH' }] }]
   });
@@ -228,6 +330,12 @@ try {
     '--vex-dir', vexDirectory,
     '--scanner-exit-code', '0',
     '--output', vexScanFile
+  ]), /"status":"APPROVED_VEX"/);
+
+  assert.match(run('create-image-scan-result', [
+    '--candidate', strictCandidateFile, '--manifest', strictManifestFile, '--artifact-id', 'IMG-R01',
+    '--report', highReportFile, '--vex-dir', evidenceVexDirectory, '--scanner-exit-code', '0',
+    '--output', path.join(temporaryRoot, 'evidence-vex-scan.json')
   ]), /"status":"APPROVED_VEX"/);
 
   const runtimeEvidenceFile = writeJson('runtime-evidence.json', {
@@ -383,7 +491,7 @@ try {
 
   const buildResultsDirectory = path.join(temporaryRoot, 'build-results');
   fs.mkdirSync(buildResultsDirectory);
-  for (const artifactId of artifactIds.slice(0, 6)) {
+  for (const artifactId of artifactIds.slice(0, 7)) {
     const resultFile = writeJson(path.join('build-results', artifactId + '.json'), {
       artifactId,
       status: 'PASS',

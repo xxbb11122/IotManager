@@ -21,6 +21,7 @@
             android:src="@mipmap/ic_launcher_foreground" />
 
         <TextView
+            android:id="@+id/startup_message"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
@@ -32,6 +33,7 @@
             android:id="@+id/startup_retry"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:minHeight="48dp"
             android:layout_marginTop="18dp"
             android:text="@string/startup_recovery_retry" />
     </LinearLayout>

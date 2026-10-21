@@ -19,6 +19,7 @@ const expectedVersionCode = Number(process.env.IOT_RELEASE_VERSION_CODE ?? gradl
 assert.ok(Number.isSafeInteger(expectedVersionCode) && expectedVersionCode > 0, 'A valid expected Android version code is required');
 const appId = 'com.iot.manager.glassnext', port = 9224, reversePort = 18891;
 const results = [];
+const expectedChecks = 18;
 let browser, page, originalPreferencesXml, mock, originalChromeFlags, browserFixture = false, forwarded = false, reversed = false;
 let installedApkSha256 = null;
 let preferencesWritten = false;
@@ -41,7 +42,16 @@ const keyboardShown = () => /mInputShown=true/.test(adb('shell', 'dumpsys input_
 async function enableNetwork() {
   adb('shell', 'svc', 'wifi', 'enable');
   adb('shell', 'svc', 'data', 'enable');
-  for (let i = 0; i < 20; i++) {
+  // Android enables Wi-Fi asynchronously. Associate only after that state is
+  // visible, and bound this pre-launch fixture setup independently of the
+  // App's unchanged 8-second startup budget.
+  const deadline = Date.now() + 30000;
+  let associated = false;
+  while (Date.now() < deadline) {
+    if (!associated && /^Wifi is enabled$/m.test(adb('shell', 'cmd', 'wifi', 'status'))) {
+      adb('shell', 'cmd', 'wifi', 'connect-network', 'AndroidWifi', 'open');
+      associated = true;
+    }
     if (/inet\s+10\.0\.2\./.test(adb('shell', 'ip', '-4', 'addr'))) return;
     await delay(250);
   }
@@ -59,7 +69,9 @@ async function connect() {
   assert.ok(socket, 'Debug WebView socket must exist');
   adb('forward', 'tcp:' + port, 'localabstract:' + socket);
   forwarded = true;
-  browser = await chromium.connectOverCDP('http://127.0.0.1:' + port);
+  // Android WebView exposes a default context but does not implement browser
+  // context download management. Attach without changing context defaults.
+  browser = await chromium.connectOverCDP('http://127.0.0.1:' + port, { noDefaults: true });
   page = browser.contexts().flatMap(context => context.pages()).find(item => item.url() === 'https://localhost/');
   assert.ok(page, 'Only the packaged local App is accepted');
   expect.setTimeout?.(15000);
@@ -69,7 +81,13 @@ async function screenshot(name) {
   // DOM assertions may complete before WebView and SurfaceFlinger paint the
   // glass and navigation transitions. Capture their settled native frame.
   if (page && !page.isClosed()) {
-    await page.evaluate(() => new Promise(resolveFrame => requestAnimationFrame(() => requestAnimationFrame(resolveFrame))));
+    await Promise.race([
+      page.evaluate(() => new Promise(resolveFrame => {
+        if (document.hidden) return resolveFrame();
+        requestAnimationFrame(() => requestAnimationFrame(resolveFrame));
+      })),
+      delay(1500)
+    ]);
     await delay(600);
   }
   const value = spawnSync(adbPath, ['-s', serial, 'exec-out', 'screencap', '-p'], {
@@ -119,10 +137,27 @@ try {
   writePreferencesXml(fixtureXml);
   preferencesWritten = true;
   await enableNetwork();
+  // Chromium's documented emulator test flags avoid account onboarding. No
+  // browser account, terms dialog, trust setting or security feature is changed.
+  const priorFlags = spawnSync(adbPath, ['-s', serial, 'shell', 'cat', '/data/local/tmp/chrome-command-line'], { encoding: 'utf8', windowsHide: true });
+  originalChromeFlags = priorFlags.status === 0 ? priorFlags.stdout : null;
+  const flagsWrite = spawnSync(adbPath, ['-s', serial, 'shell', 'tee', '/data/local/tmp/chrome-command-line'], {
+    input: 'chrome --disable-fre --no-first-run --no-default-browser-check\n', encoding: 'utf8', windowsHide: true });
+  if (flagsWrite.status !== 0) throw new Error('Cannot configure the emulator browser fixture');
+  browserFixture = true;
+  adb('shell', 'am', 'set-debug-app', '--persistent', 'com.android.chrome');
+  adb('shell', 'am', 'force-stop', 'com.android.chrome');
+  // Stop Chrome before Capacitor binds its custom-tabs service, otherwise
+  // the active client/session binder belongs to the killed browser process.
   adb('shell', 'am', 'start', '-n', appId + '/.MainActivity');
   adb('shell', 'wm', 'user-rotation', 'lock', '0');
   await connect();
   await expect.poll(() => page.evaluate(() => innerHeight > innerWidth), { timeout: 15000 }).toBe(true);
+  // Complete the setup launch before corrupting its saved profile. Bootstrap
+  // persists the confirmed profile after reveal; seeding earlier lets that
+  // legitimate write overwrite the failure fixture in a faster emulator.
+  await expect(page.locator('html')).toHaveAttribute('data-startup-phase', 'interactive', { timeout: 15000 });
+  await page.evaluate(() => window.Capacitor.Plugins.Preferences.get({ key: 'iot-manager.active-endpoint.v1' }));
   originalSecureValues = await page.evaluate(async () => {
     const values = {};
     for (const key of ['iot-manager.oidc-session.v1', 'iot-manager.oidc-transaction.v1'])
@@ -135,18 +170,53 @@ try {
       expiresAt: Date.now() + 3600000, issuerUrl: 'http://127.0.0.1:18891/mock-oidc', clientId: 'native-ai-smoke'
     }) });
     await window.Capacitor.Plugins.SecureSession.remove({ key: 'iot-manager.oidc-transaction.v1' });
+    // A corrupt saved profile deterministically exercises the same unverified
+    // configuration gate as a timeout, without adding a production test hook.
+    await window.Capacitor.Plugins.Preferences.set({ key: 'iot-manager.active-endpoint.v1', value: '{"native-smoke-corrupt":' });
   });
+  assert.equal(await page.evaluate(async () => (await window.Capacitor.Plugins.Preferences.get({
+    key: 'iot-manager.active-endpoint.v1' })).value), '{"native-smoke-corrupt":');
   // Restart the native process after seeding secure fixture storage. A DOM
   // reload retains native listener registrations and can duplicate lifecycle
   // callbacks while resetting JavaScript callback IDs.
+  // Backgrounding lets Android flush queued Preferences writes before the
+  // explicit process stop, so this fixture survives the tested restart.
+  adb('shell', 'input', 'keyevent', 'KEYCODE_HOME');
+  await expect.poll(() => page.evaluate(async () => (await window.Capacitor.Plugins.App.getState()).isActive)).toBe(false);
+  await expect.poll(() => adb('shell', 'run-as', appId, 'cat', 'shared_prefs/CapacitorStorage.xml')
+    .includes('native-smoke-corrupt'), { timeout: 5000 }).toBe(true);
   adb('shell', 'am', 'force-stop', appId);
+  const configurationCallsStart = mock.calls.length;
   adb('shell', 'am', 'start', '-n', appId + '/.MainActivity');
   adb('shell', 'wm', 'user-rotation', 'lock', '0');
   await connect();
-  await expect.poll(() => page.evaluate(async () => JSON.parse((await window.Capacitor.Plugins.Preferences.get({
-    key: 'iot-manager.active-endpoint.v1' })).value).id)).toBe('native-ai-smoke');
+  await expect(page.getByText('连接设置未确认', { exact: true })).toBeVisible({ timeout: 15000 });
+  await expect.poll(() => page.evaluate(async () => (await window.Capacitor.Plugins.StartupVisual.getLaunchState()).phase),
+    { timeout: 10000 }).toBe('COMPLETE');
+  assert.equal(mock.calls.slice(configurationCallsStart).filter(row => row.pathname.startsWith('/api/v1/')).length, 0,
+    'The App must not contact its fallback endpoint before saved settings are confirmed');
+  const retained = await page.evaluate(async () => {
+    const raw = (await window.Capacitor.Plugins.SecureSession.get({ key: 'iot-manager.oidc-session.v1' })).value;
+    return raw && JSON.parse(raw).accessToken === 'isolated-native-smoke-token';
+  });
+  assert.equal(retained, true, 'An unverified endpoint must preserve the native encrypted session');
+  const anonymous = await page.evaluate(async () => (await window.Capacitor.Plugins.CapacitorHttp.get({
+    url: 'http://127.0.0.1:18891/api/v1/me', connectTimeout: 1500, readTimeout: 1500 })).status);
+  assert.equal(anonymous, 401, 'The fixture must not silently authenticate anonymous App traffic');
+  record('unconfirmed settings retain native credentials, reveal the App and block fallback traffic');
+  await page.evaluate(async profile => {
+    await window.Capacitor.Plugins.Preferences.set({ key: 'iot-manager.active-endpoint.v1', value: JSON.stringify(profile) });
+  }, profile);
+  const recoveryStart = mock.calls.length;
+  await page.getByRole('button', { name: '重新读取已保存设置', exact: true }).click();
+  await expect(page.getByRole('button', { name: '退出当前账号', exact: true })).toBeVisible();
+  await expect(page.getByText('连接设置未确认', { exact: true })).toHaveCount(0);
+  await expect.poll(() => mock.calls.slice(recoveryStart).filter(row => row.pathname.startsWith('/api/v1/')).length).toBeGreaterThan(0);
+  assert.ok(mock.calls.slice(recoveryStart).filter(row => row.pathname.startsWith('/api/v1/')).every(row => row.authorized));
+  record('saved settings retry restores authenticated native access without signing in again');
   await expect.poll(() => page.evaluate(async () => (await window.Capacitor.Plugins.CapacitorHttp.get({
-    url: 'http://127.0.0.1:18891/api/v1/me', connectTimeout: 1500, readTimeout: 1500 })).status).catch(() => 0),
+    url: 'http://127.0.0.1:18891/api/v1/me', headers: { Authorization: 'Bearer isolated-native-smoke-token' },
+    connectTimeout: 1500, readTimeout: 1500 })).status).catch(() => 0),
     { timeout: 15000 }).toBe(200);
   await expect.poll(() => page.evaluate(() => navigator.onLine), { timeout: 15000 }).toBe(true);
   await page.getByRole('button', { name: 'AI', exact: true }).click();
@@ -160,6 +230,33 @@ try {
   installedApkSha256 = adb('shell', 'sha256sum', apkPath).split(/\s+/)[0].toUpperCase();
   assert.match(installedApkSha256, /^[A-F0-9]{64}$/);
   record('installed Debug APK ' + expectedVersionName + ' uses native platform');
+
+  // WebView quantizes CSS borders to physical pixels at fractional density.
+  assert.ok(await page.locator('.ai-workspace').evaluate(node => parseFloat(getComputedStyle(node).borderTopWidth) > 0));
+  await expect(page.locator('.ai-workspace')).toHaveCSS('border-top-style', 'solid');
+  await expect(page.locator('.ai-workspace')).toHaveCSS('backdrop-filter', /blur/);
+  await page.locator('[data-action="open-connection-settings"]').click();
+  for (const mode of ['solid', 'frosted', 'liquid']) {
+    await page.locator('[data-material-mode="' + mode + '"]').click();
+    await expect(page.locator('#app')).toHaveAttribute('data-glass', mode);
+    if (mode === 'solid') {
+      const filtered = await page.locator('#app').evaluate(root => [...root.querySelectorAll('*')]
+        .filter(node => getComputedStyle(node).backdropFilter !== 'none').length);
+      assert.equal(filtered, 0);
+    }
+  }
+  await page.emulateMedia({ contrast: 'more' });
+  await expect(page.locator('#app')).toHaveAttribute('data-glass', 'solid');
+  await expect(page.locator('.app-header')).toHaveCSS('backdrop-filter', 'none');
+  await expect(page.locator('.bottom-nav')).toHaveCSS('backdrop-filter', 'none');
+  await page.emulateMedia({ contrast: 'no-preference', forcedColors: 'active' });
+  await expect(page.locator('#app')).toHaveAttribute('data-glass', 'solid');
+  await expect(page.locator('.app-header')).toHaveCSS('backdrop-filter', 'none');
+  await page.emulateMedia({ forcedColors: 'none' });
+  await expect(page.locator('#app')).toHaveAttribute('data-glass', 'liquid');
+  await page.locator('.bottom-nav [data-screen="ai"]').click();
+  await expect(page.locator('#ai-question')).toBeVisible();
+  record('packaged CSS surface, three materials and both system contrast overrides');
 
   const nav = page.locator('.bottom-nav');
   await expect(nav).toBeVisible();
@@ -251,6 +348,12 @@ try {
 
   await page.getByRole('button', { name: '性格', exact: true }).click();
   await expect(nav.locator('[aria-current="page"]')).toHaveAttribute('data-screen', 'ai');
+  await expect(page.locator('#ai-persona-name')).toHaveCSS('min-height', '48px');
+  await expect(page.locator('#ai-persona-instructions')).toHaveCSS('min-height', '88px');
+  await page.locator('#ai-persona-name').focus();
+  await expect(page.locator('#ai-persona-name')).toHaveCSS('outline-style', 'solid');
+  assert.ok(await page.locator('#ai-persona-name').evaluate(node => parseFloat(getComputedStyle(node).outlineWidth) >= 1));
+  record('packaged persona fields preserve 48px target and visible keyboard focus');
   const personaTail = 'native-persona-end';
   const instructions = 'a'.repeat(4000 - personaTail.length) + personaTail;
   assert.equal(instructions.length, 4000);
@@ -325,22 +428,77 @@ try {
   await screenshot('native-ai-landscape');
   record('Android rotation preserves chat, safe area and no horizontal overflow', { topInsetCssPixels: headerSafeArea.top });
 
-  // Chromium's documented emulator test flags avoid account onboarding. No
-  // browser account, terms dialog, trust setting or security feature is changed.
-  const priorFlags = spawnSync(adbPath, ['-s', serial, 'shell', 'cat', '/data/local/tmp/chrome-command-line'], { encoding: 'utf8', windowsHide: true });
-  originalChromeFlags = priorFlags.status === 0 ? priorFlags.stdout : null;
-  const flagsWrite = spawnSync(adbPath, ['-s', serial, 'shell', 'tee', '/data/local/tmp/chrome-command-line'], {
-    input: 'chrome --disable-fre --no-first-run --no-default-browser-check\n', encoding: 'utf8', windowsHide: true });
-  if (flagsWrite.status !== 0) throw new Error('Cannot configure the emulator browser fixture');
-  browserFixture = true;
-  adb('shell', 'am', 'set-debug-app', '--persistent', 'com.android.chrome');
-  adb('shell', 'am', 'force-stop', 'com.android.chrome');
+  // The custom-tabs service was initialized by the setup launch.
+  await page.evaluate(async () => {
+    window.__nativeSmokeBrowserFinished = false;
+    window.__nativeSmokeBrowserListener = await window.Capacitor.Plugins.Browser.addListener('browserFinished', () => {
+      window.__nativeSmokeBrowserFinished = true;
+    });
+  });
   await page.evaluate(() => window.Capacitor.Plugins.Browser.open({ url: 'http://127.0.0.1:18891/mock-login' }));
   await expect.poll(() => mock.calls.some(row => row.pathname === '/mock-login'), { timeout: 15000 }).toBe(true);
-  adb('shell', 'input', 'keyevent', 'KEYCODE_BACK');
+  // Receiving the HTTP request does not imply that Android has focused the
+  // custom tab yet. A Back sent during its launch can be consumed elsewhere.
+  await expect.poll(() => adb('shell', 'dumpsys window | grep -m 1 mCurrentFocus').includes('com.android.chrome'),
+    { timeout: 15000 }).toBe(true);
+  await expect.poll(() => adb('shell', 'dumpsys activity activities | grep -m 1 topResumedActivity').includes('com.android.chrome'),
+    { timeout: 15000 }).toBe(true);
+  await expect.poll(() => page.evaluate(async () => (await window.Capacitor.Plugins.App.getState()).isActive)).toBe(false);
+  // Back first dismisses an IME left open by the chat or browser. Verify that
+  // state separately before sending the Back which must close the custom tab.
+  if (keyboardShown()) {
+    adb('shell', 'input', 'keyevent', 'KEYCODE_BACK');
+    await expect.poll(keyboardShown).toBe(false);
+  }
+  // Exercise the native close API used after the App's OIDC redirect. Chrome's
+  // asynchronous first-use education popup can consume a system Back; it is
+  // independent of the App's open/close bridge contract tested here.
+  await screenshot('native-ai-browser');
+  await page.evaluate(() => window.Capacitor.Plugins.Browser.close());
   await expect.poll(() => adb('shell', 'dumpsys window | grep -m 1 mCurrentFocus').includes(appId),
     { timeout: 10000 }).toBe(true);
-  record('native Browser plugin opens isolated page and returns to App');
+  await expect.poll(() => page.evaluate(() => window.__nativeSmokeBrowserFinished)).toBe(true);
+  await expect.poll(() => page.evaluate(async () => (await window.Capacitor.Plugins.App.getState()).isActive)).toBe(true);
+  await page.evaluate(async () => {
+    await window.__nativeSmokeBrowserListener.remove();
+    delete window.__nativeSmokeBrowserListener;
+    delete window.__nativeSmokeBrowserFinished;
+  });
+  record('native Browser plugin opens isolated page and returns to App', { closeMethod: 'native-plugin-close' });
+
+  // Run attempted document navigation last: Android WebView may dispatch
+  // beforeunload (and App teardown) even when Java subsequently blocks it.
+  // First prove the isolated HTML fixture is reachable through normal native
+  // HTTP without executing its text, then ensure documents cannot fetch it.
+  const securityFixture = await page.evaluate(async () => {
+    const response = await window.Capacitor.Plugins.CapacitorHttp.get({
+      url: 'http://127.0.0.1:18891/security-document', connectTimeout: 1500, readTimeout: 1500
+    });
+    return { status: response.status, data: response.data };
+  });
+  assert.equal(securityFixture.status, 200);
+  assert.match(securityFixture.data, /top\.__nativeProxyEscaped=1/);
+  const documentFetches = mock.calls.filter(row => row.pathname === '/security-document').length;
+  assert.equal(documentFetches, 1);
+  const unexpectedNavigation = page.waitForEvent('framenavigated', {
+    predicate: frame => frame === page.mainFrame(), timeout: 1000
+  }).then(() => true, error => { if (error.name === 'TimeoutError') return false; throw error; });
+  await page.evaluate(() => {
+    const url = '/_capacitor_http_interceptor_?u=' + encodeURIComponent('http://127.0.0.1:18891/security-document');
+    const link = document.createElement('a'); link.href = url;
+    document.body.append(link); link.click(); link.remove();
+    const frame = document.createElement('iframe'); frame.id = 'native-proxy-guard'; frame.hidden = true; frame.src = url;
+    document.body.append(frame);
+  });
+  assert.equal(await unexpectedNavigation, false);
+  assert.equal(page.url(), 'https://localhost/');
+  assert.equal(await page.evaluate(() => window.__nativeProxyEscaped), undefined);
+  assert.equal(mock.calls.filter(row => row.pathname === '/security-document').length, documentFetches);
+  await page.evaluate(() => document.getElementById('native-proxy-guard')?.remove());
+  // WebView can omit CDP cancellation for a blocked navigation. Reattach before
+  // restoring fixture storage so Playwright drops stale navigation bookkeeping.
+  await connect();
+  record('native internal HTTP proxy blocks document and iframe navigation');
 } catch (error) {
   process.exitCode = 1;
   console.error(error.stack ?? error.message);
@@ -357,9 +515,11 @@ try {
     })));
     console.error('Mock network diagnostic: ' + JSON.stringify(await page.evaluate(async () => {
       const network = await window.Capacitor.Plugins.Network.getStatus();
-      const config = JSON.parse((await window.Capacitor.Plugins.Preferences.get({ key: 'iot-manager.active-endpoint.v1' })).value ?? '{}');
+      let config = {};
+      try { config = JSON.parse((await window.Capacitor.Plugins.Preferences.get({ key: 'iot-manager.active-endpoint.v1' })).value ?? '{}'); } catch {}
       try {
-        const response = await window.Capacitor.Plugins.CapacitorHttp.get({ url: 'http://127.0.0.1:18891/api/v1/me', connectTimeout: 1500, readTimeout: 1500 });
+        const response = await window.Capacitor.Plugins.CapacitorHttp.get({ url: 'http://127.0.0.1:18891/api/v1/me',
+          headers: { Authorization: 'Bearer isolated-native-smoke-token' }, connectTimeout: 1500, readTimeout: 1500 });
         return { network, apiBaseUrl: config.apiBaseUrl, nativeStatus: response.status, online: navigator.onLine };
       } catch (error) { return { network, apiBaseUrl: config.apiBaseUrl, online: navigator.onLine, nativeError: String(error) }; }
     })));
@@ -407,7 +567,8 @@ try {
   if (mock) await mock.close();
   await writeFile(resolve(output, 'native-ai-results.json'), JSON.stringify({
     applicationId: appId, versionName: expectedVersionName, versionCode: expectedVersionCode, source: 'installed-debug-apk',
-    provider: 'isolated-mock', realProviderCalled: false, installedApkSha256, passed: process.exitCode !== 1 && results.length === 13,
+    provider: 'isolated-mock', realProviderCalled: false, installedApkSha256, expectedChecks,
+    passed: process.exitCode !== 1 && results.length === expectedChecks,
     results, postCount: mock?.calls.filter(row => row.pathname.endsWith('/chat')).length ?? 0
   }, null, 2));
 }

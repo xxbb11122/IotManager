@@ -1,4 +1,4 @@
-import { openDB } from 'idb';
+import { openCompatibleCache } from './cache-schema.js';
 
 function scopeKey({ endpointId, organizationCode }) {
   if (!endpointId || !organizationCode) throw new TypeError('Platform cache requires endpoint and organization');
@@ -21,8 +21,8 @@ export class CacheRepository {
   }
 
   db() {
-    this.dbPromise ??= openDB(this.databaseName, 2, {
-      upgrade(db, oldVersion) {
+    this.dbPromise ??= openCompatibleCache(this.databaseName, 3, {
+      upgrade(db, oldVersion, _newVersion, transaction) {
         if (oldVersion < 1) {
           const devices = db.createObjectStore('platformDevices', { keyPath: 'key' });
           devices.createIndex('scopeKey', 'scopeKey');
@@ -33,8 +33,22 @@ export class CacheRepository {
         if (oldVersion < 2) {
           db.createObjectStore('platformWeather', { keyPath: 'key' });
         }
+        if (oldVersion < 3) {
+          const activity = transaction.objectStore('localActivity');
+          activity.createIndex('bindingTime', ['bindingKey', 'occurredAt', 'id']);
+          // Older snapshots may not carry a timestamp; migrate inside upgrade.
+          void (async () => {
+            let cursor = await activity.openCursor();
+            while (cursor) {
+              if (typeof cursor.value.occurredAt !== 'string') {
+                await cursor.update({ ...cursor.value, occurredAt: '1970-01-01T00:00:00.000Z' });
+              }
+              cursor = await cursor.continue();
+            }
+          })();
+        }
       }
-    });
+    }).catch(error => { this.dbPromise = null; throw error; });
     return this.dbPromise;
   }
 
@@ -131,5 +145,20 @@ export class CacheRepository {
 
   async listLocalActivity(bindingKey) {
     return (await this.db()).getAllFromIndex('localActivity', 'bindingKey', bindingKey);
+  }
+
+  async listLocalActivityPage(bindingKey, { before = null, limit = 50 } = {}) {
+    if (!bindingKey) throw new TypeError('Activity page requires binding key');
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new TypeError('Invalid activity page limit');
+    if (before && (typeof before.occurredAt !== 'string' || typeof before.id !== 'string')) throw new TypeError('Invalid activity cursor');
+    const upper = before ? [bindingKey, before.occurredAt, before.id] : [bindingKey, '\uffff', '\uffff'];
+    const range = IDBKeyRange.bound([bindingKey, '', ''], upper, false, Boolean(before));
+    const db = await this.db();
+    const tx = db.transaction('localActivity', 'readonly');
+    let cursor = await tx.store.index('bindingTime').openCursor(range, 'prev');
+    const items = [];
+    while (cursor && items.length < limit) { items.push(cursor.value); cursor = await cursor.continue(); }
+    const last = items.at(-1);
+    return { items, nextCursor: cursor && last ? { occurredAt: last.occurredAt, id: last.id } : null };
   }
 }

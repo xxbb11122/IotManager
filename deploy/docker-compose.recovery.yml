@@ -8,7 +8,7 @@ services:
       dockerfile: postgres/Dockerfile
     image: iot-manager-postgres:16-walg
     restart: "no"
-    user: "0"
+    user: "999:999"
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
@@ -16,7 +16,7 @@ services:
         : "$${IOT_RECOVERY_BASE_BACKUP:?IOT_RECOVERY_BASE_BACKUP is required}"
         : "$${PGDATA:=/var/lib/postgresql/data}"
         test ! -e "$${PGDATA}/PG_VERSION" || { echo "Refusing to overwrite an initialized recovery data directory" >&2; exit 73; }
-        /usr/local/bin/wal-g-env.sh /usr/local/bin/wal-g backup-fetch "$${IOT_RECOVERY_BASE_BACKUP}" "$${PGDATA}"
+        /usr/local/bin/wal-g-env.sh /usr/local/bin/wal-g backup-fetch "$${PGDATA}" "$${IOT_RECOVERY_BASE_BACKUP}"
         test -f "$${PGDATA}/PG_VERSION" || { echo "WAL-G did not restore a PostgreSQL data directory" >&2; exit 1; }
         cat >> "$${PGDATA}/postgresql.auto.conf" <<EOF
         restore_command = '/usr/local/bin/wal-g-fetch.sh "%f" "%p"'
@@ -29,7 +29,6 @@ services:
         recovery_target_action = 'promote'
         EOF
         touch "$${PGDATA}/recovery.signal"
-        chown -R 999:999 "$${PGDATA}"
         chmod 0700 "$${PGDATA}"
     environment:
       PGDATA: /var/lib/postgresql/data
@@ -53,25 +52,29 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    # The recovery data directory is fetched as root, then handed to the
-    # unprivileged PostgreSQL UID. This one-shot service needs exactly
-    # CAP_CHOWN for that ownership transition; the recovered PostgreSQL
-    # service itself remains capability-free.
-    cap_add:
-      - CHOWN
+    # volume-init already assigns PGDATA to UID 999. Fetch as that owner so
+    # neither root nor a capability for bypassing directory permissions is needed.
     networks: [internal, egress]
 
   postgres:
+    # restore_command runs inside PostgreSQL while replaying archived WAL.
+    # It needs the same S3 egress as the one-shot base-backup fetcher.
+    networks: [internal, egress]
     # A recovered cluster must not archive to the source repository. Recovery
     # settings are written by wal-g-recovery before this service starts.
     command: ["postgres", "-c", "archive_mode=off", "-c", "archive_command="]
     environment:
+      WALG_SECRET_DIR: /run/wal-g-secrets
       WALG_STORAGE_MODE: ${WALG_STORAGE_MODE:?set WALG_STORAGE_MODE}
       WALG_S3_PREFIX: ${WALG_S3_PREFIX:?set WALG_S3_PREFIX}
       AWS_ENDPOINT: ${AWS_ENDPOINT:-}
       AWS_REGION: ${AWS_REGION:?set AWS_REGION}
       AWS_S3_FORCE_PATH_STYLE: ${AWS_S3_FORCE_PATH_STYLE:-true}
       WALG_COMPRESSION_METHOD: ${WALG_COMPRESSION_METHOD:-zstd}
+    volumes:
+      # Leave the normal database-role secret mount intact. Only this recovery
+      # override supplies S3 credentials for PostgreSQL's restore_command.
+      - runtime-secrets-walg-recovery:/run/wal-g-secrets:ro
     depends_on:
       volume-init:
         condition: service_completed_successfully

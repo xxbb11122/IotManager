@@ -1,0 +1,6 @@
+# Use only when initializing the NEW empty migration cluster. Match the
+# reviewed source locale; this overlay does not convert existing data volumes.
+services:
+  postgres:
+    environment:
+      POSTGRES_INITDB_ARGS: ${IOT_MIGRATION_INITDB_ARGS:?set reviewed encoding and locale for the new cluster}

@@ -5,8 +5,9 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -26,6 +27,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@AutoConfigureTestRestTemplate
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "iot.ai.enabled=true",
         "iot.ai.knowledge-enabled=true",
@@ -34,12 +36,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "spring.ai.openai.embedding.base-url=https://example.test",
         "spring.ai.openai.chat.api-key=test-only-chat-key",
         "spring.ai.openai.embedding.api-key=test-only-embedding-key",
-        "spring.ai.openai.embedding.options.model=test-embedding"
+        "spring.ai.openai.embedding.model=test-embedding"
 })
 @ActiveProfiles("test")
 class AiEnabledApiTest {
-    @MockBean ChatModel chatModel;
-    @MockBean EmbeddingModel embeddingModel;
+    @MockitoBean ChatModel chatModel;
+    @MockitoBean EmbeddingModel embeddingModel;
     @Autowired TestRestTemplate rest;
     @Autowired JdbcTemplate jdbc;
     @Autowired AiRepository repository;

@@ -116,6 +116,7 @@ jobs:
           - artifact_id: IMG-R04
           - artifact_id: IMG-R05
           - artifact_id: IMG-R06
+          - artifact_id: IMG-R07
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -135,11 +136,17 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Initialize attestation-capable Buildx builder
+        run: |
+          set -euo pipefail
+          docker buildx create --name iot-release-build --driver docker-container --use --bootstrap
+          docker buildx inspect --bootstrap
       - name: Build and push exact image
         env:
           SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
           CALLER_REF_RAW: ${{ inputs.caller_workflow_ref_raw }}
           CALLER_WORKFLOW_SHA: ${{ inputs.caller_workflow_sha }}
+          INVOCATION_MODE: ${{ inputs.caller_workflow_ref_raw != '' && 'orchestrated-reusable' || 'protected-fallback-dispatch' }}
         run: |
           set -euo pipefail
           repository_cache_key="$(tr '/' '-' <<< "$GITHUB_REPOSITORY")"
@@ -165,11 +172,11 @@ jobs:
             --checked-out-source-sha "$SOURCE_SHA" \
             --producer-repository "$GITHUB_REPOSITORY" \
             --producer-event "$GITHUB_EVENT_NAME" \
-            --invocation-mode orchestrated-reusable \
+            --invocation-mode "$INVOCATION_MODE" \
             --producer-run-id "$GITHUB_RUN_ID" \
             --producer-run-attempt "$GITHUB_RUN_ATTEMPT" \
-            --producer-workflow-ref-raw "${{ job.workflow_ref || github.workflow_ref }}" \
-            --producer-workflow-sha "${{ job.workflow_sha || github.workflow_sha }}" \
+            --producer-workflow-ref-raw "${{ github.repository }}/.github/workflows/image-security.yml@${{ github.workflow_sha }}" \
+            --producer-workflow-sha "${{ github.workflow_sha }}" \
             --producer-job "build-${{ matrix.artifact_id }}" \
             --runner-class github-hosted \
             "${caller_args[@]}" \
@@ -322,6 +329,7 @@ jobs:
           SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
           CALLER_REF_RAW: ${{ inputs.caller_workflow_ref_raw }}
           CALLER_WORKFLOW_SHA: ${{ inputs.caller_workflow_sha }}
+          INVOCATION_MODE: ${{ inputs.caller_workflow_ref_raw != '' && 'orchestrated-reusable' || 'protected-fallback-dispatch' }}
         run: |
           set -euo pipefail
           artifact_id="${{ matrix.artifact_id }}"
@@ -350,11 +358,11 @@ jobs:
             --checked-out-source-sha "$SOURCE_SHA" \
             --producer-repository "$GITHUB_REPOSITORY" \
             --producer-event "$GITHUB_EVENT_NAME" \
-            --invocation-mode orchestrated-reusable \
+            --invocation-mode "$INVOCATION_MODE" \
             --producer-run-id "$GITHUB_RUN_ID" \
             --producer-run-attempt "$GITHUB_RUN_ATTEMPT" \
-            --producer-workflow-ref-raw "${{ job.workflow_ref || github.workflow_ref }}" \
-            --producer-workflow-sha "${{ job.workflow_sha || github.workflow_sha }}" \
+            --producer-workflow-ref-raw "${{ github.repository }}/.github/workflows/image-security.yml@${{ github.workflow_sha }}" \
+            --producer-workflow-sha "${{ github.workflow_sha }}" \
             --producer-job "image-scan-$artifact_id" \
             --runner-class github-hosted \
             "${caller_args[@]}" \
@@ -371,6 +379,9 @@ jobs:
   aggregate:
     name: Aggregate eight scans and publish image evidence
     needs: [prepare, resolve, scan]
+    # Retain a failing summary and all original reports when one scan fails.
+    # Verification below still prevents a PASS handoff for unsafe images.
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.resolve.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     outputs:
@@ -401,7 +412,7 @@ jobs:
           pattern: image-scan-${{ needs.prepare.outputs.candidate_id }}-*
           path: artifacts/image-scan
           merge-multiple: true
-      - name: Aggregate exact scan results and validate the 8/6/12/1/13 set
+      - name: Aggregate exact scan results and validate the 8/7/12/1/13 set
         run: |
           set -euo pipefail
           bash scripts/ci/generate-security-summary.sh \
@@ -449,8 +460,8 @@ jobs:
             --invocation-mode "$invocation_mode" \
             --producer-run-id "$GITHUB_RUN_ID" \
             --producer-run-attempt "$GITHUB_RUN_ATTEMPT" \
-            --producer-workflow-ref-raw "${{ job.workflow_ref || github.workflow_ref }}" \
-            --producer-workflow-sha "${{ job.workflow_sha || github.workflow_sha }}" \
+            --producer-workflow-ref-raw "${{ github.repository }}/.github/workflows/image-security.yml@${{ github.workflow_sha }}" \
+            --producer-workflow-sha "${{ github.workflow_sha }}" \
             --producer-job image-security-aggregate \
             --artifact-name "release-evidence-$candidate_id" \
             --orchestrator-run-id "$ORCHESTRATOR_RUN_ID" \

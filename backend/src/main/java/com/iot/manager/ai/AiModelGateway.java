@@ -1,5 +1,6 @@
 package com.iot.manager.ai;
 
+import com.openai.errors.OpenAIServiceException;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
@@ -14,6 +15,7 @@ import org.springframework.web.client.RestClientResponseException;
 
 import java.net.URI;
 import java.net.SocketTimeoutException;
+import java.io.InterruptedIOException;
 import java.util.List;
 import java.util.Locale;
 
@@ -35,7 +37,7 @@ public class AiModelGateway {
             @Value("${spring.ai.openai.embedding.base-url:}") String embeddingUrl,
             @Value("${spring.ai.openai.chat.api-key:}") String chatKey,
             @Value("${spring.ai.openai.embedding.api-key:}") String embeddingKey,
-            @Value("${spring.ai.openai.embedding.options.model:}") String embeddingModelName
+            @Value("${spring.ai.openai.embedding.model:}") String embeddingModelName
     ) {
         this.chatModel = chatModel;
         this.embeddingModel = embeddingModels.getIfAvailable();
@@ -126,6 +128,7 @@ public class AiModelGateway {
         for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
             if (cause instanceof AiException ai) return ai;
             if (cause instanceof SocketTimeoutException
+                    || cause instanceof InterruptedIOException
                     || cause.getClass().getSimpleName().toLowerCase(Locale.ROOT).contains("timeout")) {
                 return new AiException(HttpStatus.GATEWAY_TIMEOUT, "AI provider timed out");
             }
@@ -134,6 +137,14 @@ public class AiModelGateway {
                     return new AiException(HttpStatus.SERVICE_UNAVAILABLE, "AI provider is temporarily rate limited", 30);
                 }
                 if (response.getStatusCode().value() == 503) {
+                    return new AiException(HttpStatus.SERVICE_UNAVAILABLE, "AI provider is temporarily unavailable", 30);
+                }
+            }
+            if (cause instanceof OpenAIServiceException response) {
+                if (response.statusCode() == 429) {
+                    return new AiException(HttpStatus.SERVICE_UNAVAILABLE, "AI provider is temporarily rate limited", 30);
+                }
+                if (response.statusCode() == 503) {
                     return new AiException(HttpStatus.SERVICE_UNAVAILABLE, "AI provider is temporarily unavailable", 30);
                 }
             }

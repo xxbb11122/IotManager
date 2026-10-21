@@ -2,6 +2,8 @@ server:
   port: 8080
 
 spring:
+  jackson:
+    use-jackson2-defaults: true
   servlet:
     multipart:
       max-file-size: 5MB
@@ -15,8 +17,13 @@ spring:
       audio:
         speech: none
         transcription: none
-    retry:
-      max-attempts: 1
+    openai:
+      chat:
+        max-retries: 0
+        timeout: 30s
+      embedding:
+        max-retries: 0
+        timeout: 30s
   application:
     name: iot-manager
 
@@ -38,8 +45,9 @@ spring:
     properties:
       hibernate:
         format_sql: true
-        jdbc:
-          time_zone: UTC
+        # Keep N-1 LocalDateTime columns as literal wall-clock values. A global
+        # JDBC Calendar in UTC shifts them when the JVM uses another zone.
+        # Instant uses Hibernate TIMESTAMP_UTC independently of this setting.
     open-in-view: false
 
 management:

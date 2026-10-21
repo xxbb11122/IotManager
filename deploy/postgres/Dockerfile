@@ -2,18 +2,26 @@
 # deployment contract exposes: local filesystem and S3.  Omitting unrelated
 # Azure/GCS/Swift/SSH adapters removes their unused cloud SDK attack surface
 # from the backup binary while preserving every documented runtime mode.
-FROM golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36 AS wal-g-build
+FROM golang:1.26.10-bookworm@sha256:ee3901c61e423732605a51f1b8157c849ec01194ea0a274213b5202b2c11e7bf AS wal-g-build
 
-ARG WAL_G_VERSION=v3.0.7
-ARG WAL_G_SOURCE_COMMIT=6ea13b90a3198bd5c8f8ac2ae323f28e33cf9f06
+ARG WAL_G_VERSION=v3.0.9
+ARG WAL_G_SOURCE_COMMIT=3e493188db28335fb93a45bd680c6ff8fc3028c1
+# Required by the pinned upstream release's own Makefile and json/v2 imports.
+ENV GOEXPERIMENT=jsonv2
 
 WORKDIR /src
+# Real compatible v1 tag history lets Go stamp its own canonical module
+# version. The upstream module path has no /v3 suffix. Do not forge a version
+# with ldflags or rename its package to bypass the scanner.
 RUN set -eux; \
     git init; \
     git remote add origin https://github.com/wal-g/wal-g.git; \
-    git fetch --depth 1 origin "${WAL_G_SOURCE_COMMIT}"; \
-    git checkout --detach FETCH_HEAD; \
-    test "$(git rev-parse HEAD)" = "${WAL_G_SOURCE_COMMIT}"
+    git config remote.origin.promisor true; \
+    git config remote.origin.partialclonefilter blob:none; \
+    git fetch --filter=blob:none origin "${WAL_G_SOURCE_COMMIT}" '+refs/tags/v1.*:refs/tags/v1.*'; \
+    git checkout --detach "${WAL_G_SOURCE_COMMIT}"; \
+    test "$(git rev-parse HEAD)" = "${WAL_G_SOURCE_COMMIT}"; \
+    git merge-base --is-ancestor v1.1 HEAD
 
 # StorageAdapters is the sole registry used by WAL-G configuration.  Keep the
 # S3 and FILE entries required by wal-g-env.sh and remove every unsupported
@@ -24,14 +32,16 @@ RUN set -eux; \
       -e '\|pkg/storages/gcs|d' \
       -e '\|pkg/storages/sh|d' \
       -e '\|pkg/storages/swift|d' \
+      -e '\|pkg/storages/oss|d' \
       -e '/{"GS", gcs.SettingList, gcs.ConfigureStorage},/d' \
       -e '/{"AZ", azure.SettingList, azure.ConfigureStorage},/d' \
       -e '/{"SWIFT", swift.SettingList, swift.ConfigureStorage},/d' \
       -e '/{"SSH", sh.SettingList, sh.ConfigureStorage},/d' \
+      -e '/{"OSS", oss.SettingList, oss.ConfigureStorage},/d' \
       internal/storage_adapter.go; \
     grep -Fq '{"S3", s3.SettingList, s3.ConfigureStorage},' internal/storage_adapter.go; \
     grep -Fq '{"FILE", nil, fs.ConfigureStorage},' internal/storage_adapter.go; \
-    ! grep -Eq 'pkg/storages/(azure|gcs|sh|swift)' internal/storage_adapter.go
+    ! grep -Eq 'pkg/storages/(azure|gcs|sh|swift|oss)' internal/storage_adapter.go
 
 # Upgrade every high-severity module previously embedded in the PostgreSQL
 # binary, then verify checksums before compiling.  The command intentionally
@@ -41,7 +51,7 @@ RUN --mount=type=cache,id=iot-manager-walg-go-mod,target=/go/pkg/mod \
     # Keep externally fetched module resolution resilient to temporary Go
     # proxy transport failures without accepting an incomplete dependency set.
     for attempt in 1 2 3 4 5; do \
-      if go get github.com/golang-jwt/jwt/v4@v4.5.2 github.com/jackc/pgx/v5@v5.9.0 golang.org/x/oauth2@v0.36.0 golang.org/x/crypto@v0.55.0 golang.org/x/net@v0.57.0 google.golang.org/grpc@v1.82.1 && go mod tidy; then \
+      if go get github.com/jackc/pgx/v5@v5.10.0 github.com/golang-jwt/jwt/v4@v4.5.2 golang.org/x/oauth2@v0.36.0 golang.org/x/crypto@v0.57.0 golang.org/x/net@v0.60.0 google.golang.org/grpc@v1.83.2; then \
         break; \
       fi; \
       if [ "$attempt" -eq 5 ]; then \
@@ -58,30 +68,38 @@ RUN --mount=type=cache,id=iot-manager-walg-go-mod,target=/go/pkg/mod \
       -ldflags "-s -w -X github.com/wal-g/wal-g/cmd/pg.walgVersion=${WAL_G_VERSION} -X github.com/wal-g/wal-g/cmd/pg.gitRevision=${WAL_G_SOURCE_COMMIT} -X github.com/wal-g/wal-g/cmd/pg.buildDate=source-build" \
       -o /out/wal-g ./main/pg; \
     /out/wal-g --version; \
+    go version -m /out/wal-g | tee /out/wal-g-build-info.txt; \
+    grep -Eq '^[[:space:]]*mod[[:space:]]+github.com/wal-g/wal-g[[:space:]]+v1[.]1[.]' /out/wal-g-build-info.txt; \
     chmod 0555 /out/wal-g
 
-FROM postgres:16-bookworm@sha256:bb3e1a57e5407e0a5280b4211980a5e537f4abd234a87014ac979849a78dd825 AS pgvector-build
+FROM postgres:16-alpine3.24@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea AS pgvector-build
 ARG PGVECTOR_COMMIT=8ee86c96f0fd72390f890aa8a336fda6d3ab4c6c
-# Debian's official ftp endpoint avoids the current deb.debian.org route,
-# which returned 503 for Bookworm package downloads in Docker Desktop.
-RUN sed -i 's|http://deb.debian.org/debian$|http://ftp.debian.org/debian|' /etc/apt/sources.list.d/debian.sources \
-    && apt-get -o Acquire::Retries=5 update \
-    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends build-essential git postgresql-server-dev-16 ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache build-base git ca-certificates
 WORKDIR /tmp/pgvector
 RUN git init \
     && git remote add origin https://github.com/pgvector/pgvector.git \
     && git fetch --depth 1 origin "${PGVECTOR_COMMIT}" \
     && git checkout --detach FETCH_HEAD \
     && test "$(git rev-parse HEAD)" = "${PGVECTOR_COMMIT}" \
-    && make \
-    && make install
+    && make OPTFLAGS="" with_llvm=no \
+    && make install with_llvm=no
 
-FROM postgres:16-bookworm@sha256:bb3e1a57e5407e0a5280b4211980a5e537f4abd234a87014ac979849a78dd825
+FROM postgres:16-alpine3.24@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+
+# Keep the application's existing UID/GID contract across the libc change.
+RUN test "$(id -u postgres)" = 70 && test "$(id -g postgres)" = 70 \
+    && sed -i '/^postgres:/s/:70:70:/:999:999:/' /etc/passwd \
+    && sed -i '/^postgres:/s/:70:/:999:/' /etc/group \
+    && chown -R 999:999 /var/lib/postgresql /var/run/postgresql \
+    && test "$(id -u postgres)" = 999 && test "$(id -g postgres)" = 999 \
+    && apk upgrade --no-cache
 
 COPY --from=wal-g-build /out/wal-g /usr/local/bin/wal-g
-COPY --from=pgvector-build /usr/lib/postgresql/16/lib/vector.so /usr/lib/postgresql/16/lib/vector.so
-COPY --from=pgvector-build /usr/share/postgresql/16/extension/vector* /usr/share/postgresql/16/extension/
+COPY --from=wal-g-build /out/wal-g-build-info.txt /usr/local/share/iot-manager/wal-g-build-info.txt
+COPY --from=pgvector-build /usr/local/lib/postgresql/vector.so /usr/local/lib/postgresql/vector.so
+COPY --from=pgvector-build /usr/local/share/postgresql/extension/vector* /usr/local/share/postgresql/extension/
+COPY --chmod=0555 postgres/runtime-entrypoint.sh /usr/local/bin/iot-runtime-entrypoint.sh
+COPY --chmod=0555 postgres/runtime-abi-init.sh /docker-entrypoint-initdb.d/99-iot-runtime-abi.sh
 COPY postgres/wal-g-env.sh postgres/wal-g-push.sh postgres/wal-g-fetch.sh postgres/wal-g-archive-loop.sh postgres/wal-g-backup-loop.sh postgres/wal-g-archive-healthcheck.sh postgres/wal-g-backup-healthcheck.sh postgres/application-role-psql.sh /usr/local/bin/
 COPY postgres/install-vector-existing.sh /usr/local/bin/install-vector-existing.sh
 
@@ -95,3 +113,5 @@ RUN rm -f /usr/local/bin/gosu \
 # image starts. Keeping the final image unprivileged prevents an application
 # or WAL-G compromise from running as root inside the container.
 USER postgres
+ENTRYPOINT ["/usr/local/bin/iot-runtime-entrypoint.sh"]
+CMD ["postgres"]

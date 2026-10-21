@@ -7,11 +7,11 @@ import {
   startupHoldMs
 } from '../src/js/platform/startup-transition.js';
 
-test('browser pacing uses the longer static hold and a bounded fade', () => {
-  assert.equal(STARTUP_VISUAL_TARGET_MS, 700);
-  assert.equal(STARTUP_EXIT_MS, 280);
-  assert.equal(startupHoldMs(0), 700);
-  assert.equal(startupHoldMs(350), 350);
+test('browser pacing supplements only the remaining hold and uses a bounded fade', () => {
+  assert.equal(STARTUP_VISUAL_TARGET_MS, 160);
+  assert.equal(STARTUP_EXIT_MS, 360);
+  assert.equal(startupHoldMs(0), 160);
+  assert.equal(startupHoldMs(100), 60);
   assert.equal(startupHoldMs(800), 0);
 });
 
@@ -36,7 +36,10 @@ function fixture({ nativeVisual = null, reduced = false, initialTime = 0, firstF
     setAttribute: (name) => { if (name === 'aria-hidden') appRoot.hidden = true; },
     removeAttribute: (name) => { if (name === 'aria-hidden') appRoot.hidden = false; }
   };
-  const document = { hidden: false };
+  const document = new EventTarget();
+  document.hidden = false;
+  document.documentElement = { dataset: {} };
+  const media = new EventTarget(); media.matches = reduced;
   const watchdog = {
     stopped: false,
     failed: false,
@@ -57,7 +60,7 @@ function fixture({ nativeVisual = null, reduced = false, initialTime = 0, firstF
     cancelAnimationFrame: (id) => tasks.delete(id),
     setTimeout: schedule,
     clearTimeout: (id) => tasks.delete(id),
-    matchMedia: () => ({ matches: reduced })
+    matchMedia: () => media
   };
   async function advance(milliseconds) {
     const target = current + milliseconds;
@@ -74,7 +77,7 @@ function fixture({ nativeVisual = null, reduced = false, initialTime = 0, firstF
     for (let index = 0; index < 8; index += 1) await Promise.resolve();
   }
   return {
-    overlay, appRoot, classes, watchdog, advance,
+    overlay, appRoot, classes, watchdog, advance, document, media, tasks, view,
     startup: createStartupTransition({ overlay, appRoot, view, nativeVisual })
   };
 }
@@ -97,7 +100,7 @@ function nativeVisual({ phase = 'COVERING', remainingWebRescueMs = 4000, accepte
 test('browser keeps the shell inert until its fade completes', async () => {
   const testbed = fixture();
   const done = testbed.startup.markUiReady();
-  await testbed.advance(699);
+  await testbed.advance(159);
   assert.equal(testbed.classes.has('startup-overlay--leaving'), false);
   assert.equal(testbed.appRoot.inert, true);
   await testbed.advance(1);
@@ -150,12 +153,13 @@ test('lost native completion restores a visible retry while keeping the home ine
   assert.equal(testbed.appRoot.inert, true);
 });
 
-test('a bridge failure after the handoff begins keeps the Web fallback visible', async () => {
+test('a bridge failure after handoff never releases controls without cover removal', async () => {
   const bridge = nativeVisual();
   bridge.prepareReveal = async () => { throw new Error('renderer failed'); };
   const testbed = fixture({ nativeVisual: bridge });
   const done = testbed.startup.markUiReady();
   await testbed.advance(0);
+  await testbed.advance(4000);
   assert.equal(await done, false);
   assert.equal(testbed.overlay.hidden, false);
   assert.equal(testbed.appRoot.inert, true);
@@ -164,7 +168,7 @@ test('a bridge failure after the handoff begins keeps the Web fallback visible',
   assert.equal(testbed.overlay.removed, false);
 });
 
-test('a bridge failure before handoff waits for Android to release its cover', async () => {
+test('an unavailable bridge ends in protected recovery rather than blind timer unlock', async () => {
   const bridge = nativeVisual();
   bridge.getLaunchState = async () => { throw new Error('plugin unavailable'); };
   const testbed = fixture({ nativeVisual: bridge });
@@ -172,12 +176,12 @@ test('a bridge failure before handoff waits for Android to release its cover', a
   await testbed.advance(0);
   assert.equal(testbed.overlay.hidden, false);
   assert.equal(testbed.watchdog.failed, false);
-  await testbed.advance(8999);
+  await testbed.advance(9499);
   assert.equal(testbed.overlay.removed, false);
   assert.equal(testbed.appRoot.inert, true);
-  await testbed.advance(1 + 32 + 400);
-  assert.equal(await done, true);
-  assert.equal(testbed.appRoot.inert, false);
+  await testbed.advance(1 + 500);
+  assert.equal(await done, false);
+  assert.equal(testbed.appRoot.inert, true);
 });
 
 test('native handoff forwards reduced motion and still waits for completion', async () => {
@@ -199,7 +203,86 @@ test('native timeout to an intact Web fallback uses the Web-only exit', async ()
   await testbed.advance(32);
   assert.equal(testbed.classes.has('startup-overlay--leaving'), true);
   assert.equal(testbed.appRoot.inert, true);
-  await testbed.advance(400);
+  await testbed.advance(500);
   assert.equal(await done, true);
   assert.equal(testbed.appRoot.inert, false);
+});
+
+test('repeated ready calls share the same operation and dispose never unlocks it', async () => {
+  const f = fixture();
+  const first = f.startup.markUiReady();
+  assert.equal(f.startup.markUiReady(), first);
+  f.startup.dispose();
+  assert.equal(await first, false);
+  assert.equal(f.appRoot.inert, true);
+  await f.advance(10000);
+  assert.equal(f.appRoot.inert, true);
+  assert.equal(f.tasks.size, 0);
+});
+
+test('a listener handle acquired after disposal is immediately removed', async () => {
+  let accept, removed = 0;
+  const bridge = nativeVisual();
+  bridge.addExitListener = () => new Promise(resolve => { accept = resolve; });
+  const f = fixture({ nativeVisual: bridge });
+  const done = f.startup.markUiReady(); f.startup.dispose();
+  accept({ remove() { removed++; } });
+  await f.advance(0);
+  assert.equal(removed, 1);
+  assert.equal(await done, false);
+  assert.equal(f.appRoot.inert, true);
+});
+
+test('an Activity identity is required when native supplies one', async () => {
+  const bridge = nativeVisual();
+  bridge.getLaunchState = async () => ({ launchId: 7, activityInstanceId: 'new', phase: 'COVERING', remainingWebRescueMs: 1000 });
+  const f = fixture({ nativeVisual: bridge });
+  const done = f.startup.markUiReady(); await f.advance(0);
+  bridge.complete(7); assert.equal(f.appRoot.inert, true);
+  assert.equal(f.startup.finishNativeExit({ launchId: 7, activityInstanceId: 'old' }), false);
+  f.startup.finishNativeExit({ launchId: 7, activityInstanceId: 'new' });
+  assert.equal(await done, true);
+});
+
+test('lost completion is recovered only by a matching COMPLETE coverRemoved snapshot', async () => {
+  const bridge = nativeVisual({ remainingWebRescueMs: 500 });
+  const f = fixture({ nativeVisual: bridge });
+  const done = f.startup.markUiReady(); await f.advance(0);
+  bridge.getLaunchState = async () => ({ launchId: 7, phase: 'COMPLETE', coverRemoved: true });
+  await f.advance(500);
+  assert.equal(await done, true);
+  assert.equal(f.appRoot.inert, false);
+});
+
+test('an already complete launch may reveal only when coverRemoved is true', async () => {
+  const bridge = nativeVisual();
+  bridge.getLaunchState = async () => ({ launchId: 7, phase: 'COMPLETE', coverRemoved: true });
+  const f = fixture({ nativeVisual: bridge });
+  assert.equal(await f.startup.markUiReady(), true);
+  const unsafe = nativeVisual({ phase: 'COMPLETE' });
+  const g = fixture({ nativeVisual: unsafe });
+  assert.equal(await g.startup.markUiReady(), false);
+  assert.equal(g.appRoot.inert, true);
+});
+
+test('foreign/child transition events cannot remove the browser cover', async () => {
+  const f = fixture(); const done = f.startup.markUiReady(); await f.advance(160);
+  const event = new Event('transitionend'); Object.defineProperty(event, 'propertyName', { value: 'transform' });
+  f.overlay.dispatchEvent(event); assert.equal(f.appRoot.inert, true);
+  await f.advance(500); assert.equal(await done, true);
+});
+
+test('background startup waits and resumption revalidates; reduced motion removes decoration', async () => {
+  const f = fixture(); f.document.hidden = true;
+  const done = f.startup.markUiReady(); await f.advance(1000); assert.equal(f.appRoot.inert, true);
+  f.document.hidden = false; f.document.dispatchEvent(new Event('visibilitychange'));
+  f.media.matches = true; f.media.dispatchEvent(new Event('change'));
+  assert.equal(await done, true);
+});
+
+test('a terminal watchdog error cannot be cleared by late readiness or exit timers', async () => {
+  const f = fixture(); let state = 'waiting'; f.watchdog.snapshot = () => ({ state });
+  const done = f.startup.markUiReady(); await f.advance(160); state = 'error';
+  await f.advance(500); assert.equal(await done, false); assert.equal(f.appRoot.inert, true);
+  assert.equal(await f.startup.markUiReady(), false);
 });

@@ -1,8 +1,8 @@
 package com.iot.manager.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import com.iot.manager.entity.Device;
 import com.iot.manager.entity.DeviceTelemetrySample;
 import com.iot.manager.entity.DeviceTelemetrySampleArchive;
@@ -173,7 +173,7 @@ public class TelemetryService {
     private String writeJson(Map<String, Object> state) {
         try {
             return objectMapper.writeValueAsString(state);
-        } catch (JsonProcessingException exception) {
+        } catch (JacksonException exception) {
             throw new IllegalArgumentException("Telemetry state must contain valid JSON values");
         }
     }
@@ -181,7 +181,7 @@ public class TelemetryService {
     private Map<String, Object> readJson(String json) {
         try {
             return objectMapper.readValue(json, new TypeReference<LinkedHashMap<String, Object>>() { });
-        } catch (JsonProcessingException exception) {
+        } catch (JacksonException exception) {
             return Map.of();
         }
     }

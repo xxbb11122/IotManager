@@ -94,11 +94,11 @@ copy_secret iot_db_owner_password /targets/walg-backup iot_db_owner_password 999
 copy_secret walg_s3_access_key /targets/walg-backup walg_s3_access_key 999 999
 copy_secret walg_s3_secret_key /targets/walg-backup walg_s3_secret_key 999 999
 
-# Physical recovery is one-shot root work, isolated from the steady-state
+# Physical recovery runs as PostgreSQL UID 999, isolated from the steady-state
 # PostgreSQL service volume and supplied only the object-storage credentials.
-prepare_target /targets/walg-recovery 0 0
-copy_secret walg_s3_access_key /targets/walg-recovery walg_s3_access_key 0 0
-copy_secret walg_s3_secret_key /targets/walg-recovery walg_s3_secret_key 0 0
+prepare_target /targets/walg-recovery 999 999
+copy_secret walg_s3_access_key /targets/walg-recovery walg_s3_access_key 999 999
+copy_secret walg_s3_secret_key /targets/walg-recovery walg_s3_secret_key 999 999
 
 prepare_target /targets/prometheus 65534 65534
 copy_secret metrics_scrape_token /targets/prometheus metrics_scrape_token 65534 65534

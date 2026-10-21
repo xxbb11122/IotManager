@@ -14,6 +14,12 @@ case "$observability_enabled" in
   true|false) ;;
   *) printf 'IOT_ENABLE_OBSERVABILITY must be true or false.\n' >&2; exit 64 ;;
 esac
+
+case "${IOT_INTEGRATION_STORAGE_MODE:-filesystem}" in
+  filesystem|s3) ;;
+  *) printf 'IOT_INTEGRATION_STORAGE_MODE must be filesystem or s3.\n' >&2; exit 64 ;;
+esac
+
 docker info >/dev/null
 
 # Windows curl uses Schannel, which attempts an online revocation lookup even
@@ -47,6 +53,8 @@ compose=(compose --project-name "$project_name" --profile application --env-file
 [[ "$observability_enabled" == true ]] && compose+=(--profile observability)
 [[ -f "$state_file" ]] && compose+=(--env-file "$(docker_host_path "$state_file")")
 compose+=(-f "$(docker_host_path "$repository_root/deploy/docker-compose.yml")" -f "$(docker_host_path "$repository_root/deploy/docker-compose.integration.yml")")
+
+[[ "${IOT_INTEGRATION_STORAGE_MODE:-filesystem}" == s3 ]] && compose+=(-f "$(docker_host_path "$repository_root/deploy/docker-compose.integration.s3.yml")")
 
 artifact_dir="${IOT_RUNTIME_EVIDENCE_DIR:-$repository_root/artifacts/p0-runtime/$(date -u +%Y%m%dT%H%M%SZ)}"
 mkdir -p "$artifact_dir"

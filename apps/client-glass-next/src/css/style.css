@@ -38,7 +38,7 @@
 
 /* Optical layers never participate in layout or consume pointer input, even
    when a UI is mounted with only the base stylesheet. */
-.glass-panel { position: relative; isolation: isolate; }
+:where(.glass-panel) { position: relative; isolation: isolate; }
 .liquid-surface-layer {
   display: block;
   position: absolute;

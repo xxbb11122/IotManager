@@ -4,6 +4,10 @@
 
 运行入口使用真实客户端的 API、WebSocket、鉴权、缓存和原生适配器。模拟数据仅用于开发预览和自动测试；生产构建会检查并排除开发预览。
 
+`1.1.4-glass.5` 完成材质与可访问性整改，保留真实后端接入及连续面板设计。[开发与验收记录](docs/GLASS-5-IMPLEMENTATION-2026-10-18.md)列出改动、测试范围、安装包身份及未执行的真实环境项目。
+
+`1.1.4-glass.6` 实现启动链路优化：本地读取并行且有截止、BLE 历史按需分页、Native/Web 单层退出、按启动身份校验回调，以及分级等待和故障恢复。详见[启动实施与测试记录](docs/GLASS-STARTUP-ANIMATION-IMPLEMENTATION-2026-10-18.md)。
+
 ## 🤖 App AI 助手
 
 AI 是本 App 的主导航功能之一：登录并选择获授权站点后即可进入 AI 工作区。
@@ -19,7 +23,7 @@ AI 是本 App 的主导航功能之一：登录并选择获授权站点后即可
 | 项目 | Glass Next |
 | --- | --- |
 | 源码基线 | 客户端 1.1.3；来源提交和文件摘要见 [source-provenance.json](source-provenance.json) |
-| 当前版本 | 1.1.4-glass.4 / Android code 8 |
+| 当前版本 | 1.1.4-glass.6 / Android code 11 |
 | 开发/预览端口 | 5190 |
 | Android 包名 | `com.iot.manager.glassnext` |
 | Android 显示名称 | IoT Manager Glass |
@@ -55,6 +59,8 @@ npm run dev
 公开客户端为 `iot-glass-next`，启用 Authorization Code + PKCE S256；部署时应登记电脑开发回调 `http://127.0.0.1:5190/`、对应的 `https://<SERVER_HOST>/glass/` 和上表 Android 回调。更换网络地址需要同步服务器公开地址、回调与构建配置。
 
 `.env.example`只包含公开端点元数据。浏览器开发设置放在 `.env.development.local`；Android 构建可使用 `.env.production.local` 中的 `VITE_NATIVE_API_BASE_URL`、`VITE_NATIVE_WS_URL`、OIDC Issuer、Client ID 和新回调。不得把浏览器回调配置成 Android 回调。账号和令牌通过运行时登录及安全存储获取，供应商密钥只保存在服务器。
+
+启动默认使用透明度退场。`VITE_STARTUP_MOTION=false` 可关闭装饰动画；景深、模糊和站点预取分别由 `VITE_STARTUP_DEPTH`、`VITE_STARTUP_BLUR`、`VITE_STARTUP_PREFETCH` 控制，默认均为 `false`。实验开关须在目标设备验证后开启，参数变化需要重新构建。
 
 ## Android
 

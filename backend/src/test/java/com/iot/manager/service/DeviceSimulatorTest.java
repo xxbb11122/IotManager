@@ -17,8 +17,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.mockito.ArgumentCaptor;
 
 import java.util.ArrayList;

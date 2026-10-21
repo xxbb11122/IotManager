@@ -68,8 +68,7 @@
 }
 
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .app-header--glass,
-  .bottom-nav--glass {
+  #app:not([data-glass='solid']) :is(.app-header--glass, .bottom-nav--glass) {
     background: var(--glass-navigation);
     -webkit-backdrop-filter: var(--glass-filter);
     backdrop-filter: var(--glass-filter);
@@ -77,22 +76,28 @@
 }
 
 /* reduced 控制动画；solid 独立控制材质。 */
-#app[data-material='solid'] .app-header--glass,
-#app[data-material='solid'] .bottom-nav--glass {
+#app[data-glass='solid'] :is(.app-header--glass, .bottom-nav--glass) {
   background: var(--glass-solid);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   box-shadow: none;
 }
 @media (prefers-contrast: more), (forced-colors: active) {
-  .app-header--glass,
-  .bottom-nav--glass {
+  #app :is(.app-header--glass, .bottom-nav--glass) {
     background: Canvas;
     color: CanvasText;
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
     box-shadow: none;
   }
+}
+
+/* Independent empty results need a surface; empty copy inside an existing
+   panel remains flat. This also provides an opaque no-filter fallback. */
+.empty-state--panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
 }
 
 .device-list--cards {

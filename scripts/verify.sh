@@ -85,7 +85,10 @@ maven() {
 verify_maven_jdk() {
   require_command java 'Configure JDK 17 and put it on PATH.'
   local maven_version
-  maven_version="$(maven --version 2>&1)"
+  if ! maven_version="$(maven --version 2>&1)"; then
+    printf 'Unable to inspect Maven Wrapper. Version probe output:\n%s\n' "$maven_version" >&2
+    exit 1
+  fi
   if ! grep -Eq '^Apache Maven 3\.9\.[0-9]+' <<<"$maven_version"; then
     printf 'Maven Wrapper must resolve Maven 3.9 or newer. Maven reported:\n%s\n' "$maven_version" >&2
     exit 1
@@ -221,9 +224,11 @@ run_client_playwright_tests() {
   local -a playwright_args=(playwright test --reporter=json)
   if [ "$strict_mode" = true ]; then
     # Real-stack auth/load/rollback have separate runtime gates. UI stability is mandatory here.
-    playwright_args+=(e2e/mobile-client.spec.js e2e/mobile-offline-recovery.spec.js
+    playwright_args+=(e2e/ai-chat-panel.spec.js e2e/ai-workspace.spec.js e2e/bottom-navigation-motion.spec.js
+      e2e/mobile-client.spec.js e2e/mobile-offline-recovery.spec.js
       e2e/motion-states.spec.js e2e/motion-interruptions.spec.js e2e/motion-render-integrity.spec.js
-      e2e/motion-preview.spec.js e2e/motion-preview-visuals.spec.js e2e/refresh-stability.spec.js)
+      e2e/motion-preview.spec.js e2e/motion-preview-visuals.spec.js e2e/refresh-stability.spec.js
+      e2e/startup-animation.spec.js e2e/startup-session-recovery.spec.js)
   fi
   if ! npx "${playwright_args[@]}" > "$report"; then
     cat "$report" >&2 || true
@@ -275,7 +280,7 @@ run_web_playwright_tests() {
       e2e/mobile-offline-recovery.spec.js e2e/motion-interruptions.spec.js
       e2e/motion-preview-visuals.spec.js e2e/motion-preview.spec.js
       e2e/motion-render-integrity.spec.js e2e/motion-states.spec.js
-      e2e/refresh-stability.spec.js e2e/startup-animation.spec.js)
+      e2e/refresh-stability.spec.js e2e/startup-animation.spec.js e2e/startup-session-recovery.spec.js e2e/material-contract.spec.js)
   fi
 
   # The caller has already changed into the application's directory, so this
@@ -342,6 +347,7 @@ if [ "$skip_web" = false ]; then
     (
       cd "$repository_root/$app"
       npm ci
+      npm audit --audit-level=high --registry=https://registry.npmjs.org
       if [ "$app" = client ]; then
         run_app_unit_tests client
         run_client_playwright_tests

@@ -12,6 +12,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { validateEvidenceVex } from './vex-evidence.mjs';
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(scriptDirectory, '..', '..');
@@ -371,8 +372,8 @@ function collectTopology(parameters, sourceSha) {
     fail('Resolved topology does not cover the approved eight-artifact catalog.', 65);
   }
   const buildableCount = orderedArtifacts.filter((item) => item.origin === 'built').length;
-  if (orderedArtifacts.length !== 8 || buildableCount !== 6) {
-    fail('Release image baseline drift: expected 8 artifacts / 6 buildable, got ' + orderedArtifacts.length + ' / ' + buildableCount + '.', 65);
+  if (orderedArtifacts.length !== 8 || buildableCount !== 7) {
+    fail('Release image baseline drift: expected 8 artifacts / 7 buildable, got ' + orderedArtifacts.length + ' / ' + buildableCount + '.', 65);
   }
 
   const topology = {
@@ -381,7 +382,7 @@ function collectTopology(parameters, sourceSha) {
     profiles: String(parameters.profiles).split(',').map((value) => value.trim()).filter(Boolean),
     expected: {
       artifacts: 8,
-      buildableArtifacts: 6,
+      buildableArtifacts: 7,
       normalRuntimeServices: 12,
       recoveryAddedServices: 1,
       releaseCandidateServices: 13
@@ -523,8 +524,8 @@ function commandVerifyImageSet(parsed) {
   const added = services.recoveryAddedServices || [];
   const union = services.releaseCandidateUnion || [];
   const serviceArtifactIds = new Set(union.map((item) => item.artifactId));
-  if (artifactIds.size !== 8 || buildableCount !== 6 || normal.length !== 12 || added.length !== 1 || union.length !== 13) {
-    fail('Release image/service counts do not match the approved 8/6/12/1/13 baseline.', 65);
+  if (artifactIds.size !== 8 || buildableCount !== 7 || normal.length !== 12 || added.length !== 1 || union.length !== 13) {
+    fail('Release image/service counts do not match the expected 8/7/12/1/13 baseline.', 65);
   }
   if (!exactSet(artifactIds, scanIds)) {
     fail('Runtime/recovery artifact set differs from scanned artifact set.', 65);
@@ -543,7 +544,7 @@ function commandVerifyImageSet(parsed) {
   }
   const result = {
     status: 'PASS',
-    expected: { artifacts: 8, buildableArtifacts: 6, normalRuntimeServices: 12, recoveryAddedServices: 1, releaseCandidateServices: 13 },
+    expected: { artifacts: 8, buildableArtifacts: 7, normalRuntimeServices: 12, recoveryAddedServices: 1, releaseCandidateServices: 13 },
     actual: { artifacts: artifactIds.size, buildableArtifacts: buildableCount, normalRuntimeServices: normal.length, recoveryAddedServices: added.length, releaseCandidateServices: union.length },
     topologySha256: sha256File(topologyFile),
     servicesSha256: sha256File(servicesFile),
@@ -897,9 +898,21 @@ function commandValidateDigestManifest(parsed) {
   const normal = services.normalRuntimeServices || [];
   const recoveryAdded = services.recoveryAddedServices || [];
   const union = services.releaseCandidateUnion || [];
-  if (artifacts.length !== 8 || artifacts.filter((item) => item.origin === 'built').length !== 6 ||
+  // Older known-good releases used the external PG image for logical backup.
+  // Only an explicit rollback compatibility invocation may accept that exact
+  // historical origin mapping; new candidates must retain seven builds.
+  const legacyBackupRollback = option(parsed, 'allow-legacy-external-backup', false) === 'true' &&
+    candidate.expected?.buildableArtifacts === 6 && artifacts.length === 8 &&
+    artifactCatalog.every((item, index) => {
+      const topologyArtifact = artifacts.find(value => value.artifactId === item.artifactId);
+      const manifestArtifact = artifactItems(manifest).find(value => value.artifactId === item.artifactId);
+      const origin = index < 6 ? 'built' : 'external';
+      return topologyArtifact?.origin === origin && manifestArtifact?.origin === origin;
+    });
+  const expectedBuilds = legacyBackupRollback ? 6 : 7;
+  if (candidate.expected?.buildableArtifacts !== expectedBuilds || artifacts.length !== 8 || artifacts.filter((item) => item.origin === 'built').length !== expectedBuilds ||
       normal.length !== 12 || recoveryAdded.length !== 1 || union.length !== 13) {
-    fail('Release topology does not match the approved 8/6/12/1/13 baseline.', 65);
+    fail('Release topology does not match the approved 8/7/12/1/13 baseline.', 65);
   }
   const serviceArtifactIds = new Set(union.map((item) => item.artifactId));
   if (![...serviceArtifactIds].every((artifactId) => manifestArtifacts.has(artifactId))) {
@@ -911,6 +924,7 @@ function commandValidateDigestManifest(parsed) {
     sourceSha: candidate.sourceSha,
     topologySha256: candidate.topologySha256,
     manifestSha256,
+    legacyBackupRollback,
     artifacts: manifestArtifacts.size,
     normalRuntimeServices: normal.length,
     recoveryAddedServices: recoveryAdded.length,
@@ -1050,7 +1064,8 @@ function commandBuildImage(parsed) {
     'IMG-R03': 'keycloak',
     'IMG-R04': 'postgres',
     'IMG-R05': 'prometheus',
-    'IMG-R06': 'alertmanager'
+    'IMG-R06': 'alertmanager',
+    'IMG-R07': 'logical-backup'
   };
   const repositoryByArtifact = {
     'IMG-R01': 'iot-manager-backend',
@@ -1058,10 +1073,11 @@ function commandBuildImage(parsed) {
     'IMG-R03': 'iot-manager-keycloak',
     'IMG-R04': 'iot-manager-postgres',
     'IMG-R05': 'iot-manager-prometheus',
-    'IMG-R06': 'iot-manager-alertmanager'
+    'IMG-R06': 'iot-manager-alertmanager',
+    'IMG-R07': 'iot-manager-logical-backup'
   };
   if (!targetByArtifact[artifactId]) {
-    fail('Only buildable artifacts IMG-R01 through IMG-R06 can be built.', 64);
+    fail('Only buildable artifacts IMG-R01 through IMG-R07 can be built.', 64);
   }
   const candidate = readJson(resolveRepositoryPath(option(parsed, 'candidate', true), true));
   const topologyFile = resolveRepositoryPath(option(parsed, 'topology', true), true);
@@ -1077,6 +1093,9 @@ function commandBuildImage(parsed) {
   }
   const outputFile = resolveRepositoryPath(option(parsed, 'output', true), true);
   const metadataFile = outputFile + '.buildx-metadata.json';
+  // Buildx writes this file before writeJson creates the result directory.
+  // Fresh runners must have the parent before the build starts.
+  fs.mkdirSync(path.dirname(metadataFile), { recursive: true });
   const registry = option(parsed, 'registry', true).replace(/\/+$/, '');
   const tag = option(parsed, 'tag', true);
   const platform = option(parsed, 'platform', false) || 'linux/amd64';
@@ -1261,7 +1280,7 @@ function commandCreateImageScanResult(parsed) {
   const vexDirectoryOption = option(parsed, 'vex-dir', false);
   const vexDirectory = vexDirectoryOption ? resolveRepositoryPath(vexDirectoryOption, true) : undefined;
   const validVexCves = vexDirectory
-    ? blockingCves.filter((cve) => hasApprovedVex(vexDirectory, artifactId, manifestById.get(artifactId), cve))
+    ? blockingCves.filter((cve) => hasApprovedVex(vexDirectory, artifactId, manifestById.get(artifactId), cve, undefined, candidate.sourceSha))
     : [];
   const allBlockingCvesApproved = blockingCves.length > 0 && validVexCves.length === blockingCves.length;
   const status = exitCode !== 0
@@ -1724,7 +1743,7 @@ function parseSimpleVexYaml(file) {
   return result;
 }
 
-function hasApprovedVex(directory, artifactId, imageReference, cve, nowValue) {
+function hasApprovedVex(directory, artifactId, imageReference, cve, nowValue, sourceSha) {
   if (!fs.existsSync(directory)) {
     return false;
   }
@@ -1744,10 +1763,14 @@ function hasApprovedVex(directory, artifactId, imageReference, cve, nowValue) {
     } catch (_) {
       continue;
     }
+    if (vex.schemaVersion === 2) {
+      if (validateEvidenceVex(vex, { directory, artifactId, digest, cve, sourceSha, now })) return true;
+      continue;
+    }
     const approvedAt = Date.parse(vex.approvedAt || '');
     const expiresAt = Date.parse(vex.expiresAt || '');
     const controls = Array.isArray(vex.compensatingControls) ? vex.compensatingControls : [];
-    const accepted = vex.schemaVersion &&
+    const accepted = vex.schemaVersion === 1 &&
       vex.artifact === artifactId &&
       extractDigest(vex.imageDigest || '') === digest &&
       (!cve || vex.cve === cve) &&
@@ -1776,7 +1799,7 @@ function commandValidateVex(parsed) {
   if (!digest) {
     fail('--image must identify an immutable sha256 digest.', 64);
   }
-  if (hasApprovedVex(directory, artifactId, imageReference, cve)) {
+  if (hasApprovedVex(directory, artifactId, imageReference, cve, undefined, option(parsed, 'source-sha', false))) {
     output('APPROVED_VEX');
     return;
   }
@@ -1974,6 +1997,9 @@ function composeForInspection(parsed, phase) {
   const stateEnvironment = option(parsed, 'state-env', false) ? resolveRepositoryPath(option(parsed, 'state-env', false), true) : undefined;
   const imageEnvironment = option(parsed, 'image-env', false) ? resolveRepositoryPath(option(parsed, 'image-env', false), true) : undefined;
   const command = ['compose', '--project-name', project, '--env-file', environmentFile];
+  // The frozen runtime service set includes both profiles. Without them,
+  // Compose can hide existing application/observability containers from ps.
+  if (phase === 'runtime') command.push('--profile', 'application', '--profile', 'observability');
   if (stateEnvironment && fs.existsSync(stateEnvironment)) {
     command.push('--env-file', stateEnvironment);
   }
@@ -1986,6 +2012,10 @@ function composeForInspection(parsed, phase) {
   command.push('-f', baseCompose);
   if (runtimeCompose) {
     command.push('-f', runtimeCompose);
+  }
+  for (const extra of options(parsed, 'runtime-extra-compose')) {
+    if (phase !== 'runtime') fail('--runtime-extra-compose is only valid for runtime inspection.', 64);
+    command.push('-f', resolveRepositoryPath(extra, true));
   }
   for (const immutableCompose of immutableComposes) {
     command.push('-f', immutableCompose);

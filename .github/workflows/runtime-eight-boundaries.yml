@@ -1,0 +1,58 @@
+name: Eight isolated runtime boundaries
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, "codex/**"]
+    paths:
+      - .github/workflows/runtime-eight-boundaries.yml
+      - scripts/testing/runtime-eight/**
+      - backend/**
+      - deploy/docker-compose*.yml
+      - deploy/Dockerfile
+      - apps/client-glass-next/e2e/runtime-*.spec.js
+      - apps/client-glass-next/e2e/rollback-data-compatibility.spec.js
+      - apps/client-glass-next/package*.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runtime-eight-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eight-boundaries:
+    name: Eight scenarios with real services and synthetic data
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: apps/client-glass-next/package-lock.json
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install browser and ephemeral runner test tools
+        working-directory: apps/client-glass-next
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          sudo apt-get install -y --no-install-recommends libnss3-tools
+      - name: Execute all eight scenarios and clean the dedicated runtime
+        run: bash scripts/testing/runtime-eight/run.sh
+      - name: Upload structured test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: runtime-eight-${{ github.sha }}
+          path: artifacts/runtime-eight/*.json
+          if-no-files-found: error
+          retention-days: 14

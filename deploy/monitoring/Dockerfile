@@ -3,10 +3,11 @@
 # HIGH/CRITICAL findings; compiling the same release sources with the fixed
 # dependency set below keeps the server behavior and configuration contract
 # while producing an auditable, non-root runtime image.
-FROM golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36 AS prometheus-build
+FROM golang:1.26.10-bookworm@sha256:ee3901c61e423732605a51f1b8157c849ec01194ea0a274213b5202b2c11e7bf AS prometheus-build
 
 ARG PROMETHEUS_VERSION=v3.14.0
 ARG PROMETHEUS_SOURCE_COMMIT=d7598b7141418fa35be2b5ec5d0fefb634199610
+ARG PROMETHEUS_MODULE_VERSION=v0.314.0
 
 WORKDIR /src
 RUN set -eux; \
@@ -14,7 +15,9 @@ RUN set -eux; \
     git remote add origin https://github.com/prometheus/prometheus.git; \
     git fetch --depth 1 origin "${PROMETHEUS_SOURCE_COMMIT}"; \
     git checkout --detach FETCH_HEAD; \
-    test "$(git rev-parse HEAD)" = "${PROMETHEUS_SOURCE_COMMIT}"
+    test "$(git rev-parse HEAD)" = "${PROMETHEUS_SOURCE_COMMIT}"; \
+    git fetch --depth 1 origin "refs/tags/${PROMETHEUS_MODULE_VERSION}:refs/tags/${PROMETHEUS_MODULE_VERSION}"; \
+    test "$(git rev-parse "${PROMETHEUS_MODULE_VERSION}^{commit}")" = "${PROMETHEUS_SOURCE_COMMIT}"
 # The signed upstream release already has a tidy module graph. Avoid re-resolving
 # its test-only closure: it does not affect the runtime binary and exceeds the
 # hosted-runner build window. `go get`, checksum verification, and the binary
@@ -22,7 +25,7 @@ RUN set -eux; \
 RUN --mount=type=cache,id=iot-manager-prometheus-go-mod,target=/go/pkg/mod \
     set -eux; \
     for attempt in 1 2 3 4 5; do \
-      if go get golang.org/x/crypto@v0.55.0 && go mod verify; then \
+      if go get golang.org/x/crypto@v0.57.0 golang.org/x/net@v0.60.0 google.golang.org/grpc@v1.83.2 && go mod verify; then \
         break; \
       fi; \
       if [ "$attempt" -eq 5 ]; then \
@@ -37,10 +40,13 @@ RUN --mount=type=cache,id=iot-manager-prometheus-go-mod,target=/go/pkg/mod \
       -ldflags "-s -w -X github.com/prometheus/common/version.Version=${PROMETHEUS_VERSION#v} -X github.com/prometheus/common/version.Revision=${PROMETHEUS_SOURCE_COMMIT}" \
       -o /out/prometheus ./cmd/prometheus; \
     /out/prometheus --version; \
-    go version -m /out/prometheus | grep -Eq '^[[:space:]]*dep[[:space:]]+golang.org/x/crypto[[:space:]]+v0.55.0'
+    go version -m /out/prometheus | grep -Eq '^[[:space:]]*dep[[:space:]]+golang.org/x/crypto[[:space:]]+v0.57.0'; \
+    go version -m /out/prometheus | grep -Eq '^[[:space:]]*dep[[:space:]]+golang.org/x/net[[:space:]]+v0.60.0'; \
+    go version -m /out/prometheus | grep -Eq '^[[:space:]]*dep[[:space:]]+google.golang.org/grpc[[:space:]]+v1.83.2'; \
+    go version -m /out/prometheus | grep -Eq '^[[:space:]]*mod[[:space:]]+github.com/prometheus/prometheus[[:space:]]+v0[.]314[.]0([+]dirty)?([[:space:]]|$)'
 RUN mkdir -p /out/rootfs/etc/prometheus
 
-FROM golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36 AS alertmanager-source
+FROM golang:1.26.10-bookworm@sha256:ee3901c61e423732605a51f1b8157c849ec01194ea0a274213b5202b2c11e7bf AS alertmanager-source
 
 ARG ALERTMANAGER_VERSION=v0.33.1
 ARG ALERTMANAGER_SOURCE_COMMIT=2c8da51e03f3dbbed24f9711ca2d76aab4eef9c5
@@ -78,7 +84,7 @@ RUN set -eux; \
 RUN --mount=type=cache,id=iot-manager-alertmanager-go-mod,target=/go/pkg/mod \
     set -eux; \
     for attempt in 1 2 3 4 5; do \
-      if go get golang.org/x/crypto@v0.55.0 golang.org/x/net@v0.58.0 golang.org/x/text@v0.41.0 golang.org/x/mod@v0.40.0 google.golang.org/grpc@v1.82.1 && go mod verify; then \
+      if go get github.com/klauspost/compress@v1.18.7 golang.org/x/crypto@v0.57.0 golang.org/x/net@v0.60.0 golang.org/x/text@v0.42.0 golang.org/x/mod@v0.41.0 google.golang.org/grpc@v1.83.2 && go mod verify; then \
         break; \
       fi; \
       if [ "$attempt" -eq 5 ]; then \
@@ -93,17 +99,18 @@ RUN --mount=type=cache,id=iot-manager-alertmanager-go-mod,target=/go/pkg/mod \
       -ldflags "-s -w -X github.com/prometheus/common/version.Version=${ALERTMANAGER_VERSION#v} -X github.com/prometheus/common/version.Revision=${ALERTMANAGER_SOURCE_COMMIT}" \
       -o /out/alertmanager ./cmd/alertmanager; \
     /out/alertmanager --version; \
-    go version -m /out/alertmanager | grep -Eq '^[[:space:]]*dep[[:space:]]+golang.org/x/crypto[[:space:]]+v0.55.0'; \
-    go version -m /out/alertmanager | grep -Eq '^[[:space:]]*dep[[:space:]]+golang.org/x/net[[:space:]]+v0.58.0'; \
-    go version -m /out/alertmanager | grep -Eq '^[[:space:]]*dep[[:space:]]+golang.org/x/text[[:space:]]+v0.41.0'; \
-    go list -m -f '{{.Version}}' golang.org/x/mod | grep -Fx 'v0.40.0'; \
-    go version -m /out/alertmanager | grep -Eq '^[[:space:]]*dep[[:space:]]+google.golang.org/grpc[[:space:]]+v1.82.1'
+    go version -m /out/alertmanager | grep -Eq '^[[:space:]]*dep[[:space:]]+github.com/klauspost/compress[[:space:]]+v1.18.7'; \
+    go version -m /out/alertmanager | grep -Eq '^[[:space:]]*dep[[:space:]]+golang.org/x/crypto[[:space:]]+v0.57.0'; \
+    go version -m /out/alertmanager | grep -Eq '^[[:space:]]*dep[[:space:]]+golang.org/x/net[[:space:]]+v0.60.0'; \
+    go version -m /out/alertmanager | grep -Eq '^[[:space:]]*dep[[:space:]]+golang.org/x/text[[:space:]]+v0.42.0'; \
+    go list -m -f '{{.Version}}' golang.org/x/mod | grep -Fx 'v0.41.0'; \
+    go version -m /out/alertmanager | grep -Eq '^[[:space:]]*dep[[:space:]]+google.golang.org/grpc[[:space:]]+v1.83.2'
 RUN mkdir -p /out/rootfs/etc/alertmanager
 
 # Distroless deliberately excludes a shell and wget. Compile one small,
 # read-only HTTP ready probe from the same fixed Go toolchain instead of
 # adding a general-purpose package manager or shell to either runtime image.
-FROM golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36 AS healthcheck-build
+FROM golang:1.26.10-bookworm@sha256:ee3901c61e423732605a51f1b8157c849ec01194ea0a274213b5202b2c11e7bf AS healthcheck-build
 
 COPY deploy/monitoring/http-ready.go /src/http-ready.go
 RUN --mount=type=cache,id=iot-manager-monitor-healthcheck-go-build,target=/root/.cache/go-build \

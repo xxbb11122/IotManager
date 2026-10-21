@@ -33,5 +33,5 @@ export default defineConfig({
       '/ws': { target: 'ws://localhost:8080', ws: true }
     }
   },
-  build: { outDir: 'dist', assetsDir: 'assets', emptyOutDir: true }
+  build: { target: ['es2020', 'edge88', 'firefox78', 'chrome87', 'safari14'], outDir: 'dist', assetsDir: 'assets', emptyOutDir: true }
 });
