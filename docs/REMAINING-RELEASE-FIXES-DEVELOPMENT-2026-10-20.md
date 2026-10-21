@@ -7,7 +7,7 @@
 | 范围 | 实现 | 审核约束 |
 | --- | --- | --- |
 | 后端 | Spring Boot 4.0.8 / Framework 7.0.9 / Java 17 | 使用公开修复版本；同步迁移模块、测试包名及 JSON，不混装 Spring 6/7 |
-| 数据映射 | Jackson 3.1.5，兼容 Jackson 2 的外部序列化默认行为 | Jackson 注解保留官方包名；外部 API 时间、字段和错误结构必须回归 |
+| 数据映射 | Jackson 3.1.8 / SDK Jackson 2.21.8，兼容外部序列化默认行为 | Jackson 注解保留官方包名；外部 API 时间、字段和错误结构必须回归 |
 | AI | Spring AI 2.0.1 / OpenAI Java SDK | 沿用 IOT_AI 配置；选项改为平铺结构；禁用 SDK 重试，连接 5 秒、请求/读取 30 秒；保持 HTTPS 白名单和错误脱敏 |
 | 数据库 | PostgreSQL 16 / pgvector 0.8.6，Alpine 3.24 musl | 保持主版本和 UID/GID 999；只向新集群写 ABI 标记；旧 glibc/未知数据卷必须拒绝启动 |
 | 逻辑备份 | PG16 官方客户端及匹配 musl 的动态库 | 不复制整个旧系统；实际执行 dump/restore 验证依赖与数据完整性 |
@@ -23,6 +23,8 @@ v3.0.9 使用 encoding/json/v2，构建沿用[上游 Makefile](https://github.co
 pgvector 只部署正常编译的原生 vector.so 与扩展 SQL；构建显式 with_llvm=no，避免供应镜像使用 LLVM 21、Alpine 默认开发包 LLVM 22 的 bitcode 工具链混用。PostgreSQL 自身已有的 JIT 配置不在本次变更范围。
 
 方案审核结论：可进入隔离开发与模拟验收；数据库 libc 改变必须执行下述迁移，不能直接把旧卷挂到新镜像，也不能仅靠风险豁免跳过漏洞扫描。
+
+2026-10-21 实际镜像扫描补充：Boot 4.0.8 默认的 Tomcat 11.0.24、Jackson 3.1.5 和 SDK Jackson 2.21.5 仍有条目，因此覆盖完整 BOM 为 Jackson 3.1.8 / 2.21.8，Tomcat 全组件统一 11.0.27。Caddy、Alertmanager 固定 klauspost/compress 1.18.7。参考 [Tomcat 安全公告](https://tomcat.apache.org/security-11.html)、[Jackson 3.1.7 修复说明](https://github.com/FasterXML/jackson/wiki/Jackson-Release-3.1.7)、[compress 1.18.7](https://github.com/klauspost/compress/releases/tag/v1.18.7)。覆盖补丁后必须重新扫描同源八镜像并执行运行回归，不能沿用修改前的安全结论。
 
 ## 2. 旧 PG16 数据的迁移边界
 

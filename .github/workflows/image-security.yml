@@ -379,6 +379,9 @@ jobs:
   aggregate:
     name: Aggregate eight scans and publish image evidence
     needs: [prepare, resolve, scan]
+    # Retain a failing summary and all original reports when one scan fails.
+    # Verification below still prevents a PASS handoff for unsafe images.
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.resolve.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     outputs:

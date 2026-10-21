@@ -19,7 +19,7 @@ RUN --mount=type=cache,id=iot-manager-caddy-go-mod,target=/go/pkg/mod \
     # Retry only transient module resolution work; a final checksum/compile
     # failure remains fatal and therefore cannot be hidden by this loop.
     for attempt in 1 2 3 4 5; do \
-      if go get golang.org/x/crypto@v0.57.0 golang.org/x/net@v0.60.0 google.golang.org/grpc@v1.83.2 && go mod tidy; then \
+      if go get github.com/klauspost/compress@v1.18.7 golang.org/x/crypto@v0.57.0 golang.org/x/net@v0.60.0 google.golang.org/grpc@v1.83.2 && go mod tidy; then \
         break; \
       fi; \
       if [ "$attempt" -eq 5 ]; then \
@@ -54,6 +54,7 @@ RUN --mount=type=cache,id=iot-manager-caddy-go-mod,target=/go/pkg/mod \
     /out/caddy version; \
     go version -m /out/caddy | grep -Eq '^[[:space:]]*dep[[:space:]]+github.com/caddyserver/caddy/v2[[:space:]]+v2.11.4'; \
     go version -m /out/caddy | grep -Eq '^[[:space:]]*dep[[:space:]]+golang.org/x/crypto[[:space:]]+v0.57.0'; \
+    go version -m /out/caddy | grep -Eq '^[[:space:]]*dep[[:space:]]+github.com/klauspost/compress[[:space:]]+v1.18.7'; \
     mkdir -p /runtime/data /runtime/config /runtime/srv/frontend /runtime/srv/console; \
     chown -R 65534:65534 /runtime
 
