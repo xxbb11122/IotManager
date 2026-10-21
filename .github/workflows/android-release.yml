@@ -112,10 +112,10 @@ jobs:
       - name: Build and verify signed APK and AAB
         working-directory: candidate
         env:
-          KEYSTORE_BASE64: ${{ secrets.IOT_RELEASE_KEYSTORE_BASE64 }}
-          IOT_RELEASE_STORE_PASSWORD: ${{ secrets.IOT_RELEASE_STORE_PASSWORD }}
-          IOT_RELEASE_KEY_ALIAS: ${{ secrets.IOT_RELEASE_KEY_ALIAS }}
-          IOT_RELEASE_KEY_PASSWORD: ${{ secrets.IOT_RELEASE_KEY_PASSWORD }}
+          KEYSTORE_BASE64: ${{ secrets[inputs.app == 'client' && 'IOT_CLIENT_RELEASE_KEYSTORE_BASE64' || 'IOT_GLASS_RELEASE_KEYSTORE_BASE64'] }}
+          IOT_RELEASE_STORE_PASSWORD: ${{ secrets[inputs.app == 'client' && 'IOT_CLIENT_RELEASE_STORE_PASSWORD' || 'IOT_GLASS_RELEASE_STORE_PASSWORD'] }}
+          IOT_RELEASE_KEY_ALIAS: ${{ secrets[inputs.app == 'client' && 'IOT_CLIENT_RELEASE_KEY_ALIAS' || 'IOT_GLASS_RELEASE_KEY_ALIAS'] }}
+          IOT_RELEASE_KEY_PASSWORD: ${{ secrets[inputs.app == 'client' && 'IOT_CLIENT_RELEASE_KEY_PASSWORD' || 'IOT_GLASS_RELEASE_KEY_PASSWORD'] }}
           CLIENT_CERT: ${{ vars.ANDROID_CLIENT_CERT_SHA256 }}
           GLASS_CERT: ${{ vars.ANDROID_GLASS_CERT_SHA256 }}
           CLIENT_LAST_CODE: ${{ vars.ANDROID_CLIENT_LAST_RELEASE_VERSION_CODE }}

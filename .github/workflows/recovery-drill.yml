@@ -66,8 +66,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  source-policy:
+    uses: ./.github/workflows/release-source-policy.yml
+    with:
+      source_sha: ${{ inputs.source_sha || github.sha }}
+      allow_release_tag: ${{ inputs.release_mode == true }}
+
   physical-recovery:
     if: ${{ inputs.release_mode != true }}
+    needs: [source-policy]
     # This runner must be a protected, network-restricted host that can reach
     # both the running source Compose project and the approved recovery bucket.
     # Do not switch this to GitHub-hosted runners: they cannot validate the
@@ -198,6 +205,7 @@ jobs:
 
   immutable-physical-recovery:
     if: ${{ inputs.release_mode == true }}
+    needs: [source-policy]
     name: Immutable WAL-G Recovery Evidence
     runs-on: [self-hosted, linux, iot-manager-recovery]
     environment: r1-recovery-drill

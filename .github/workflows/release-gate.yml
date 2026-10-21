@@ -27,7 +27,14 @@ permissions:
   actions: read
 
 jobs:
+  source-policy:
+    uses: ./.github/workflows/release-source-policy.yml
+    with:
+      source_sha: ${{ inputs.source_sha || github.sha }}
+      allow_release_tag: true
+
   candidate:
+    needs: [source-policy]
     name: Freeze single release candidate identity
     runs-on: ubuntu-latest
     timeout-minutes: 10

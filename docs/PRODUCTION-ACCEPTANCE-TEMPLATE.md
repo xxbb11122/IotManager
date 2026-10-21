@@ -44,8 +44,8 @@ Android 保护环境配置以下 secret/variable；不要把私钥或密码填�
 
 | 名称 | 类型/用途 |
 | --- | --- |
-| IOT_RELEASE_KEYSTORE_BASE64 | secret，既有正式 keystore 的 Base64 |
-| IOT_RELEASE_STORE_PASSWORD / IOT_RELEASE_KEY_ALIAS / IOT_RELEASE_KEY_PASSWORD | secret，现有密钥的凭据 |
+| IOT_CLIENT_RELEASE_KEYSTORE_BASE64 / IOT_GLASS_RELEASE_KEYSTORE_BASE64 | secret，各 App 既有正式 keystore 的 Base64 |
+| IOT_CLIENT_RELEASE_STORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD，Glass 对应 IOT_GLASS_RELEASE_* | secret，每个完整名称都含对应 App 前缀，详见发布运维手册 |
 | RELEASE_GOVERNANCE_READ_TOKEN | 仅用于预检的只读 token；需读取 branch protection、environments、repository runners；默认 token 无权时必须提供 |
 | ANDROID_CLIENT_CERT_SHA256 / ANDROID_GLASS_CERT_SHA256 | variable，每个 app 的可信构建签名证书指纹 |
 | ANDROID_CLIENT_LAST_RELEASE_VERSION_CODE / ANDROID_GLASS_LAST_RELEASE_VERSION_CODE | variable，已分发最高版本；首次正式发布明确填 0，后续发布后及时更新 |
