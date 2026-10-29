@@ -11,7 +11,7 @@
 
 <p align="center">
   <img alt="Java 17" src="https://img.shields.io/badge/Java-17-blue" />
-  <img alt="Spring Boot" src="https://img.shields.io/badge/Spring%20Boot-3.5.x-brightgreen" />
+  <img alt="Spring Boot" src="https://img.shields.io/badge/Spring%20Boot-4.0.8-brightgreen" />
   <img alt="Node.js 22" src="https://img.shields.io/badge/Node.js-22-green" />
   <img alt="Android API 36" src="https://img.shields.io/badge/Android-API%2036-3DDC84" />
   <img alt="PostgreSQL 16" src="https://img.shields.io/badge/PostgreSQL-16-4169E1" />
@@ -32,7 +32,7 @@
 >
 > IoT Manager 当前是 **R1 受控试点候选项目（Controlled-Pilot Candidate）**，并非已批准的正式生产版本。新增的 App AI 聊天属于独立试验范围，生产默认关闭；站点知识库也默认关闭。
 >
-> 截至 **2026-10-01**，本地验证通过：Backend 189 项、Edge Agent 7 项、Client 194 项、监控端 2 项、控制台 1 项单元/集成测试；Client 关键浏览器场景 11 项、三端生产构建、Android 1.1.1 Debug APK 构建及 Compose 静态配置检查通过。新功能的真机、生产身份链路和发布证据仍需单独验收；推送后以[当前提交的 Quick CI](https://github.com/xxbb11122/IotManager/actions/workflows/ci.yml)及[P0 Docker Runtime](https://github.com/xxbb11122/IotManager/actions/workflows/runtime-e2e.yml)结果为准。
+> **2026-10-29** 的发布门禁离线模拟为 **79/79 通过**；它验证合成配置下的判断和阻断逻辑。正式审核、保护环境、专用 runner、正式签名和已批准的回滚基线仍需接入。提交后的结果以该提交的 [Quick CI](https://github.com/xxbb11122/IotManager/actions/workflows/ci.yml) 和 [P0 Docker Runtime](https://github.com/xxbb11122/IotManager/actions/workflows/runtime-e2e.yml) 为准。
 >
 > **Passing local tests or Quick CI is not production approval.** 受保护的不可变发布门禁、签名版本回滚、远端 WAL-G PITR/RPO/RTO、持续负载、真实设备与新 APK 的完整 HTTPS/OIDC 验收尚未关闭。
 
@@ -181,18 +181,17 @@ Release and recovery gates are **fail-closed**: a skipped scan, missing evidence
 
 ## Current verification / 当前验证边界
 
-以下是 **2026-10-01 本地工作树复测**，测试针对本次待提交代码；不等同于新 GitHub 提交的 CI、P0 运行态或正式发布 Gate 结果。
+以下记录分别标明测试日期和范围。新的提交需要独立的 CI 与发布验收；本地模拟结果不能外推为云端运行或生产批准。
 
-| 区域 | 本地结果 | 复现入口 / 范围 |
+| 区域 | 结果 | 复现入口 / 范围 |
 | --- | --- | --- |
-| Backend / Edge Agent | 189 / 7 项测试通过，均为 0 失败、0 错误、0 跳过 | JDK 17，分别在 `backend/`、`edge-agent/` 执行 Maven `verify` |
-| Client / Console / Monitoring | 194 / 1 / 2 项测试通过；三个 Vite 生产构建通过 | Node.js 22，各目录 `npm run test && npm run build` |
-| Client 浏览器 | AI、底栏动效、启动动画与移动端主流程共 11 项通过 | `client/e2e/` Playwright；不等同于真机身份验收 |
-| Android | 1.1.1 / `versionCode=3` Debug APK 构建成功 | JDK 23、本机 SDK 36、`client` 的 `npm run android:debug`；非正式签名 |
-| Docker 配置 | Compose 配置展开通过 | 仅静态检查；不是新代码的全链路运行态证明 |
-| Android 模拟器专项 | 同日此前记录的 11 项原生模拟验收通过 | [公开版进度与证据边界](docs/PROJECT-STATUS-2026-10-01.md)；本轮未重跑真机 |
+| 发布门禁 | 2026-10-29：79/79 离线模拟通过，0 外部 I/O 尝试 | [方案和验收](docs/RELEASE-GOVERNANCE-SIMULATION-ACCEPTANCE-2026-10-29.md)；不代表真实 GitHub 审批或部署成功 |
+| 发布工具回归 | 2026-10-29：13 通过、0 失败、1 跳过 | Windows 本地运行；Linux runner 注册协议因平台限制跳过 |
+| 受控运维模拟 | 2026-10-21：Linux 7/7，双库迁移及新备份链恢复通过 | [运行记录](https://github.com/xxbb11122/IotManager/actions/runs/39574579331)；合成数据，非生产恢复 |
+| 应用 CI 与运行态 | 2026-10-21：历史提交 `0cd5b44` 的 [Quick CI](https://github.com/xxbb11122/IotManager/actions/runs/39577950680) 与 [P0 Runtime](https://github.com/xxbb11122/IotManager/actions/runs/39577950722) 成功 | P0 的正式 immutable job 跳过；不代表本提交 CI 或正式 Gate 已通过 |
+| 真实治理配置 | 2026-10-27：4 PASS、2 FAIL、2 UNKNOWN | [复检报告](docs/RELEASE-READINESS-RECHECK-2026-10-27.md)为当时快照，不能替代实时复查 |
 
-**已发布的上一提交** `83e6bc7` 的 [Quick CI](https://github.com/xxbb11122/IotManager/actions/runs/36424040632) 与 [P0 Docker Runtime](https://github.com/xxbb11122/IotManager/actions/runs/36424040548) 均成功；该结果**不能直接外推**至本次新增 AI/Android 改动。新提交推送后，应以该 SHA 的工作流结果重新判断。受保护发布 Gate 仍未签发。
+更早的 Android 模拟器与应用测试记录见[历史项目状态](docs/PROJECT-STATUS-2026-10-01.md)。正式发布仍需对同一候选 SHA 执行受保护 Gate、签名、恢复与回滚验收。
 
 ### Android debug package / 调试安装包
 
@@ -213,13 +212,13 @@ Release and recovery gates are **fail-closed**: a skipped scan, missing evidence
 
 | Layer             | Technology                                               |
 | ----------------- | -------------------------------------------------------- |
-| Backend           | Java 17, Spring Boot 3.5.16, Spring MVC, Spring WebSocket |
+| Backend           | Java 17, Spring Boot 4.0.8, Spring MVC, Spring WebSocket |
 | Security          | Spring Security, OAuth2 Resource Server, JWT, Keycloak   |
 | Persistence       | PostgreSQL 16, Spring Data JPA / Hibernate, Flyway; V27 requires pgvector 0.8.6 even when AI is off |
-| Optional AI       | Spring AI 1.1.8, server-side OpenAI-compatible Chat adapter; disabled by default |
+| Optional AI       | Spring AI 2.0.1, server-side OpenAI-compatible Chat adapter; disabled by default |
 | Edge Agent        | Java 17, outbound WebSocket, profile-based drivers       |
 | Web               | Node.js 22, Vite, ES Modules                             |
-| Testing           | JUnit 5, Testcontainers, Playwright                      |
+| Testing           | JUnit Jupiter, Testcontainers, Playwright                |
 | Mobile            | Capacitor 8, Android API 24–36                           |
 | Reverse proxy     | Caddy                                                    |
 | Observability     | Spring Actuator, Micrometer, Prometheus, Alertmanager    |
@@ -305,7 +304,7 @@ The resulting `client/android/app/build/outputs/apk/debug/app-debug.apk` is a **
 
 ### Docker integration and migration note
 
-Use the [deployment runbook](deploy/DEPLOYMENT.md) for secret provisioning, two-stage Keycloak bootstrap, TLS/WSS, least-privilege database roles, backup and recovery. `docker compose config` verifies syntax only; it does not prove that services can start or that Gate 2/3 passed. **Flyway V27 uses pgvector even with AI disabled**: an existing PostgreSQL volume must receive the documented extension preflight before starting the updated backend. Never edit an applied migration or run a destructive restore on a live volume.
+Use the [deployment runbook](deploy/DEPLOYMENT.md) for secrets, TLS/WSS, database roles, backup and recovery. `docker compose config` verifies syntax only. **Flyway V27 uses pgvector even with AI disabled**; existing volumes require the documented extension preflight. The PostgreSQL 16 Alpine musl image cannot directly reuse an incompatible glibc data volume: follow the [logical migration and new backup-chain runbook](docs/RELEASE-OPERATIONS-DEVELOPMENT-AND-RUNBOOK-2026-10-21.md), and preserve the source. Never edit an applied migration or run a destructive restore on a live volume.
 
 ### Strict verification
 
@@ -318,6 +317,16 @@ bash scripts/verify.sh --strict
 ```
 
 Targeted checks are `mvn verify` in `backend/` and `edge-agent/`, `npm run test && npm run build` in each Vite app, and `npm run test:e2e` in `client/`. CI additionally builds the Android Debug APK and runs source/security/SBOM gates. A successful Quick CI run is **not** the protected production-release gate.
+
+### Offline release governance simulation / 发布门禁离线模拟
+
+From the repository root with Node.js 22:
+
+```bash
+node scripts/testing/release-governance-simulation.mjs --output artifacts/release-governance-simulation/summary.json
+```
+
+The simulation uses synthetic repository settings and in-memory requests to exercise environment protection, branch rules, runner labels, signing metadata and rollback inputs. A simulated request remains pending and does not approve a release. See the [reviewed plan](docs/RELEASE-GOVERNANCE-SIMULATION-PLAN-2026-10-29.md), [acceptance report](docs/RELEASE-GOVERNANCE-SIMULATION-ACCEPTANCE-2026-10-29.md) and [synthetic test evidence](docs/evidence/release-governance-simulation-20261029.json).
 
 For Docker Runtime, Android, release-integrity, and recovery verification, see:
 
@@ -349,6 +358,8 @@ HIGH/CRITICAL findings remain release blockers unless fixed or covered by an exp
 
 - [Verification](docs/VERIFICATION.md)
 - [CI / Release](docs/CI-RELEASE-RUNBOOK.md)
+- [Release governance simulation and acceptance](docs/RELEASE-GOVERNANCE-SIMULATION-ACCEPTANCE-2026-10-29.md)
+- [Release operations and database migration runbook](docs/RELEASE-OPERATIONS-DEVELOPMENT-AND-RUNBOOK-2026-10-21.md)
 - [Deployment](deploy/DEPLOYMENT.md)
 - [Device Profiles](profiles/README.md)
 - [Edge Agent](edge-agent/README.md)

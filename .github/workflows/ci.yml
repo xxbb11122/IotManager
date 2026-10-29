@@ -225,6 +225,16 @@ jobs:
           node scripts/ci/tests/release-workflows.test.mjs
           node --test scripts/ci/tests/release-readiness-preflight.test.mjs scripts/ci/tests/android-release.test.mjs scripts/ci/tests/walg-env.test.mjs scripts/ci/tests/vex-evidence.test.mjs scripts/ci/tests/postgres-runtime-abi.test.mjs
           node --test scripts/ci/tests/release-operations.test.mjs scripts/ci/tests/android-signing-setup.test.mjs scripts/ci/tests/recovery-runner-setup.test.mjs
+      - name: Simulate release governance without external requests
+        run: node scripts/testing/release-governance-simulation.mjs --output "${{ runner.temp }}/release-governance-simulation.json"
+      - name: Upload simulated governance results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-governance-simulation-${{ github.sha }}
+          path: ${{ runner.temp }}/release-governance-simulation.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Generate ephemeral non-production Compose secrets
         run: bash scripts/runtime/new-secrets.sh "$RUNNER_TEMP/iot-manager-compose-secrets"
       - name: Validate normal and recovery Compose topology
