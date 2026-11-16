@@ -1,0 +1,118 @@
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] -----------------------< com.iot:iot-edge-agent >-----------------------
+[INFO] Building iot-edge-agent 0.1.0-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ iot-edge-agent ---
+[INFO] Copying 1 resource from src\main\resources to target\classes
+[INFO] 
+[INFO] --- compiler:3.13.0:compile (default-compile) @ iot-edge-agent ---
+[INFO] Nothing to compile - all classes are up to date.
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ iot-edge-agent ---
+[INFO] skip non existing resourceDirectory E:\CC_testP\iot-manager\edge-agent\src\test\resources
+[INFO] 
+[INFO] --- compiler:3.13.0:testCompile (default-testCompile) @ iot-edge-agent ---
+[INFO] Nothing to compile - all classes are up to date.
+[INFO] 
+[INFO] --- surefire:3.2.5:test (default-test) @ iot-edge-agent ---
+[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
+[INFO] 
+[INFO] -------------------------------------------------------
+[INFO]  T E S T S
+[INFO] -------------------------------------------------------
+[INFO] Running com.iot.manager.edgeagent.config.AgentConfigLoaderTest
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.258 s -- in com.iot.manager.edgeagent.config.AgentConfigLoaderTest
+[INFO] Running com.iot.manager.edgeagent.driver.shelly.ShellyPlusPlugSDriverTest
+[INFO] Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.607 s -- in com.iot.manager.edgeagent.driver.shelly.ShellyPlusPlugSDriverTest
+[INFO] Running com.iot.manager.edgeagent.identity.AgentIdentityStoreTest
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.098 s -- in com.iot.manager.edgeagent.identity.AgentIdentityStoreTest
+[INFO] Running com.iot.manager.edgeagent.protocol.AgentProtocolCodecTest
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.054 s -- in com.iot.manager.edgeagent.protocol.AgentProtocolCodecTest
+[INFO] Running com.iot.manager.edgeagent.runtime.AgentRuntimeTest
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.018 s -- in com.iot.manager.edgeagent.runtime.AgentRuntimeTest
+[INFO] 
+[INFO] Results:
+[INFO] 
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
+[INFO] 
+[INFO] 
+[INFO] --- jar:3.4.1:jar (default-jar) @ iot-edge-agent ---
+[INFO] 
+[INFO] --- shade:3.5.3:shade (default) @ iot-edge-agent ---
+[INFO] Including com.fasterxml.jackson.core:jackson-databind:jar:2.21.7 in the shaded jar.
+[INFO] Including com.fasterxml.jackson.core:jackson-annotations:jar:2.21 in the shaded jar.
+[INFO] Including com.fasterxml.jackson.core:jackson-core:jar:2.21.7 in the shaded jar.
+[INFO] Including com.fasterxml.jackson.datatype:jackson-datatype-jsr310:jar:2.21.7 in the shaded jar.
+[WARNING] Discovered module-info.class. Shading will break its strong encapsulation.
+[WARNING] iot-edge-agent-0.1.0-SNAPSHOT.jar, jackson-core-2.21.7.jar, jackson-databind-2.21.7.jar, jackson-datatype-jsr310-2.21.7.jar define 1 overlapping classes: 
+[WARNING]   - META-INF.versions.9.module-info
+[WARNING] iot-edge-agent-0.1.0-SNAPSHOT.jar, jackson-annotations-2.21.jar define 77 overlapping classes and resources: 
+[WARNING]   - META-INF/maven/com.fasterxml.jackson.core/jackson-annotations/pom.properties
+[WARNING]   - META-INF/maven/com.fasterxml.jackson.core/jackson-annotations/pom.xml
+[WARNING]   - com.fasterxml.jackson.annotation.JacksonAnnotation
+[WARNING]   - com.fasterxml.jackson.annotation.JacksonAnnotationValue
+[WARNING]   - com.fasterxml.jackson.annotation.JacksonAnnotationsInside
+[WARNING]   - com.fasterxml.jackson.annotation.JacksonInject
+[WARNING]   - com.fasterxml.jackson.annotation.JacksonInject$Value
+[WARNING]   - com.fasterxml.jackson.annotation.JsonAlias
+[WARNING]   - com.fasterxml.jackson.annotation.JsonAnyGetter
+[WARNING]   - com.fasterxml.jackson.annotation.JsonAnySetter
+[WARNING]   - 67 more...
+[WARNING] iot-edge-agent-0.1.0-SNAPSHOT.jar, jackson-datatype-jsr310-2.21.7.jar define 67 overlapping classes and resources: 
+[WARNING]   - META-INF/maven/com.fasterxml.jackson.datatype/jackson-datatype-jsr310/pom.properties
+[WARNING]   - META-INF/maven/com.fasterxml.jackson.datatype/jackson-datatype-jsr310/pom.xml
+[WARNING]   - META-INF/services/com.fasterxml.jackson.databind.Module
+[WARNING]   - com.fasterxml.jackson.datatype.jsr310.DecimalUtils
+[WARNING]   - com.fasterxml.jackson.datatype.jsr310.JSR310Module
+[WARNING]   - com.fasterxml.jackson.datatype.jsr310.JSR310Module$1
+[WARNING]   - com.fasterxml.jackson.datatype.jsr310.JavaTimeFeature
+[WARNING]   - com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
+[WARNING]   - com.fasterxml.jackson.datatype.jsr310.JavaTimeModule$1
+[WARNING]   - com.fasterxml.jackson.datatype.jsr310.JavaTimeModule$JavaTimeSerializers
+[WARNING]   - 57 more...
+[WARNING] iot-edge-agent-0.1.0-SNAPSHOT.jar, jackson-core-2.21.7.jar define 226 overlapping classes and resources: 
+[WARNING]   - META-INF.versions.11.com.fasterxml.jackson.core.internal.shaded.fdp.v2_21_7.BigSignificand
+[WARNING]   - META-INF.versions.11.com.fasterxml.jackson.core.internal.shaded.fdp.v2_21_7.FastDoubleSwar
+[WARNING]   - META-INF.versions.11.com.fasterxml.jackson.core.internal.shaded.fdp.v2_21_7.FastIntegerMath
+[WARNING]   - META-INF.versions.17.com.fasterxml.jackson.core.internal.shaded.fdp.v2_21_7.FastDoubleSwar
+[WARNING]   - META-INF.versions.17.com.fasterxml.jackson.core.internal.shaded.fdp.v2_21_7.FastIntegerMath
+[WARNING]   - META-INF.versions.21.com.fasterxml.jackson.core.internal.shaded.fdp.v2_21_7.FastDoubleSwar
+[WARNING]   - META-INF.versions.21.com.fasterxml.jackson.core.internal.shaded.fdp.v2_21_7.FastIntegerMath
+[WARNING]   - META-INF/FastDoubleParser-LICENSE
+[WARNING]   - META-INF/FastDoubleParser-ThirdParty-LICENSE
+[WARNING]   - META-INF/Schubfach-LICENSE
+[WARNING]   - 216 more...
+[WARNING] iot-edge-agent-0.1.0-SNAPSHOT.jar, jackson-annotations-2.21.jar, jackson-core-2.21.7.jar, jackson-databind-2.21.7.jar, jackson-datatype-jsr310-2.21.7.jar define 3 overlapping resources: 
+[WARNING]   - META-INF/LICENSE
+[WARNING]   - META-INF/MANIFEST.MF
+[WARNING]   - META-INF/NOTICE
+[WARNING] iot-edge-agent-0.1.0-SNAPSHOT.jar, jackson-databind-2.21.7.jar define 815 overlapping classes and resources: 
+[WARNING]   - META-INF/maven/com.fasterxml.jackson.core/jackson-databind/pom.properties
+[WARNING]   - META-INF/maven/com.fasterxml.jackson.core/jackson-databind/pom.xml
+[WARNING]   - META-INF/services/com.fasterxml.jackson.core.ObjectCodec
+[WARNING]   - com.fasterxml.jackson.databind.AbstractTypeResolver
+[WARNING]   - com.fasterxml.jackson.databind.AnnotationIntrospector
+[WARNING]   - com.fasterxml.jackson.databind.AnnotationIntrospector$ReferenceProperty
+[WARNING]   - com.fasterxml.jackson.databind.AnnotationIntrospector$ReferenceProperty$Type
+[WARNING]   - com.fasterxml.jackson.databind.AnnotationIntrospector$XmlExtensions
+[WARNING]   - com.fasterxml.jackson.databind.BeanDescription
+[WARNING]   - com.fasterxml.jackson.databind.BeanProperty
+[WARNING]   - 805 more...
+[WARNING] maven-shade-plugin has detected that some files are
+[WARNING] present in two or more JARs. When this happens, only one
+[WARNING] single version of the file is copied to the uber jar.
+[WARNING] Usually this is not harmful and you can skip these warnings,
+[WARNING] otherwise try to manually exclude artifacts based on
+[WARNING] mvn dependency:tree -Ddetail=true and the above output.
+[WARNING] See https://maven.apache.org/plugins/maven-shade-plugin/
+[INFO] Replacing original artifact with shaded artifact.
+[INFO] Replacing E:\CC_testP\iot-manager\edge-agent\target\iot-edge-agent-0.1.0-SNAPSHOT.jar with E:\CC_testP\iot-manager\edge-agent\target\iot-edge-agent-0.1.0-SNAPSHOT-shaded.jar
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  5.466 s
+[INFO] Finished at: 2026-11-16T23:30:20+08:00
+[INFO] ------------------------------------------------------------------------

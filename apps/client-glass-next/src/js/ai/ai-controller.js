@@ -15,7 +15,7 @@ export function createAiController({
     history: value.history, historyCursor: value.historyCursor, messageCursor: value.messageCursor, retryAt: value.retryAt
   });
   const visible = () => screen.startsWith('ai');
-  const emit = (patch = {}) => { state = { ...state, ...patch, now: now() }; onChange(structuredClone(state)); };
+  const emit = (patch = {}, change = null) => { state = { ...state, ...patch, now: now() }; onChange(structuredClone(state), change); };
   const current = (ticket, action = null) => ticket === epoch && (action === null || action === operation);
   const stopTimer = () => { if (timer !== null) scheduler.clearTimeout(timer); timer = null; };
   const abort = () => { for (const controller of controllers) controller.abort(); controllers.clear(); };
@@ -329,7 +329,7 @@ export function createAiController({
   return {
     getState: () => structuredClone(state), syncContext, reset, setScreen, send, recover, cancelWait, newConversation,
     loadHistory, loadMessages, selectConversation, deleteConversation, loadPersona, savePersona, activatePersona,
-    setDraft: (draft) => emit({ draft }),
+    setDraft: (draft) => emit({ draft }, { kind: 'draft' }),
     setPersonaDraft: (field, value) => emit({ personaDraft: { ...state.personaDraft, [field]: value } }),
     async retry() {
       if (!['FAILED', 'UNKNOWN'].includes(state.pending?.state)) return;

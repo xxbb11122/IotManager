@@ -6,6 +6,10 @@ root="$(pwd)"
 output="$root/artifacts/extended-lab/firmware"
 workspace="$RUNNER_TEMP/iot-zephyr-$GITHUB_RUN_ID"
 mkdir -p "$output" "$workspace"
+cc -std=c11 -Wall -Wextra -Werror \
+  -I"$root/firmware/nrf52840-reference-switch/tests/host/stubs" \
+  "$root/firmware/nrf52840-reference-switch/tests/host/ack_test.c" -o "$workspace/ack-host-test"
+"$workspace/ack-host-test" | tee "$output/ack-host-test.log"
 sudo apt-get update -qq
 sudo apt-get install -y --no-install-recommends cmake ninja-build gperf device-tree-compiler python3-venv
 python3 -m venv "$workspace/venv"

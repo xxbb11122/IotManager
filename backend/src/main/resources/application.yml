@@ -70,6 +70,8 @@ management:
       application: ${spring.application.name}
 
 iot:
+  discovery:
+    demo-enabled: false
   ai:
     enabled: false
     knowledge-enabled: false

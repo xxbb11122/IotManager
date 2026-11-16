@@ -1,0 +1,128 @@
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] ------------------------< com.iot:iot-manager >-------------------------
+[INFO] Building iot-manager 1.0.0
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ iot-manager ---
+[INFO] Copying 38 resources from src\main\resources to target\classes
+[INFO] Copying 3 resources from ..\profiles to target\classes\profiles
+[INFO] 
+[INFO] --- compiler:3.14.1:compile (default-compile) @ iot-manager ---
+[INFO] Nothing to compile - all classes are up to date.
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ iot-manager ---
+[INFO] Copying 1 resource from src\test\resources to target\test-classes
+[INFO] 
+[INFO] --- compiler:3.14.1:testCompile (default-testCompile) @ iot-manager ---
+[INFO] Nothing to compile - all classes are up to date.
+[INFO] 
+[INFO] --- surefire:3.5.6:test (default-test) @ iot-manager ---
+[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
+[INFO] 
+[INFO] -------------------------------------------------------
+[INFO]  T E S T S
+[INFO] -------------------------------------------------------
+[INFO] Running com.iot.manager.config.SecurityConfigurationTest
+00:19:32.164 [main] INFO org.springframework.boot.test.context.SpringBootTestContextBootstrapper -- Found @SpringBootConfiguration com.iot.manager.IotManagerApplication for test class com.iot.manager.config.SecurityConfigurationTest
+00:19:32.293 [main] INFO org.springframework.boot.test.context.SpringBootTestContextBootstrapper -- Found @SpringBootConfiguration com.iot.manager.IotManagerApplication for test class com.iot.manager.config.SecurityConfigurationTest
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+
+ :: Spring Boot ::                (v4.0.8)
+
+2026-11-17T00:19:33.286+08:00  INFO 37068 --- [iot-manager] [           main] c.i.m.config.SecurityConfigurationTest   : Starting SecurityConfigurationTest using Java 17.0.14 with PID 37068 (started by Raid in E:\CC_testP\iot-manager\backend)
+2026-11-17T00:19:33.288+08:00  INFO 37068 --- [iot-manager] [           main] c.i.m.config.SecurityConfigurationTest   : The following 1 profile is active: "test"
+2026-11-17T00:19:34.975+08:00  INFO 37068 --- [iot-manager] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-11-17T00:19:35.251+08:00  INFO 37068 --- [iot-manager] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 264 ms. Found 31 JPA repository interfaces.
+2026-11-17T00:19:36.855+08:00  INFO 37068 --- [iot-manager] [           main] o.s.boot.tomcat.TomcatWebServer          : Tomcat initialized with port 0 (http)
+2026-11-17T00:19:36.901+08:00  INFO 37068 --- [iot-manager] [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2026-11-17T00:19:36.902+08:00  INFO 37068 --- [iot-manager] [           main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/11.0.27]
+2026-11-17T00:19:37.144+08:00  INFO 37068 --- [iot-manager] [           main] b.w.c.s.WebApplicationContextInitializer : Root WebApplicationContext: initialization completed in 3828 ms
+2026-11-17T00:19:38.867+08:00  INFO 37068 --- [iot-manager] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+2026-11-17T00:19:39.191+08:00  INFO 37068 --- [iot-manager] [           main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection conn0: url=jdbc:h2:mem:iot-manager-test-beafb214-d0be-4d5c-848b-47315cbae201 user=SA
+2026-11-17T00:19:39.193+08:00  INFO 37068 --- [iot-manager] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+2026-11-17T00:19:39.250+08:00  INFO 37068 --- [iot-manager] [           main] org.flywaydb.core.FlywayExecutor         : Database: jdbc:h2:mem:iot-manager-test-beafb214-d0be-4d5c-848b-47315cbae201 (H2 2.4)
+2026-11-17T00:19:39.259+08:00  WARN 37068 --- [iot-manager] [           main] o.f.c.internal.database.base.Database    : Using H2 2.4.240 which is newer than the version Flyway has been verified with. The latest verified version of H2 is 2.3.232.
+2026-11-17T00:19:39.332+08:00  INFO 37068 --- [iot-manager] [           main] o.f.c.i.s.JdbcTableSchemaHistory         : Schema history table "PUBLIC"."flyway_schema_history" does not exist yet
+2026-11-17T00:19:39.340+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbValidate     : Successfully validated 27 migrations (execution time 00:00.056s)
+2026-11-17T00:19:39.358+08:00  INFO 37068 --- [iot-manager] [           main] o.f.c.i.s.JdbcTableSchemaHistory         : Creating Schema History table "PUBLIC"."flyway_schema_history" ...
+2026-11-17T00:19:39.433+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Current version of schema "PUBLIC": << Empty Schema >>
+2026-11-17T00:19:39.449+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "1 - create iot tables"
+2026-11-17T00:19:39.516+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "2 - add device platform core"
+2026-11-17T00:19:39.615+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "3 - enforce command idempotency"
+2026-11-17T00:19:39.625+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "4 - add command source and result"
+2026-11-17T00:19:39.651+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "5 - add profiles and device archiving"
+2026-11-17T00:19:39.743+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "6 - add agents operations and command audit"
+2026-11-17T00:19:39.835+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "7 - assign legacy devices to demo context"
+2026-11-17T00:19:39.856+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "8 - add site weather"
+2026-11-17T00:19:39.876+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "9 - scope weather cache to configuration"
+2026-11-17T00:19:39.891+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "10 - add weather location metadata"
+2026-11-17T00:19:39.910+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "11 - add weather refresh reliability"
+2026-11-17T00:19:39.929+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "12 - add identity and roles"
+2026-11-17T00:19:39.941+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "13 - add organization and site memberships"
+2026-11-17T00:19:39.953+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "14 - add agent credentials"
+2026-11-17T00:19:39.966+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "15 - add audit event context"
+2026-11-17T00:19:39.991+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "16 - add r1 site authorization indexes"
+2026-11-17T00:19:39.996+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "17 - add weather refresh observability"
+2026-11-17T00:19:40.009+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "18 - add weather provider privacy audit"
+2026-11-17T00:19:40.016+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "19 - align long text columns with hibernate"
+2026-11-17T00:19:40.044+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "20 - add authoritative time columns"
+2026-11-17T00:19:40.091+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "21 - add telemetry archive and retention audit"
+2026-11-17T00:19:40.133+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "22 - add edge clock skew alert state"
+2026-11-17T00:19:40.147+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "23 - add retention progress and task locks"
+2026-11-17T00:19:40.153+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "24 - align telemetry archive payload"
+2026-11-17T00:19:40.159+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "25 - index terminal command retention"
+2026-11-17T00:19:40.168+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "26 - add site ai metadata"
+2026-11-17T00:19:40.182+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Migrating schema "PUBLIC" to version "28 - add ai request recovery"
+2026-11-17T00:19:40.223+08:00  INFO 37068 --- [iot-manager] [           main] o.f.core.internal.command.DbMigrate      : Successfully applied 27 migrations to schema "PUBLIC", now at version v28 (execution time 00:00.541s)
+2026-11-17T00:19:40.548+08:00  INFO 37068 --- [iot-manager] [           main] org.hibernate.orm.jpa                    : HHH008540: Processing PersistenceUnitInfo [name: default]
+2026-11-17T00:19:40.799+08:00  INFO 37068 --- [iot-manager] [           main] org.hibernate.orm.core                   : HHH000001: Hibernate ORM core version 7.2.24.Final
+2026-11-17T00:19:42.184+08:00  INFO 37068 --- [iot-manager] [           main] o.s.o.j.p.SpringPersistenceUnitInfo      : No LoadTimeWeaver setup: ignoring JPA class transformer
+2026-11-17T00:19:42.280+08:00  INFO 37068 --- [iot-manager] [           main] org.hibernate.orm.connections.pooling    : HHH10001005: Database info:
+	Database JDBC URL [jdbc:h2:mem:iot-manager-test-beafb214-d0be-4d5c-848b-47315cbae201]
+	Database driver: H2 JDBC Driver
+	Database dialect: H2Dialect
+	Database version: 2.4.240
+	Default catalog/schema: IOT-MANAGER-TEST-BEAFB214-D0BE-4D5C-848B-47315CBAE201/PUBLIC
+	Autocommit mode: undefined/unknown
+	Isolation level: READ_COMMITTED [default READ_COMMITTED]
+	JDBC fetch size: 100
+	Pool: DataSourceConnectionProvider
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2026-11-17T00:19:44.705+08:00  INFO 37068 --- [iot-manager] [           main] org.hibernate.orm.core                   : HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2026-11-17T00:19:44.768+08:00  INFO 37068 --- [iot-manager] [           main] j.LocalContainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default'
+2026-11-17T00:19:44.943+08:00  INFO 37068 --- [iot-manager] [           main] o.s.d.j.r.query.QueryEnhancerFactories   : Hibernate is in classpath; If applicable, HQL parser will be used.
+2026-11-17T00:19:52.965+08:00  INFO 37068 --- [iot-manager] [           main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring TestDispatcherServlet ''
+2026-11-17T00:19:52.966+08:00  INFO 37068 --- [iot-manager] [           main] o.s.t.web.servlet.TestDispatcherServlet  : Initializing Servlet ''
+2026-11-17T00:19:53.005+08:00  INFO 37068 --- [iot-manager] [           main] o.s.b.a.e.web.EndpointLinksResolver      : Exposing 3 endpoints beneath base path '/actuator'
+2026-11-17T00:19:53.033+08:00  INFO 37068 --- [iot-manager] [           main] o.s.t.web.servlet.TestDispatcherServlet  : Completed initialization in 67 ms
+2026-11-17T00:19:53.211+08:00  INFO 37068 --- [iot-manager] [           main] o.s.boot.tomcat.TomcatWebServer          : Tomcat started on port 55820 (http) with context path '/'
+2026-11-17T00:19:53.249+08:00  INFO 37068 --- [iot-manager] [           main] c.i.m.config.SecurityConfigurationTest   : Started SecurityConfigurationTest in 20.526 seconds (process running for 23.158)
+Java HotSpot(TM) 64-Bit Server VM warning: Sharing is only supported for boot loader classes because bootstrap classpath has been appended
+2026-11-17T00:19:54.752+08:00  INFO 37068 --- [iot-manager] [o-auto-1-exec-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-11-17T00:19:54.752+08:00  INFO 37068 --- [iot-manager] [o-auto-1-exec-1] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+2026-11-17T00:19:54.754+08:00  INFO 37068 --- [iot-manager] [o-auto-1-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 2 ms
+[INFO] Tests run: 14, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 26.74 s -- in com.iot.manager.config.SecurityConfigurationTest
+[INFO] Running com.iot.manager.service.LanDiscoverySafetyTest
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 3.217 s -- in com.iot.manager.service.LanDiscoverySafetyTest
+[INFO] Running com.iot.manager.weather.SiteWeatherServiceTest
+[INFO] Tests run: 40, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.075 s -- in com.iot.manager.weather.SiteWeatherServiceTest
+[INFO] 
+[INFO] Results:
+[INFO] 
+[INFO] Tests run: 60, Failures: 0, Errors: 0, Skipped: 0
+[INFO] 
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  39.704 s
+[INFO] Finished at: 2026-11-17T00:20:04+08:00
+[INFO] ------------------------------------------------------------------------

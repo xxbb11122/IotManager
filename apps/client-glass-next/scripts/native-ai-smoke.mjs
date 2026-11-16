@@ -232,9 +232,11 @@ try {
   record('installed Debug APK ' + expectedVersionName + ' uses native platform');
 
   // WebView quantizes CSS borders to physical pixels at fractional density.
-  assert.ok(await page.locator('.ai-workspace').evaluate(node => parseFloat(getComputedStyle(node).borderTopWidth) > 0));
-  await expect(page.locator('.ai-workspace')).toHaveCSS('border-top-style', 'solid');
-  await expect(page.locator('.ai-workspace')).toHaveCSS('backdrop-filter', /blur/);
+  assert.ok(await page.locator('.ai-composer').evaluate(node => parseFloat(getComputedStyle(node).borderTopWidth) > 0));
+  await expect(page.locator('.ai-composer')).toHaveCSS('border-top-style', 'solid');
+  await expect(page.locator('.ai-composer')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await expect(page.locator('.ai-workspace')).toHaveCSS('backdrop-filter', 'none');
+  await expect(page.locator('.ai-composer')).toHaveCSS('backdrop-filter', 'none');
   await page.locator('[data-action="open-connection-settings"]').click();
   for (const mode of ['solid', 'frosted', 'liquid']) {
     await page.locator('[data-material-mode="' + mode + '"]').click();
@@ -333,11 +335,32 @@ try {
 
   await page.locator('#ai-question').click();
   await expect.poll(keyboardShown).toBe(true);
+  const keyboardGeometry = () => page.evaluate(() => {
+    const box = selector => {
+      const { top, bottom, height } = document.querySelector(selector).getBoundingClientRect();
+      return { top, bottom, height };
+    };
+    return {
+      composer: box('.ai-composer'), input: box('#ai-question'),
+      send: box('[data-action="ai-send"]'), nav: box('.bottom-nav'),
+      visibleTop: visualViewport?.offsetTop ?? 0,
+      visibleBottom: (visualViewport?.offsetTop ?? 0) + (visualViewport?.height ?? innerHeight),
+      horizontalOverflow: document.documentElement.scrollWidth > innerWidth
+    };
+  });
+  await expect.poll(async () => {
+    const rect = await keyboardGeometry();
+    return rect.input.top >= rect.visibleTop - 1 && rect.input.height >= 44 && rect.send.height >= 44
+      && rect.composer.bottom <= rect.nav.top + 1 && rect.send.bottom <= rect.nav.top + 1
+      && rect.nav.bottom <= rect.visibleBottom + 1 && !rect.horizontalOverflow;
+  }, { timeout: 15000 }).toBe(true);
+  const keyboardLayout = await keyboardGeometry();
   await screenshot('native-ai-keyboard');
   adb('shell', 'input', 'keyevent', 'KEYCODE_BACK');
   await expect.poll(keyboardShown).toBe(false);
   await expect(page.getByRole('heading', { name: 'AI 助手', exact: true })).toBeVisible();
-  record('Android soft keyboard opens and first Back dismisses it without leaving chat');
+  await expect(page.locator('#ai-question')).toHaveValue('下一条未发送的草稿');
+  record('Android soft keyboard keeps input and send above navigation; first Back preserves chat and draft', { keyboardLayout });
 
   await page.getByRole('button', { name: '历史', exact: true }).click();
   await expect(nav.locator('[aria-current="page"]')).toHaveAttribute('data-screen', 'ai');

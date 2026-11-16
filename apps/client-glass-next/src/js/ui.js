@@ -55,8 +55,9 @@ import { createPullRefreshState } from './pull-refresh.js';
 import { reconcileElement } from './dom-reconcile.js';
 import { BUILD_INFO } from './build-info.js';
 import { buildAiView } from './ai/ai-view.js';
+import { aiCanSend } from './ai/ai-state.js';
+import { createAiViewport } from './ai/ai-viewport.js';
 import { createGlassAppearance } from './appearance/glass-appearance.js';
-import { addGlassSurface } from './appearance/glass-surfaces.js';
 
 const icons = {
   Activity,
@@ -233,6 +234,7 @@ class ClientUi {
     this.deferredControlPatch = false;
     this.rangeGuard = createRangeGuard(this);
     this.glassAppearance = createGlassAppearance(root);
+    this.aiViewport = createAiViewport(root);
     this.commandPresentation = new Map();
     this.activityPresentation = new Map();
     this.lastBleCandidateId = null;
@@ -439,6 +441,8 @@ class ClientUi {
     this.reconcileLocalState();
     const previousScreen = this.renderedScreen;
     const nextScreen = this.local.screen;
+    if (this.root.dataset.activeScreen !== nextScreen) this.root.dataset.activeScreen = nextScreen;
+    this.aiViewport.update();
     const motionContext = JSON.stringify([this.model.context.organizationCode, this.model.context.siteCode,
       this.model.endpointProfile.id, this.model.endpointProfile.apiBaseUrl,
       this.model.auth.authenticated === true, this.model.auth.cachePartition]);
@@ -788,18 +792,37 @@ class ClientUi {
     return this.patchScreenContent();
   }
 
-  patchAi(viewModel = {}) {
+  patchAi(viewModel = {}, change = null) {
     const focus = this.captureRenderState();
+    const previousAi = this.model.ai;
     this.updateModel(viewModel);
     if (!this.local.screen.startsWith('ai')) return true;
     const content = this.root.querySelector('[data-region="ai-content"]');
     if (!content) return false;
-    const log = content.querySelector('[data-region="ai-messages"]');
+    const ai = this.model.ai;
+    // Draft events cannot change messages or permissions. Patch the controls
+    // directly, while retaining the full render for cooldowns and all other events.
+    if (change?.kind === 'draft' && this.local.screen === 'ai' && content.classList.contains('ai-workspace--chat')
+      && previousAi?.scopeKey === ai?.scopeKey && previousAi?.enabled === ai?.enabled
+      && previousAi?.status === ai?.status && previousAi?.busy === ai?.busy && previousAi?.loading === ai?.loading
+      && previousAi?.retryAt <= previousAi?.now && ai?.retryAt <= ai?.now) {
+      const input = content.querySelector('#ai-question');
+      const count = content.querySelector('.ai-composer .ai-count');
+      const send = content.querySelector('.ai-composer [data-action="ai-send"]');
+      if (input && count && send) {
+        if (input.value !== ai.draft) input.value = ai.draft;
+        const label = ai.draft.length + ' / ' + ai.limits.maxQuestionChars + ' 字符';
+        if (count.textContent !== label) count.textContent = label;
+        send.disabled = !aiCanSend(ai);
+        return true;
+      }
+    }
+    const log = content.querySelector('[data-region="ai-scroll"]') ?? content.querySelector('[data-region="ai-messages"]');
     const position = log?.scrollTop ?? 0;
     const atBottom = !log || log.scrollHeight - log.clientHeight - position < 48;
     this.reconcile(content, buildAiView(this.model.ai, { screen: this.local.screen }));
     this.restoreRenderState(focus);
-    const next = content.querySelector('[data-region="ai-messages"]');
+    const next = content.querySelector('[data-region="ai-scroll"]') ?? content.querySelector('[data-region="ai-messages"]');
     if (next) next.scrollTop = atBottom ? next.scrollHeight : position;
     return true;
   }
@@ -930,44 +953,49 @@ class ClientUi {
 
   patchDeviceList(deviceRefs = []) {
     const restoreState = this.captureRenderState();
+    if (this.model.devices.length === 0) {
+      const result = this.patchScreenContent();
+      this.restoreDeviceListState(restoreState);
+      return result;
+    }
     const list = this.root.querySelector('[data-region="device-list"]');
     const count = this.root.querySelector('[data-region="device-list-count"]');
     const online = this.root.querySelector('[data-region="device-online-count"]');
     if (!list || !count || !online) return this.patchScreenContent();
     const refs = new Set(deviceRefs.map(String));
-    const devices = refs.size
-      ? this.model.devices.filter((device) => referencesContainDevice([...refs], device))
-      : this.model.devices;
-
-    if (refs.size > 0 && devices.length > 0) {
-      for (const device of devices) {
-        const existing = findDeviceElement(list, device);
-        if (existing) {
-          const replacement = this.buildDeviceRow(device);
-          if (existing.dataset.online !== replacement.dataset.online) replacement.classList.add('device-row--status-changed');
-          this.reconcile(existing, replacement);
-        }
-      }
-    }
-
-    // A REST reconciliation may add or remove entities. Rebuilding only the
-    // list region is safe and keeps header, navigation, focus and scroll intact.
-    const renderedRefs = [...list.querySelectorAll('[data-device-ref]')].map((node) => node.dataset.deviceRef);
+    const rendered = [...list.children].filter(node => node.hasAttribute('data-device-ref'));
+    const renderedRefs = rendered.map(node => node.dataset.deviceRef);
     const desiredRefs = this.model.devices.map((device) => deviceKey(device));
-    const hasSameEntities = renderedRefs.length === desiredRefs.length
-      && renderedRefs.every((reference) => desiredRefs.includes(reference));
-    if (!hasSameEntities) {
+    // Order matters. Ambiguous/missing keys take the conservative reconciliation
+    // path instead of letting a map silently select the wrong device.
+    const stableKeys = desiredRefs.every(Boolean) && new Set(desiredRefs).size === desiredRefs.length;
+    const sameOrder = stableKeys && renderedRefs.length === desiredRefs.length
+      && renderedRefs.every((reference, index) => reference === desiredRefs[index]);
+    if (!sameOrder) {
       const updated = list.cloneNode(false);
-      updated.replaceChildren(...(this.model.devices.length
-        ? this.model.devices.map((device) => this.buildDeviceRow(device))
-        : [element('div', 'empty-inline', { text: '还没有设备。' })]));
+      updated.replaceChildren(...this.buildDeviceRows());
       this.reconcile(list, updated);
+    } else {
+      const existingByKey = new Map(rendered.map(node => [node.dataset.deviceRef, node]));
+      for (const device of this.model.devices) {
+        if (refs.size && !referencesContainDevice(refs, device)) continue;
+        const existing = existingByKey.get(deviceKey(device));
+        const replacement = this.buildDeviceRow(device);
+        if (existing.dataset.online !== replacement.dataset.online) replacement.classList.add('device-row--status-changed');
+        this.reconcile(existing, replacement);
+      }
     }
     const countText = `已认领设备 (${this.model.devices.length})`;
     if (count.textContent !== countText) { count.textContent = countText; this.metrics?.increment('domMutationCount'); }
     this.reconcile(online, this.buildDeviceOnlineCount(this.model.devices));
-    this.restoreRenderState(restoreState);
+    this.restoreDeviceListState(restoreState);
     return true;
+  }
+
+  restoreDeviceListState(state) {
+    if (!this.restoreRenderState(state) && state.focusAction === 'open-device' && state.focusScope === 'screen') {
+      this.root.querySelector('[data-action="open-add-device"]')?.focus({ preventScroll: true });
+    }
   }
 
   patchActiveDeviceDetail(deviceRefs = []) {
@@ -989,6 +1017,7 @@ class ClientUi {
   destroy() {
     this.rangeGuard?.dispose();
     this.glassAppearance?.destroy();
+    this.aiViewport?.destroy();
     this.destroyed = true;
     this.commandPress = null;
     this.motionPolicy.destroy();
@@ -1269,14 +1298,15 @@ class ClientUi {
 
   buildDeviceListScreen() {
     const fragment = document.createDocumentFragment();
-    fragment.append(screenHeading('我的设备', '查看当前站点已认领的设备。', actionButton('添加设备', 'open-add-device', {
+    const actions = element('div', 'home-actions');
+    actions.append(actionButton(this.isBusy('pull-refresh') ? '刷新中…' : '刷新', 'pull-refresh', {
+      className: 'button button--secondary', iconName: 'RefreshCw', disabled: this.isBusy('pull-refresh'),
+      ariaLabel: '刷新设备与天气'
+    }), actionButton('添加设备', 'open-add-device', {
       className: 'button button--primary',
       iconName: 'Plus'
-    })));
-    fragment.append(this.buildContextRow());
-    fragment.append(actionButton(this.isBusy('pull-refresh') ? '刷新中…' : '刷新设备与天气', 'pull-refresh', {
-      className: 'button button--secondary', iconName: 'RefreshCw', disabled: this.isBusy('pull-refresh')
     }));
+    fragment.append(screenHeading('我的设备', null, actions), this.buildContextRow());
 
     if (this.model.runtime.stale && this.model.runtime.accessRoute !== 'BLE_LOCAL') {
       const lastSync = this.model.runtime.lastSyncedAt ? `，最后同步 ${formatDate(this.model.runtime.lastSyncedAt)}` : '';
@@ -1317,7 +1347,7 @@ class ClientUi {
       surface.append(titleRow);
 
       const list = element('div', 'device-list device-list--cards', { data: { region: 'device-list' } });
-      devices.forEach((device) => list.append(this.buildDeviceRow(device)));
+      list.append(...this.buildDeviceRows());
       surface.append(list);
     }
     fragment.append(surface);
@@ -1350,8 +1380,8 @@ class ClientUi {
       weatherLine.append(element('span', 'context-row__weather-text', {
         text: `${current.conditionText ?? '未知'} · 海拔 ${weatherValue(current.elevationM, ' m')}`
       }));
-      weatherLine.append(environmentChip(indicatorLabel(weather?.indicators?.esdRisk, 'ESD'), weather?.indicators?.esdRisk));
-      weatherLine.append(environmentChip(indicatorLabel(weather?.indicators?.condensationRisk, '结露'), weather?.indicators?.condensationRisk));
+      if (weather?.indicators?.esdRisk) weatherLine.append(environmentChip(indicatorLabel(weather.indicators.esdRisk, 'ESD'), weather.indicators.esdRisk));
+      if (weather?.indicators?.condensationRisk) weatherLine.append(environmentChip(indicatorLabel(weather.indicators.condensationRisk, '结露'), weather.indicators.condensationRisk));
       row.append(weatherLine);
     } else if (weather?.status === 'UNAVAILABLE' || weather?.status === 'PENDING') {
       row.append(actionButton(weather.status === 'PENDING' ? '等待天气同步' : '天气未配置', 'open-weather', {
@@ -1636,13 +1666,24 @@ class ClientUi {
     return surface;
   }
 
-  buildDeviceRow(device) {
+  buildDeviceRows() {
+    const counts = new Map();
+    for (const device of this.model.devices) {
+      const key = deviceKey(device);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return this.model.devices.map(device => this.buildDeviceRow(device, counts.get(deviceKey(device)) !== 1));
+  }
+
+  buildDeviceRow(device, ambiguous = false) {
     const id = deviceKey(device);
+    const invalidReference = !id || ambiguous;
     const online = deviceOnline(device, this.model.connectionHealth);
     const row = actionButton('', 'open-device', {
       className: 'device-row device-row--card',
       data: { deviceId: id, deviceRef: id, online: String(online) },
-      ariaLabel: `打开设备 ${deviceName(device)}`
+      disabled: invalidReference,
+      ariaLabel: invalidReference ? `设备标识异常，暂不可打开：${deviceName(device)}` : `打开设备 ${deviceName(device)}`
     });
     const deviceIcon = element('div', `device-icon${online ? '' : ' device-icon--offline'}`, { ariaHidden: 'true' });
     deviceIcon.append(icon(deviceIconName(device), 20));
@@ -1660,7 +1701,7 @@ class ClientUi {
     });
     const summary = readings.join(' · ') || (state.temperature != null
       ? `${state.temperature}°C${state.humidity != null ? ` · 湿度 ${state.humidity}%` : ''}` : '等待最新状态');
-    body.append(element('div', 'device-row__reading', { text: summary }));
+    body.append(element('div', 'device-row__reading', { text: invalidReference ? '设备标识异常，请刷新设备列表' : summary }));
     row.append(body);
 
     const aside = element('div', 'device-row__aside');
@@ -3466,7 +3507,8 @@ function element(tag, className = '', attributes = {}) {
       node.setAttribute(key, String(value));
     }
   });
-  return addGlassSurface(node);
+  // Ordinary content stays flat. Navigation owns the bounded optical layers.
+  return node;
 }
 
 function textNode(value) {
@@ -3485,17 +3527,13 @@ function weatherCooldownSeconds(retryAt, now = Date.now()) {
 }
 
 function referencesContainDevice(references, device) {
-  const expected = new Set(arrayOf(references).map((reference) => String(reference)));
+  const expected = references instanceof Set ? references : new Set(arrayOf(references).map((reference) => String(reference)));
   if (expected.size === 0) return true;
   return [device?.id, device?.deviceId, device?.publicId]
     .filter((reference) => reference !== null && reference !== undefined)
     .some((reference) => expected.has(String(reference)));
 }
 
-function findDeviceElement(container, device) {
-  return [...container.querySelectorAll('[data-device-ref]')]
-    .find((node) => referencesContainDevice([node.dataset.deviceRef], device)) ?? null;
-}
 
 function candidateKey(candidate = {}) {
   return String(candidate.candidateId ?? candidate.id ?? candidate.deviceId ?? '');

@@ -1,0 +1,12 @@
+[WebServer] (node:16692) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 3 tests using 1 worker
+
+(node:13688) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 1 artifacts\reaudit-20261117\weather-review.spec.mjs:12:3 › reproduction: expiredWeather retains suitable header/risk colours (2.7s)
+  ok 2 artifacts\reaudit-20261117\weather-review.spec.mjs:12:3 › reproduction: disabledWeather retains suitable header/risk colours (686ms)
+  ok 3 artifacts\reaudit-20261117\weather-review.spec.mjs:27:1 › reproduction: actual App keeps suitable condensation beyond 5 minutes and source-offline push (1.1s)
+
+  3 passed (9.5s)

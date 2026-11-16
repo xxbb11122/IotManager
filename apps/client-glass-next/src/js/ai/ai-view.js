@@ -1,11 +1,11 @@
 import { createAiState, aiCanSend } from './ai-state.js';
-import { addGlassSurface } from '../appearance/glass-surfaces.js';
+import { AI_QUICK_PROMPTS, resolveAiQuickPrompt } from './ai-quick-prompts.js';
 
 function node(tag, className, text) {
   const value = document.createElement(tag);
   value.className = className;
   if (text !== undefined) value.textContent = String(text);
-  return addGlassSurface(value);
+  return value;
 }
 function button(label, action, { id, screen, disabled = false, primary = false } = {}) {
   const value = node('button', 'button button--small ' + (primary ? 'button--primary' : 'button--secondary'), label);
@@ -19,7 +19,8 @@ function field(label, name, value, maxLength, multiline = true) {
   wrap.append(node('span', 'ai-field-label', label));
   const input = node(multiline ? 'textarea' : 'input', 'ai-input');
   input.id = name; input.dataset.field = name; input.value = value; input.maxLength = maxLength;
-  if (multiline) input.rows = name === 'ai-question' ? 3 : 8;
+  if (multiline) input.rows = name === 'ai-question' ? 2 : 8;
+  if (name === 'ai-question') input.placeholder = '输入问题…';
   wrap.append(input, node('span', 'ai-count', value.length + ' / ' + maxLength + ' 字符'));
   return wrap;
 }
@@ -45,7 +46,11 @@ function unavailable(parent, state) {
 
 export function buildAiView(value, { screen = 'ai' } = {}) {
   const state = value ?? createAiState();
-  const root = node('div', 'ai-workspace'); root.dataset.region = 'ai-content';
+  const unavailableState = !state.enabled || ['offline', 'auth_required', 'login', 'site', 'unconfigured'].includes(state.status);
+  const chatReady = screen === 'ai' && !unavailableState;
+  const root = node('div', 'ai-workspace' + (chatReady ? ' ai-workspace--chat' : '')); root.dataset.region = 'ai-content';
+  const content = chatReady ? node('div', 'ai-scroll-area') : root;
+  if (chatReady) content.dataset.region = 'ai-scroll';
   const header = node('header', 'ai-header');
   header.append(node('h2', 'ai-title', screen === 'ai-history' ? 'AI 会话历史' : screen === 'ai-persona' ? 'AI 性格' : 'AI 助手'));
   const actions = node('div', 'ai-actions');
@@ -54,17 +59,19 @@ export function buildAiView(value, { screen = 'ai' } = {}) {
     button('性格', 'navigate', { screen: 'ai-persona', disabled: !state.enabled || state.legacy }),
     button('新会话', 'ai-new', { disabled: !state.enabled }),
     button('检查连接', 'ai-reload', { disabled: state.busy || state.loading }));
-  header.append(actions); root.append(header);
-  notice(root, state.error, true); notice(root, state.notice);
-  if (!state.enabled || ['offline', 'auth_required', 'login', 'site', 'unconfigured'].includes(state.status)) {
+  header.append(actions);
+  if (chatReady) root.append(header, content); else content.append(header);
+  notice(content, state.error, true); notice(content, state.notice);
+  if (unavailableState) {
     unavailable(root, state); return root;
   }
   if (screen === 'ai-history') { buildHistory(root, state); return root; }
   if (screen === 'ai-persona') { buildPersona(root, state); return root; }
   const persona = state.conversationId ? (state.personaVersion == null || state.personaVersion === 0 ? '默认性格' : '性格版本 ' + state.personaVersion)
     : (state.activePersona?.name ?? '默认性格');
-  root.append(node('p', 'ai-caption', (state.conversationId ? '本会话固定使用：' : '新会话将使用：') + persona));
-  if (state.messageCursor) root.append(button('查看更早消息', 'ai-messages-more', { disabled: state.loading }));
+  content.append(node('p', 'ai-caption', (state.conversationId ? '本会话固定使用：' : '新会话将使用：') + persona));
+  content.append(buildQuickPrompts(state));
+  if (state.messageCursor) content.append(button('查看更早消息', 'ai-messages-more', { disabled: state.loading }));
   const log = node('div', 'ai-messages'); log.dataset.region = 'ai-messages';
   log.setAttribute('role', 'log'); log.setAttribute('aria-label', '聊天消息'); log.setAttribute('aria-live', 'polite');
   if (!state.messages.length) log.append(node('p', 'ai-empty', '可以问一个通用问题，或请 AI 解释已认领设备的状态。'));
@@ -76,16 +83,16 @@ export function buildAiView(value, { screen = 'ai' } = {}) {
     else if (row.role === 'ASSISTANT') article.append(button('复制回答', 'ai-copy', { id: row.id }));
     log.append(article);
   }
-  root.append(log);
+  content.append(log);
   if (state.pending) {
     const pending = node('div', 'ai-pending');
     pending.append(node('p', 'ai-caption', '请求编号：' + state.pending.clientRequestId));
     if (['FAILED', 'UNKNOWN'].includes(state.pending.state)) pending.append(button('明确重试', 'ai-retry', { disabled: state.busy }));
     else if (state.features.requestRecovery) pending.append(button('查询本次结果', 'ai-recover', { disabled: state.busy }));
-    if (state.busy || state.status === 'waiting') pending.append(button('停止本地等待', 'ai-cancel'));
-    notice(pending, '停止等待不会取消服务器生成；查询结果不会再次发送问题。'); root.append(pending);
+    if (state.busy || state.status === 'waiting') pending.append(button('停止本地等待', 'ai-cancel', { plain: true }));
+    notice(pending, '停止等待不会取消服务器生成；查询结果不会再次发送问题。'); content.append(pending);
   }
-  if (state.retryAt > state.now) notice(root, '请等待 ' + Math.ceil((state.retryAt - state.now) / 1000) + ' 秒后再提问。');
+  if (state.retryAt > state.now) notice(content, '请等待 ' + Math.ceil((state.retryAt - state.now) / 1000) + ' 秒后再提问。');
   const composer = buildCrystalComposer(state);
   root.append(composer); return root;
 }
@@ -123,11 +130,7 @@ function buildPersona(root, state) {
   }
 }
 
-import { AI_QUICK_PROMPTS, resolveAiQuickPrompt } from './ai-quick-prompts.js';
-
-function buildCrystalComposer(state) {
-  const composer = node('div', 'ai-composer ai-composer--crystal');
-  composer.classList.toggle('ai-composer--busy', Boolean(state.busy));
+function buildQuickPrompts(state) {
   const chips = node('div', 'ai-quick-chips');
   chips.dataset.region = 'ai-quick-prompts';
   chips.setAttribute('role', 'group');
@@ -139,7 +142,13 @@ function buildCrystalComposer(state) {
     chip.classList.add('ai-chip');
     chips.append(chip);
   }
-  composer.append(chips, field('问题', 'ai-question', state.draft, state.limits.maxQuestionChars),
+  return chips;
+}
+
+function buildCrystalComposer(state) {
+  const composer = node('div', 'ai-composer ai-composer--crystal');
+  composer.classList.toggle('ai-composer--busy', Boolean(state.busy));
+  composer.append(field('问题', 'ai-question', state.draft, state.limits.maxQuestionChars),
     button(state.busy ? '等待回答…' : '发送', 'ai-send', {
       primary: true, disabled: !aiCanSend(state)
     }));

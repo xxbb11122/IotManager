@@ -51,6 +51,23 @@ test('coordinator coalesces a telemetry burst into one device patch without a fu
   assert.equal(metrics.snapshot().maxPatchBatchSize, 1);
 });
 
+test('authoritative updates use a frame-sized batch while telemetry keeps its existing burst window', () => {
+  const scheduler=fakeScheduler();
+  const calls=[];
+  const coordinator=createRenderCoordinator({scheduler,now:()=>0,fullRender:()=>assert.fail('unexpected full render'),
+    patchDevices:(refs,snapshot)=>calls.push({refs,snapshot})});
+  coordinator.enqueue({sequence:1},{domains:[CHANGE_DOMAIN.DEVICES],entityRefs:['a'],presentation:'telemetry'});
+  assert.equal(scheduler.timers.at(-1).delay,150);
+  coordinator.enqueue({sequence:2},{domains:[CHANGE_DOMAIN.DEVICES],entityRefs:['b']});
+  assert.equal(scheduler.timers[0].cancelled,true);
+  assert.equal(scheduler.timers.at(-1).delay,16);
+  scheduler.timers.at(-1).callback();
+  assert.equal(calls.length,1);
+  assert.equal(calls[0].snapshot.sequence,2);
+  assert.deepEqual(calls[0].refs,['a','b']);
+  coordinator.destroy();
+});
+
 test('structural or unknown metadata uses one safe full-render fallback', () => {
   const scheduler = fakeScheduler();
   const fullRenders = [];

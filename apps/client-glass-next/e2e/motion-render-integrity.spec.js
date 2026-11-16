@@ -81,7 +81,7 @@ test('trusted touch input supports downward refresh and native upward scrolling'
   try {
     await fixture(page);
     const session = await context.newCDPSession(page);
-    const paragraph = await page.locator('.screen-heading p').boundingBox();
+    const paragraph = await page.locator('.context-row__location').boundingBox();
     const x = Math.round(paragraph.x + 8);
     const y = Math.round(paragraph.y + 5);
     const swipe = async (from, to) => {
@@ -104,7 +104,7 @@ test('reduced-motion data redraw does not cancel an active refresh gesture', asy
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await fixture(page);
   await page.evaluate(() => {
-    const target = document.querySelector('.screen-heading p');
+    const target = document.querySelector('.context-row__location');
     const send = (type, y, node = target) => node.dispatchEvent(new PointerEvent(type, {
       bubbles: true, cancelable: true, pointerId: 81, pointerType: 'touch', isPrimary: true, clientX: 20, clientY: y
     }));

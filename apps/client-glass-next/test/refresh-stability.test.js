@@ -136,7 +136,7 @@ test('command and structure preempt delayed telemetry; batch options prevent rep
   time.advance(200);
   coordinator.enqueue({ n: 3 }, { domains: ['commands', 'connection', 'weather', 'weather-forecast'], entityRefs: ['a'] });
   time.advance(350);
-  assert.equal(calls[1][1], 350);
+  assert.equal(calls[1][1], 216);
   assert.equal(calls.find(call => call[0] === 'commands')[1].skipControls, true);
   assert.equal(calls.find(call => call[0] === 'runtime')[1].skipDetail, true);
   assert.equal(calls.filter(call => call[0] === 'weather').length, 1);

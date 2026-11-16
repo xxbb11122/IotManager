@@ -47,15 +47,16 @@ async function minimumRenderedContrast(page, locator) {
   }, {image: png.toString('base64'), color: original.color});
 }
 
-test('T01: all AI pages retain a CSS workspace when optional optics cannot load', async ({page}) => {
+test('T01: AI pages remain usable when optional optics cannot load', async ({page}) => {
   await page.route(/simple-liquid-glass|web-component(?:\.esm)?/, route => route.abort());
   await materialHarness(page, {screen: 'ai'});
   await expect(page.locator('#app')).toHaveAttribute('data-glass-optics', 'unavailable');
   for (const screen of ['ai','ai-persona','ai-history']) {
     await page.evaluate(screen => window.materialHarness.mount({screen}), screen);
-    await expect(page.locator('.ai-workspace')).toHaveCSS('backdrop-filter', /blur/);
-    await expect(page.locator('.ai-workspace')).not.toHaveCSS('background-image', 'none');
-    await expect(page.locator('.ai-workspace')).toHaveCSS('border-top-width', '1px');
+    await expect(page.locator('.ai-workspace')).toHaveCSS('backdrop-filter', 'none');
+    await expect(page.locator('.ai-workspace')).toHaveCSS('background-image', 'none');
+    if (screen === 'ai') await expect(page.locator('#ai-question')).toBeVisible();
+    else await expect(page.locator('.ai-workspace')).toHaveCSS('border-top-width', '1px');
     await noHorizontalOverflow(page);
   }
   await page.evaluate(() => window.materialHarness.mount({screen: 'ai-persona'}));
@@ -123,7 +124,7 @@ test('T04: notices retain distinct semantic text and surfaces in glass and solid
 
 test('T05: detail keeps a single continuous panel and reports selected capabilities accessibly', async ({page}) => {
   await materialHarness(page, {scenario: 'P03'});
-  await expect(page.locator('[data-region=device-detail-panel]')).toHaveCSS('backdrop-filter', /blur/);
+  await expect(page.locator('[data-region=device-detail-panel]')).toHaveCSS('backdrop-filter', 'none');
   for (const selector of ['.state-panel','.state-comparison','[data-region=device-state]','[data-region=device-controls]']) {
     for (const node of await page.locator(selector).all()) {
       await expect(node).toHaveCSS('backdrop-filter', 'none');
@@ -166,7 +167,7 @@ test('T08: hourly forecast has boundaries while metrics stay on the continuous w
 test('T01/T09: independent empty, BLE/LAN and segmented panels keep navigation and touch targets', async ({page}) => {
   for (const [scenario, variant, selector] of [['P01','empty','.empty-state--panel'], ['P11','selected','.ble-device-summary'], ['P13','ready','.segmented-control']]) {
     await materialHarness(page, {scenario, variant});
-    await expect(page.locator(selector).first()).toHaveCSS('backdrop-filter', /blur/);
+    await expect(page.locator(selector).first()).toHaveCSS('backdrop-filter', 'none');
     await expect(page.locator('.app-header')).toHaveCSS('position', 'sticky');
     await expect(page.locator('.bottom-nav')).toHaveCSS('position', 'sticky');
     for (const target of ['.site-picker-trigger','.weather-header-summary','.bottom-nav .nav-button'])

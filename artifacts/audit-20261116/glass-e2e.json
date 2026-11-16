@@ -1,0 +1,3354 @@
+{
+  "config": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "E:\\CC_testP\\iot-manager\\apps\\client-glass-next\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "e2e/ai-workspace.spec.js",
+      "e2e/ai-chat-panel.spec.js",
+      "e2e/glass-client.spec.js",
+      "e2e/material-contract.spec.js",
+      "e2e/comprehensive-ui.spec.js",
+      "e2e/mobile-client.spec.js",
+      "e2e/mobile-offline-recovery.spec.js",
+      "e2e/refresh-stability.spec.js",
+      "e2e/bottom-navigation-motion.spec.js",
+      "e2e/motion-interruptions.spec.js",
+      "e2e/motion-render-integrity.spec.js",
+      "e2e/motion-states.spec.js",
+      "e2e/motion-preview.spec.js",
+      "e2e/motion-preview-visuals.spec.js",
+      "e2e/startup-animation.spec.js",
+      "--workers=2"
+    ],
+    "configFile": "E:\\CC_testP\\iot-manager\\apps\\client-glass-next\\playwright.config.js",
+    "rootDir": "E:/CC_testP/iot-manager/apps/client-glass-next/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 2
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "E:/CC_testP/iot-manager/artifacts/audit-20261116/glass-e2e-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 2
+        },
+        "id": "",
+        "name": "",
+        "testDir": "E:/CC_testP/iot-manager/apps/client-glass-next/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "E:\\CC_testP\\iot-manager\\artifacts\\audit-20261116\\glass-e2e.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.62.0",
+    "workers": 2,
+    "webServer": {
+      "command": "npm run dev -- --host 127.0.0.1",
+      "url": "http://127.0.0.1:5190",
+      "reuseExistingServer": false,
+      "env": {
+        "IOT_DEV_API_TARGET": "http://127.0.0.1:9",
+        "IOT_DEV_CA_FILE": "",
+        "VITE_API_BASE_URL": "/api/v1",
+        "VITE_WS_URL": "ws://127.0.0.1:5190/ws/devices",
+        "VITE_OIDC_ISSUER_URL": "",
+        "VITE_OIDC_CLIENT_ID": "",
+        "VITE_OIDC_REDIRECT_URI": "",
+        "VITE_OIDC_SCOPE": ""
+      }
+    }
+  },
+  "suites": [
+    {
+      "title": "ai-chat-panel.spec.js",
+      "file": "ai-chat-panel.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "AI chat clears answers and ignores late replies after a site change",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3274,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:27:47.511Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ba52ff09e39ad6e0fccd-76d0a13d82f8d5bccf74",
+          "file": "ai-chat-panel.spec.js",
+          "line": 3,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "ai-workspace.spec.js",
+      "file": "ai-workspace.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "AI navigation, safe text rendering and device refresh preserve the focused question",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 3523,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:27:47.529Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e9df89ef2bb8a20e2ba6-5262ccfb5e5b9a44b628",
+          "file": "ai-workspace.spec.js",
+          "line": 85,
+          "column": 1
+        },
+        {
+          "title": "history opens the full message pair and supports explicit deletion",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1660,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:27:55.379Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e9df89ef2bb8a20e2ba6-29f5d19bd73c783f459c",
+          "file": "ai-workspace.spec.js",
+          "line": 102,
+          "column": 1
+        },
+        {
+          "title": "a protected server without login configuration gives setup instead of an empty site picker",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 763,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:27:57.054Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e9df89ef2bb8a20e2ba6-7c38c29515fdc4fada93",
+          "file": "ai-workspace.spec.js",
+          "line": 112,
+          "column": 1
+        },
+        {
+          "title": "crystal quick prompts require explicit sending and recheck preserves the next draft",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1169,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:27:57.828Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e9df89ef2bb8a20e2ba6-26f4586ab7f00bcd09d7",
+          "file": "ai-workspace.spec.js",
+          "line": 120,
+          "column": 1
+        },
+        {
+          "title": "persona saves 4000 characters and activation has a separate expected version",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1463,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:27:59.011Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e9df89ef2bb8a20e2ba6-dfed82ddb41bb531eeb2",
+          "file": "ai-workspace.spec.js",
+          "line": 135,
+          "column": 1
+        },
+        {
+          "title": "members can view persona but cannot edit or activate it",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 792,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:00.487Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e9df89ef2bb8a20e2ba6-f8f582d279e3d90efe97",
+          "file": "ai-workspace.spec.js",
+          "line": 147,
+          "column": 1
+        },
+        {
+          "title": "wide AI layout keeps header controls below the system safe area",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 841,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:01.292Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e9df89ef2bb8a20e2ba6-b8baca4e1a8b6eb5c1ae",
+          "file": "ai-workspace.spec.js",
+          "line": 154,
+          "column": 1
+        },
+        {
+          "title": "chat input stays at the viewport bottom while long conversations scroll",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1630,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:02.148Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e9df89ef2bb8a20e2ba6-a4a27bbc5a529dd896fd",
+          "file": "ai-workspace.spec.js",
+          "line": 167,
+          "column": 1
+        },
+        {
+          "title": "the compact composer keeps its accessible label and shortcuts in the conversation area",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1229,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:03.792Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e9df89ef2bb8a20e2ba6-13beb6600c55300def42",
+          "file": "ai-workspace.spec.js",
+          "line": 208,
+          "column": 1
+        },
+        {
+          "title": "typing in a long conversation creates a bounded number of DOM elements",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1459,
+                  "errors": [],
+                  "stdout": [
+                    {
+                      "text": "AI draft: 20 elements created for 20 characters with 100 messages\n"
+                    }
+                  ],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:05.035Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e9df89ef2bb8a20e2ba6-05ee19e68d479e9e5466",
+          "file": "ai-workspace.spec.js",
+          "line": 236,
+          "column": 1
+        },
+        {
+          "title": "chat keeps the reader position during updates and remains usable after a simulated keyboard resize",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1091,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:06.509Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e9df89ef2bb8a20e2ba6-f725557f85880a036506",
+          "file": "ai-workspace.spec.js",
+          "line": 262,
+          "column": 1
+        },
+        {
+          "title": "leaving a pending request stops waiting and return obtains its result without a second POST",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1191,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:07.618Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e9df89ef2bb8a20e2ba6-a15a0519a22e22fea18f",
+          "file": "ai-workspace.spec.js",
+          "line": 284,
+          "column": 1
+        },
+        {
+          "title": "500 paged messages retain composition input, selection and bounded draft work",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 2975,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:08.820Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "ai-500-input-samples",
+                      "contentType": "application/json",
+                      "body": "ewogICJzYW1lIjogdHJ1ZSwKICAic2VsZWN0aW9uIjogNywKICAidmFsdWUiOiAi6K6+5aSH54q25oCBIDI5IiwKICAic2FtcGxlcyI6IFsKICAgIHsKICAgICAgImRvbSI6IDAuNjk5OTk5OTg4MDc5MDcxLAogICAgICAicGFpbnRPcHBvcnR1bml0eSI6IDMuODk5OTk5OTc2MTU4MTQyCiAgICB9LAogICAgewogICAgICAiZG9tIjogMC45MDAwMDAwMDU5NjA0NjQ1LAogICAgICAicGFpbnRPcHBvcnR1bml0eSI6IDI5LjQwMDAwMDAwNTk2MDQ2NAogICAgfSwKICAgIHsKICAgICAgImRvbSI6IDEuODAwMDAwMDExOTIwOTI5LAogICAgICAicGFpbnRPcHBvcnR1bml0eSI6IDMzLjkwMDAwMDAwNTk2MDQ2NAogICAgfSwKICAgIHsKICAgICAgImRvbSI6IDIuMzAwMDAwMDExOTIwOTI5LAogICAgICAicGFpbnRPcHBvcnR1bml0eSI6IDMyLjkwMDAwMDAwNTk2MDQ2NAogICAgfSwKICAgIHsKICAgICAgImRvbSI6IDEuODAwMDAwMDExOTIwOTI5LAogICAgICAicGFpbnRPcHBvcnR1bml0eSI6IDMzLjE5OTk5OTk4ODA3OTA3CiAgICB9LAogICAgewogICAgICAiZG9tIjogMi43MDAwMDAwMTc4ODEzOTM0LAogICAgICAicGFpbnRPcHBvcnR1bml0eSI6IDMzLjMwMDAwMDAxMTkyMDkzCiAgICB9LAogICAgewogICAgICAiZG9tIjogMS42OTk5OTk5ODgwNzkwNzEsCiAgICAgICJwYWludE9wcG9ydHVuaXR5IjogMzMuMDk5OTk5OTk0MDM5NTM2CiAgICB9LAogICAgewogICAgICAiZG9tIjogMi4zMDAwMDAwMTE5MjA5MjksCiAgICAgICJwYWludE9wcG9ydHVuaXR5IjogMzMuNTk5OTk5OTk0MDM5NTM2CiAgICB9LAogICAgewogICAgICAiZG9tIjogMS43MDAwMDAwMTc4ODEzOTM0LAogICAgICAicGFpbnRPcHBvcnR1bml0eSI6IDM0LjEwMDAwMDAyMzg0MTg2CiAgICB9LAogICAgewogICAgICAiZG9tIjogMi4yOTk5OTk5ODIxMTg2MDY2LAogICAgICAicGFpbnRPcHBvcnR1bml0eSI6IDMzLjY5OTk5OTk4ODA3OTA3CiAgICB9LAogICAgewogICAgICAiZG9tIjogMS42OTk5OTk5ODgwNzkwNzEsCiAgICAgICJwYWludE9wcG9ydHVuaXR5IjogMzEuNjk5OTk5OTg4MDc5MDcKICAgIH0sCiAgICB7CiAgICAgICJkb20iOiAxLjUsCiAgICAgICJwYWludE9wcG9ydHVuaXR5IjogMzMuOTAwMDAwMDA1OTYwNDY0CiAgICB9LAogICAgewogICAgICAiZG9tIjogMS4zMDAwMDAwMTE5MjA5MjksCiAgICAgICJwYWludE9wcG9ydHVuaXR5IjogMzQuMzAwMDAwMDExOTIwOTMKICAgIH0sCiAgICB7CiAgICAgICJkb20iOiAxLjU5OTk5OTk5NDAzOTUzNTUsCiAgICAgICJwYWludE9wcG9ydHVuaXR5IjogMzIuMTk5OTk5OTg4MDc5MDcKICAgIH0sCiAgICB7CiAgICAgICJkb20iOiAxLjMwMDAwMDAxMTkyMDkyOSwKICAgICAgInBhaW50T3Bwb3J0dW5pdHkiOiAzMy44MDAwMDAwMTE5MjA5MwogICAgfSwKICAgIHsKICAgICAgImRvbSI6IDEsCiAgICAgICJwYWludE9wcG9ydHVuaXR5IjogMzMuNQogICAgfSwKICAgIHsKICAgICAgImRvbSI6IDIuNjk5OTk5OTg4MDc5MDcxLAogICAgICAicGFpbnRPcHBvcnR1bml0eSI6IDMzLjU5OTk5OTk5NDAzOTUzNgogICAgfSwKICAgIHsKICAgICAgImRvbSI6IDEuNDAwMDAwMDA1OTYwNDY0NSwKICAgICAgInBhaW50T3Bwb3J0dW5pdHkiOiAzMy4wOTk5OTk5OTQwMzk1MzYKICAgIH0sCiAgICB7CiAgICAgICJkb20iOiAyLjU5OTk5OTk5NDAzOTUzNTUsCiAgICAgICJwYWludE9wcG9ydHVuaXR5IjogMzQuMDk5OTk5OTk0MDM5NTM2CiAgICB9LAogICAgewogICAgICAiZG9tIjogMS40MDAwMDAwMDU5NjA0NjQ1LAogICAgICAicGFpbnRPcHBvcnR1bml0eSI6IDMyLjYwMDAwMDAyMzg0MTg2CiAgICB9LAogICAgewogICAgICAiZG9tIjogMi4yOTk5OTk5ODIxMTg2MDY2LAogICAgICAicGFpbnRPcHBvcnR1bml0eSI6IDMzLjM5OTk5OTk3NjE1ODE0CiAgICB9LAogICAgewogICAgICAiZG9tIjogMi4yMDAwMDAwMTc4ODEzOTM0LAogICAgICAicGFpbnRPcHBvcnR1bml0eSI6IDMyLjcwMDAwMDAxNzg4MTM5CiAgICB9LAogICAgewogICAgICAiZG9tIjogMS4xOTk5OTk5ODgwNzkwNzEsCiAgICAgICJwYWludE9wcG9ydHVuaXR5IjogMzMuMDk5OTk5OTk0MDM5NTM2CiAgICB9LAogICAgewogICAgICAiZG9tIjogMS41LAogICAgICAicGFpbnRPcHBvcnR1bml0eSI6IDMzLjUKICAgIH0sCiAgICB7CiAgICAgICJkb20iOiAyLAogICAgICAicGFpbnRPcHBvcnR1bml0eSI6IDMzLjE5OTk5OTk4ODA3OTA3CiAgICB9LAogICAgewogICAgICAiZG9tIjogMS42MDAwMDAwMjM4NDE4NTgsCiAgICAgICJwYWludE9wcG9ydHVuaXR5IjogMzQKICAgIH0sCiAgICB7CiAgICAgICJkb20iOiAxLjkwMDAwMDAwNTk2MDQ2NDUsCiAgICAgICJwYWludE9wcG9ydHVuaXR5IjogMzMuNjAwMDAwMDIzODQxODYKICAgIH0sCiAgICB7CiAgICAgICJkb20iOiAxLjU5OTk5OTk5NDAzOTUzNTUsCiAgICAgICJwYWludE9wcG9ydHVuaXR5IjogMzMuMjk5OTk5OTgyMTE4NjEKICAgIH0sCiAgICB7CiAgICAgICJkb20iOiAxLjcwMDAwMDAxNzg4MTM5MzQsCiAgICAgICJwYWludE9wcG9ydHVuaXR5IjogMzIuNDAwMDAwMDA1OTYwNDY0CiAgICB9LAogICAgewogICAgICAiZG9tIjogMS4wOTk5OTk5OTQwMzk1MzU1LAogICAgICAicGFpbnRPcHBvcnR1bml0eSI6IDM0CiAgICB9CiAgXQp9"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e9df89ef2bb8a20e2ba6-cb54f4418570d43a97cc",
+          "file": "ai-workspace.spec.js",
+          "line": 301,
+          "column": 1
+        },
+        {
+          "title": "an overlay keyboard visual viewport keeps input visible and cleans up after navigation",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 921,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:11.808Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e9df89ef2bb8a20e2ba6-cd5c74a4380a28a4a2ff",
+          "file": "ai-workspace.spec.js",
+          "line": 339,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "bottom-navigation-motion.spec.js",
+      "file": "bottom-navigation-motion.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "bottom module selection follows four peers and respects reduced motion",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1692,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:27:55.165Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6bd35c1a2e081de376b6-ded6012e3eb73266194d",
+          "file": "bottom-navigation-motion.spec.js",
+          "line": 3,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "comprehensive-ui.spec.js",
+      "file": "comprehensive-ui.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "device list updates aliases, reorders without replacing focused rows and retains the final empty state",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 924,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:27:56.891Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "342aa9da255fd226c0c4-a1a43910b09b708e23d4",
+          "file": "comprehensive-ui.spec.js",
+          "line": 5,
+          "column": 1
+        },
+        {
+          "title": "ambiguous device references keep separate rows and are never collapsed by an index",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 927,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:27:57.828Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "342aa9da255fd226c0c4-17446d374203aed4e3fd",
+          "file": "comprehensive-ui.spec.js",
+          "line": 36,
+          "column": 1
+        },
+        {
+          "title": "large ordinary lists have no optical children in any material and stay single-column",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3647,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:27:58.774Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "342aa9da255fd226c0c4-584f8a583d9174478ac6",
+          "file": "comprehensive-ui.spec.js",
+          "line": 56,
+          "column": 1
+        },
+        {
+          "title": "major pages share quiet content surfaces and preserve visible controls with enlarged text",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3573,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:02.439Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "342aa9da255fd226c0c4-f0bce71f47477fca3647",
+          "file": "comprehensive-ui.spec.js",
+          "line": 79,
+          "column": 1
+        },
+        {
+          "title": "ordinary content mutations do not rescan navigation optics, while navigation changes still synchronize",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1030,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:06.027Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "342aa9da255fd226c0c4-000e45d8a73860ecc50c",
+          "file": "comprehensive-ui.spec.js",
+          "line": 96,
+          "column": 1
+        },
+        {
+          "title": "editable controls retain a distinct boundary on quiet opaque surfaces",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 817,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:07.071Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "342aa9da255fd226c0c4-45d9d6d21c36607b10fc",
+          "file": "comprehensive-ui.spec.js",
+          "line": 115,
+          "column": 1
+        },
+        {
+          "title": "zoom-equivalent desktop layout and forced-color mobile states keep actions reachable",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1427,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:07.910Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "342aa9da255fd226c0c4-bc548a41d61205418b45",
+          "file": "comprehensive-ui.spec.js",
+          "line": 130,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "glass-client.spec.js",
+      "file": "glass-client.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "production entry keeps AI draft controls responsive and sends once with the docked composer",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1728,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:09.378Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "251c3cd5435cdf773202-2b5aefdce8840f3a7cbc",
+          "file": "glass-client.spec.js",
+          "line": 80,
+          "column": 1
+        },
+        {
+          "title": "new App uses the real API adapter and confirms a native range command exactly once",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2725,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:11.118Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "251c3cd5435cdf773202-e0feaab050b43390dfad",
+          "file": "glass-client.spec.js",
+          "line": 108,
+          "column": 1
+        },
+        {
+          "title": "real connection and OIDC fields coexist with independent material and motion choices",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3196,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:13.859Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "251c3cd5435cdf773202-c3585b3181e8c259412d",
+          "file": "glass-client.spec.js",
+          "line": 127,
+          "column": 1
+        },
+        {
+          "title": "weather saves through the production API and keeps manual settings expanded",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2122,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:17.070Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "251c3cd5435cdf773202-5aec592ffcc883be04e1",
+          "file": "glass-client.spec.js",
+          "line": 153,
+          "column": 1
+        },
+        {
+          "title": "latest App pages fit phone and desktop widths with the new glass styles",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 6671,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:19.203Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "251c3cd5435cdf773202-01fde4243c8e6aeb0b18",
+          "file": "glass-client.spec.js",
+          "line": 168,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "material-contract.spec.js",
+      "file": "material-contract.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "T01: AI pages remain usable when optional optics cannot load",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1292,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:12.762Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "55f489cdf559b63e64c1-e6769b3163a847dd8dea",
+          "file": "material-contract.spec.js",
+          "line": 50,
+          "column": 1
+        },
+        {
+          "title": "T02: system and explicit solid modes disable every managed filter and preserve the material choice",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1379,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:14.074Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "55f489cdf559b63e64c1-a86b3a3b66f24e4d8f52",
+          "file": "material-contract.spec.js",
+          "line": 67,
+          "column": 1
+        },
+        {
+          "title": "T03: optics are idempotent, inert, absent from input hosts and do not replace a focused draft",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 789,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:15.471Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "55f489cdf559b63e64c1-7732b95f6b0c257b6316",
+          "file": "material-contract.spec.js",
+          "line": 84,
+          "column": 1
+        },
+        {
+          "title": "T04: notices retain distinct semantic text and surfaces in glass and solid modes",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 2949,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:16.271Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "55f489cdf559b63e64c1-d5fae112b2ade0e620b4",
+          "file": "material-contract.spec.js",
+          "line": 107,
+          "column": 1
+        },
+        {
+          "title": "T05: detail keeps a single continuous panel and reports selected capabilities accessibly",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1015,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:19.231Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "55f489cdf559b63e64c1-8b86bb5dab29e86d5ede",
+          "file": "material-contract.spec.js",
+          "line": 125,
+          "column": 1
+        },
+        {
+          "title": "T07: persona and history have visible focus, usable fields and wrapping at 320px",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 943,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:20.258Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "55f489cdf559b63e64c1-502bb40e63befe93ff77",
+          "file": "material-contract.spec.js",
+          "line": 139,
+          "column": 1
+        },
+        {
+          "title": "T08: hourly forecast has boundaries while metrics stay on the continuous weather surface",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 880,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:21.212Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "55f489cdf559b63e64c1-c0c8f205b8fc16d7f5d4",
+          "file": "material-contract.spec.js",
+          "line": 159,
+          "column": 1
+        },
+        {
+          "title": "T01/T09: independent empty, BLE/LAN and segmented panels keep navigation and touch targets",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 2085,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:22.104Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "55f489cdf559b63e64c1-eb044be7f595b62196e8",
+          "file": "material-contract.spec.js",
+          "line": 167,
+          "column": 1
+        },
+        {
+          "title": "T03: background optics stop and destroyed UI releases its observers",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 675,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:24.206Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "55f489cdf559b63e64c1-00005e807fd3b89bb6a0",
+          "file": "material-contract.spec.js",
+          "line": 182,
+          "column": 1
+        },
+        {
+          "title": "T09: twelve pages fit seven phone and desktop widths and enlarged text",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 7191,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:24.892Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "55f489cdf559b63e64c1-44500d60366e9254ef9e",
+          "file": "material-contract.spec.js",
+          "line": 205,
+          "column": 1
+        },
+        {
+          "title": "T10: startup glass respects system contrast before the main module loads",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 259,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:32.095Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "55f489cdf559b63e64c1-f9cebb28bab356a0e7bc",
+          "file": "material-contract.spec.js",
+          "line": 226,
+          "column": 1
+        },
+        {
+          "title": "T10: no-JavaScript startup exposes a readable recovery message",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 227,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:32.366Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "55f489cdf559b63e64c1-2c8c2142aa3424623a97",
+          "file": "material-contract.spec.js",
+          "line": 238,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "mobile-client.spec.js",
+      "file": "mobile-client.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "mobile client exposes devices, activity, add, and connection settings without overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 6781,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:25.911Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "026839826aca8dceaf68-ade13453b79a16a325ee",
+          "file": "mobile-client.spec.js",
+          "line": 3,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "mobile-offline-recovery.spec.js",
+      "file": "mobile-offline-recovery.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "mobile offline refresh keeps cached data, recovers, and suppresses rapid duplicate refreshes",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1865,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:32.616Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "4ca11312e953d0febdcb-c3a67464167ca4311930",
+          "file": "mobile-offline-recovery.spec.js",
+          "line": 12,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "motion-interruptions.spec.js",
+      "file": "motion-interruptions.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "pull cancellation, horizontal intent, reverse travel and excluded controls produce no request",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 881,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:32.727Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "0e5d034d07c017a980d9-42e8da0578b98dfd04e3",
+          "file": "motion-interruptions.spec.js",
+          "line": 82,
+          "column": 1
+        },
+        {
+          "title": "gesture and accessible button share one in-flight refresh and permit retry only after settling",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 968,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:33.623Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "0e5d034d07c017a980d9-7244f48865cd4ab027d0",
+          "file": "motion-interruptions.spec.js",
+          "line": 97,
+          "column": 1
+        },
+        {
+          "title": "an old context result and finally cannot overwrite a newer task or clear its busy state",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1056,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:34.603Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "0e5d034d07c017a980d9-03b53011e1398115635b",
+          "file": "motion-interruptions.spec.js",
+          "line": 114,
+          "column": 1
+        },
+        {
+          "title": "leaving and returning to the same page does not give a late result ownership or steal focus",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1132,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:35.672Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "0e5d034d07c017a980d9-8079035ab53fd3f3b8fb",
+          "file": "motion-interruptions.spec.js",
+          "line": 133,
+          "column": 1
+        },
+        {
+          "title": "global-task Back returns to the source tab and browser Back restores the detail entity and row position",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1555,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:36.819Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "0e5d034d07c017a980d9-b2b8424a12e2963c2788",
+          "file": "motion-interruptions.spec.js",
+          "line": 150,
+          "column": 1
+        },
+        {
+          "title": "runtime reduced motion cancels decoration without erasing the selected switch or changing commands",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 771,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:38.385Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "0e5d034d07c017a980d9-6ba6e933a46419c7f8fe",
+          "file": "motion-interruptions.spec.js",
+          "line": 179,
+          "column": 1
+        },
+        {
+          "title": "candidate drafts survive data updates and cancelling; late claim cannot navigate a different selection",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1420,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:39.167Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "0e5d034d07c017a980d9-2ad7bd7c87297ece8208",
+          "file": "motion-interruptions.spec.js",
+          "line": 197,
+          "column": 1
+        },
+        {
+          "title": "forecast patches preserve the horizontal reading anchor and form draft; errors remain visible",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1192,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:40.597Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "0e5d034d07c017a980d9-c3b349a91a229c19df31",
+          "file": "motion-interruptions.spec.js",
+          "line": 225,
+          "column": 1
+        },
+        {
+          "title": "ACK does not reclaim focus after the user has moved to another control",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 621,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:41.802Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "0e5d034d07c017a980d9-8af5faedd4d94066ea90",
+          "file": "motion-interruptions.spec.js",
+          "line": 252,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "motion-preview-visuals.spec.js",
+      "file": "motion-preview-visuals.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "exports representative real-UI snapshots in normal and reduced motion",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 8822,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:34.501Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "devices-normal",
+                      "contentType": "image/png",
+                      "path": "E:\\CC_testP\\iot-manager\\artifacts\\audit-20261116\\glass-e2e-results\\motion-preview-visuals-exp-86e3d-n-normal-and-reduced-motion\\attachments\\devices-normal-3546e429b03c43049184d314a02513ebd0d663d0.png"
+                    },
+                    {
+                      "name": "detail-normal",
+                      "contentType": "image/png",
+                      "path": "E:\\CC_testP\\iot-manager\\artifacts\\audit-20261116\\glass-e2e-results\\motion-preview-visuals-exp-86e3d-n-normal-and-reduced-motion\\attachments\\detail-normal-abae0da00dca4eb31fd16cca27b1514c4ef04700.png"
+                    },
+                    {
+                      "name": "activity-normal",
+                      "contentType": "image/png",
+                      "path": "E:\\CC_testP\\iot-manager\\artifacts\\audit-20261116\\glass-e2e-results\\motion-preview-visuals-exp-86e3d-n-normal-and-reduced-motion\\attachments\\activity-normal-403aadfcdb7e0c6211d8de554dafaa20215efb80.png"
+                    },
+                    {
+                      "name": "add-normal",
+                      "contentType": "image/png",
+                      "path": "E:\\CC_testP\\iot-manager\\artifacts\\audit-20261116\\glass-e2e-results\\motion-preview-visuals-exp-86e3d-n-normal-and-reduced-motion\\attachments\\add-normal-bfcfbb84506b70697632b382a7875016373e4c2f.png"
+                    },
+                    {
+                      "name": "ble-normal",
+                      "contentType": "image/png",
+                      "path": "E:\\CC_testP\\iot-manager\\artifacts\\audit-20261116\\glass-e2e-results\\motion-preview-visuals-exp-86e3d-n-normal-and-reduced-motion\\attachments\\ble-normal-362b52a3e5288d5c6ef94ea25b26e749ab910395.png"
+                    },
+                    {
+                      "name": "lan-normal",
+                      "contentType": "image/png",
+                      "path": "E:\\CC_testP\\iot-manager\\artifacts\\audit-20261116\\glass-e2e-results\\motion-preview-visuals-exp-86e3d-n-normal-and-reduced-motion\\attachments\\lan-normal-8dead800c7c57d13c459e04b851c3a3a040a08a2.png"
+                    },
+                    {
+                      "name": "sites-normal",
+                      "contentType": "image/png",
+                      "path": "E:\\CC_testP\\iot-manager\\artifacts\\audit-20261116\\glass-e2e-results\\motion-preview-visuals-exp-86e3d-n-normal-and-reduced-motion\\attachments\\sites-normal-e2a7dfcf8c4779b28ee92aa9fe8e5806c2eb970c.png"
+                    },
+                    {
+                      "name": "connections-normal",
+                      "contentType": "image/png",
+                      "path": "E:\\CC_testP\\iot-manager\\artifacts\\audit-20261116\\glass-e2e-results\\motion-preview-visuals-exp-86e3d-n-normal-and-reduced-motion\\attachments\\connections-normal-8fd4379b4378e253e164b6fde8423be146b6f1ae.png"
+                    },
+                    {
+                      "name": "weather-normal",
+                      "contentType": "image/png",
+                      "path": "E:\\CC_testP\\iot-manager\\artifacts\\audit-20261116\\glass-e2e-results\\motion-preview-visuals-exp-86e3d-n-normal-and-reduced-motion\\attachments\\weather-normal-bb786382b2cbcad30219d77676856909743bd44f.png"
+                    },
+                    {
+                      "name": "devices-reduce",
+                      "contentType": "image/png",
+                      "path": "E:\\CC_testP\\iot-manager\\artifacts\\audit-20261116\\glass-e2e-results\\motion-preview-visuals-exp-86e3d-n-normal-and-reduced-motion\\attachments\\devices-reduce-5718f260781bf027187aad3e7577d010804f2b39.png"
+                    },
+                    {
+                      "name": "detail-reduce",
+                      "contentType": "image/png",
+                      "path": "E:\\CC_testP\\iot-manager\\artifacts\\audit-20261116\\glass-e2e-results\\motion-preview-visuals-exp-86e3d-n-normal-and-reduced-motion\\attachments\\detail-reduce-ff6768496db9dfdddca17934c1a9b7e80b669e52.png"
+                    },
+                    {
+                      "name": "activity-reduce",
+                      "contentType": "image/png",
+                      "path": "E:\\CC_testP\\iot-manager\\artifacts\\audit-20261116\\glass-e2e-results\\motion-preview-visuals-exp-86e3d-n-normal-and-reduced-motion\\attachments\\activity-reduce-d72f05e2403f6eb5ef96c9b3e3b2547e1fc031f5.png"
+                    },
+                    {
+                      "name": "add-reduce",
+                      "contentType": "image/png",
+                      "path": "E:\\CC_testP\\iot-manager\\artifacts\\audit-20261116\\glass-e2e-results\\motion-preview-visuals-exp-86e3d-n-normal-and-reduced-motion\\attachments\\add-reduce-93c4effc733f464c68fb0b608936a1b7b7845ee2.png"
+                    },
+                    {
+                      "name": "ble-reduce",
+                      "contentType": "image/png",
+                      "path": "E:\\CC_testP\\iot-manager\\artifacts\\audit-20261116\\glass-e2e-results\\motion-preview-visuals-exp-86e3d-n-normal-and-reduced-motion\\attachments\\ble-reduce-78b536d3dc22c6106d001e2ba00097a4bb27b41d.png"
+                    },
+                    {
+                      "name": "lan-reduce",
+                      "contentType": "image/png",
+                      "path": "E:\\CC_testP\\iot-manager\\artifacts\\audit-20261116\\glass-e2e-results\\motion-preview-visuals-exp-86e3d-n-normal-and-reduced-motion\\attachments\\lan-reduce-e6007a4afd4486641da93cf6da414a6ca8db43b9.png"
+                    },
+                    {
+                      "name": "sites-reduce",
+                      "contentType": "image/png",
+                      "path": "E:\\CC_testP\\iot-manager\\artifacts\\audit-20261116\\glass-e2e-results\\motion-preview-visuals-exp-86e3d-n-normal-and-reduced-motion\\attachments\\sites-reduce-2adafd89ea992c67c556451ae867507433a507c0.png"
+                    },
+                    {
+                      "name": "connections-reduce",
+                      "contentType": "image/png",
+                      "path": "E:\\CC_testP\\iot-manager\\artifacts\\audit-20261116\\glass-e2e-results\\motion-preview-visuals-exp-86e3d-n-normal-and-reduced-motion\\attachments\\connections-reduce-a9f1fec0c366405b618c25d2bf566f388c5a3765.png"
+                    },
+                    {
+                      "name": "weather-reduce",
+                      "contentType": "image/png",
+                      "path": "E:\\CC_testP\\iot-manager\\artifacts\\audit-20261116\\glass-e2e-results\\motion-preview-visuals-exp-86e3d-n-normal-and-reduced-motion\\attachments\\weather-reduce-45e0750288f347b2e516dbf1c147ad1f3fdaa396.png"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "80ef7a226d4c844a7ab3-ae1729c2a7c3b34b09c4",
+          "file": "motion-preview-visuals.spec.js",
+          "line": 3,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "motion-preview.spec.js",
+      "file": "motion-preview.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "preview manifest describes all 42 IDs, nine screens and valid isolated fixtures",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 215,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:42.452Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "84406704ba52dfba2efc-59f4008665d5e56e988b",
+          "file": "motion-preview.spec.js",
+          "line": 11,
+          "column": 1
+        },
+        {
+          "title": "isolated preview renders every registered scene without booting main or using a transport",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 15019,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:42.676Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "84406704ba52dfba2efc-6b46d2b9f73e52c21709",
+          "file": "motion-preview.spec.js",
+          "line": 25,
+          "column": 1
+        },
+        {
+          "title": "synthetic command preserves reported truth until ACK and reset cancels old work",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2203,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:57.708Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "84406704ba52dfba2efc-025ad8b1b06fa3b54128",
+          "file": "motion-preview.spec.js",
+          "line": 53,
+          "column": 1
+        },
+        {
+          "title": "preview normal/reduce toggling retains final control state and all screen widths fit",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 90000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2987,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:59.921Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "84406704ba52dfba2efc-0cc2fb907ad526a36c08",
+          "file": "motion-preview.spec.js",
+          "line": 73,
+          "column": 1
+        },
+        {
+          "title": "preview illustrates actual empty, partial, permission, OIDC and cooldown states",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1460,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:29:02.919Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "84406704ba52dfba2efc-409550757eb630286326",
+          "file": "motion-preview.spec.js",
+          "line": 94,
+          "column": 1
+        },
+        {
+          "title": "P19 replay uses the real non-gesture refresh entry exactly once",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 638,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:29:04.390Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "84406704ba52dfba2efc-10e14965c5f9a49aa871",
+          "file": "motion-preview.spec.js",
+          "line": 117,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "motion-render-integrity.spec.js",
+      "file": "motion-render-integrity.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "keyed data patches preserve a pressed device row and current field node",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 809,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:43.351Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3ddb33e12cce421aad86-ba91a00a830cf64ca6ab",
+          "file": "motion-render-integrity.spec.js",
+          "line": 30,
+          "column": 1
+        },
+        {
+          "title": "runtime auth errors and stopped command observation are visible without a full navigation",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 684,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:44.172Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3ddb33e12cce421aad86-fe256a4724fa53a3c605",
+          "file": "motion-render-integrity.spec.js",
+          "line": 52,
+          "column": 1
+        },
+        {
+          "title": "trusted touch input supports downward refresh and native upward scrolling",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1404,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:44.868Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3ddb33e12cce421aad86-d7aab1a54c8d424888b4",
+          "file": "motion-render-integrity.spec.js",
+          "line": 78,
+          "column": 1
+        },
+        {
+          "title": "reduced-motion data redraw does not cancel an active refresh gesture",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 542,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:46.281Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3ddb33e12cce421aad86-a60652ff8f0c60784967",
+          "file": "motion-render-integrity.spec.js",
+          "line": 103,
+          "column": 1
+        },
+        {
+          "title": "exit copies are inert and absent from live field/action selectors",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 784,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:46.835Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3ddb33e12cce421aad86-4c61b1f8173e21726c9e",
+          "file": "motion-render-integrity.spec.js",
+          "line": 120,
+          "column": 1
+        },
+        {
+          "title": "endpoint validation blocks invalid writes and retains local development compatibility",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1207,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:47.632Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3ddb33e12cce421aad86-fbcf83de08057c492a9a",
+          "file": "motion-render-integrity.spec.js",
+          "line": 136,
+          "column": 1
+        },
+        {
+          "title": "BLE selected-candidate status is identity-scoped and a failed scan stop remains retryable",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 524,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:48.851Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3ddb33e12cce421aad86-5f6f4a168d93fc821f05",
+          "file": "motion-render-integrity.spec.js",
+          "line": 160,
+          "column": 1
+        },
+        {
+          "title": "scope invalidation is immediate but only the newly activated context animates",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1173,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:49.385Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3ddb33e12cce421aad86-fd6d6d1eb48d3e740cd9",
+          "file": "motion-render-integrity.spec.js",
+          "line": 181,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "motion-states.spec.js",
+      "file": "motion-states.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "command motion never presents an unconfirmed target as reported state",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1087,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:50.585Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "87c740f25cf05d9f6d26-8141a42ad6d554d2ce6a",
+          "file": "motion-states.spec.js",
+          "line": 3,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "refresh-stability.spec.js",
+      "file": "refresh-stability.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "twenty identical pushes produce no publications, DOM mutations or region replacements",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 4900,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:51.710Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ffac729e138f94c34998-a9381dc35d8b837c5265",
+          "file": "refresh-stability.spec.js",
+          "line": 54,
+          "column": 1
+        },
+        {
+          "title": "mouse: same-value update preserves a legal click",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 896,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:56.620Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ffac729e138f94c34998-4c26f9027bf1ffa8aebc",
+          "file": "refresh-stability.spec.js",
+          "line": 84,
+          "column": 5
+        },
+        {
+          "title": "mouse: changed press intent cancels without an opposite command",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 950,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:57.525Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ffac729e138f94c34998-f135aa297a133d300ac8",
+          "file": "refresh-stability.spec.js",
+          "line": 84,
+          "column": 5
+        },
+        {
+          "title": "touch: same-value update preserves a legal click",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 951,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:58.485Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ffac729e138f94c34998-f48320fbfc6a5c76b864",
+          "file": "refresh-stability.spec.js",
+          "line": 84,
+          "column": 5
+        },
+        {
+          "title": "touch: changed press intent cancels without an opposite command",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 996,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:28:59.446Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ffac729e138f94c34998-e93ca81759fb4dac2fa7",
+          "file": "refresh-stability.spec.js",
+          "line": 84,
+          "column": 5
+        },
+        {
+          "title": "switch transitions use the original node; reduced motion retains the same final state",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1204,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:29:00.453Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ffac729e138f94c34998-34d2b20e3ad18912e886",
+          "file": "refresh-stability.spec.js",
+          "line": 118,
+          "column": 1
+        },
+        {
+          "title": "one weather change gives one local cue; forecast, duplicates and countdown retain nodes",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1168,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:29:01.668Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ffac729e138f94c34998-af413a1340e64b8dbbcf",
+          "file": "refresh-stability.spec.js",
+          "line": 140,
+          "column": 1
+        },
+        {
+          "title": "duplicate receipts are suppressed and mixed domains patch controls only once",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1648,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:29:02.846Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ffac729e138f94c34998-637e19c020d85dc500a8",
+          "file": "refresh-stability.spec.js",
+          "line": 170,
+          "column": 1
+        },
+        {
+          "title": "temporary read-only and pointer cancellation cannot revive an old command intent",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 1034,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:29:04.505Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ffac729e138f94c34998-f50c7637fad802941acd",
+          "file": "refresh-stability.spec.js",
+          "line": 193,
+          "column": 1
+        },
+        {
+          "title": "actual runtime: failed startup plus three WS reconnects performs one list read and exposes build identity",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 4994,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:29:05.550Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ffac729e138f94c34998-cac0ad37eee0bf318ce1",
+          "file": "refresh-stability.spec.js",
+          "line": 216,
+          "column": 1
+        },
+        {
+          "title": "continuous measurement pushes retain controls and present only the latest sample at 1Hz",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 5667,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:29:10.558Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ffac729e138f94c34998-6ad1626b243585dd901a",
+          "file": "refresh-stability.spec.js",
+          "line": 259,
+          "column": 1
+        },
+        {
+          "title": "account partition changes cancel an old press even if both accounts are authenticated",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 1,
+                  "status": "passed",
+                  "duration": 902,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:29:16.237Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ffac729e138f94c34998-d980685805c789e18b06",
+          "file": "refresh-stability.spec.js",
+          "line": 280,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "startup-animation.spec.js",
+      "file": "startup-animation.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "launch icon stays visible until the app shell is ready, then releases the page",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1564,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:29:05.059Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "580928ad6fddd7d0d57b-5f1da51e805b885de5d4",
+          "file": "startup-animation.spec.js",
+          "line": 11,
+          "column": 1
+        },
+        {
+          "title": "reduced motion uses a static icon and removes it when the shell is ready",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 561,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:29:06.635Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "580928ad6fddd7d0d57b-7d6b2323167aece8d2c3",
+          "file": "startup-animation.spec.js",
+          "line": 56,
+          "column": 1
+        },
+        {
+          "title": "failed startup offers a retry that recovers after the module loads",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1474,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:29:07.208Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "580928ad6fddd7d0d57b-011351b21acd1b45ad1e",
+          "file": "startup-animation.spec.js",
+          "line": 73,
+          "column": 1
+        },
+        {
+          "title": "a 5 second module delay shows slow feedback rather than a false startup error",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1149,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:29:08.692Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "580928ad6fddd7d0d57b-e08497f194e16832d112",
+          "file": "startup-animation.spec.js",
+          "line": 91,
+          "column": 1
+        },
+        {
+          "title": "soft retry at 7.5 seconds accepts late readiness and cannot resurrect after completion",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1197,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:29:09.852Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "580928ad6fddd7d0d57b-034fd9c4cde33aeec7dd",
+          "file": "startup-animation.spec.js",
+          "line": 107,
+          "column": 1
+        },
+        {
+          "title": "broken startup artwork has a ready static fallback and does not prevent entering the app",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1050,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:29:11.061Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "580928ad6fddd7d0d57b-4f4d55d9807abe091cc4",
+          "file": "startup-animation.spec.js",
+          "line": 123,
+          "column": 1
+        },
+        {
+          "title": "forced colors and 200 percent text preserve a reachable retry and stop decorative rings",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 286,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:29:12.126Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "580928ad6fddd7d0d57b-5e00181927fbe985e428",
+          "file": "startup-animation.spec.js",
+          "line": 134,
+          "column": 1
+        },
+        {
+          "title": "without JavaScript the startup screen gives a visible explanation",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 266,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:29:12.422Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "580928ad6fddd7d0d57b-b401542848140aa01aa1",
+          "file": "startup-animation.spec.js",
+          "line": 157,
+          "column": 1
+        },
+        {
+          "title": "solid material removes startup glass filters and decorative rings",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1136,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:29:12.698Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "580928ad6fddd7d0d57b-deb52166e5db8f8ab3e5",
+          "file": "startup-animation.spec.js",
+          "line": 165,
+          "column": 1
+        },
+        {
+          "title": "restored BLE summaries enter offline and load local history only on demand in pages",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5197,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-16T15:29:13.845Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "580928ad6fddd7d0d57b-7cab66b733f0d1dd215f",
+          "file": "startup-animation.spec.js",
+          "line": 179,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-11-16T15:27:43.975Z",
+    "duration": 97452.437,
+    "expected": 89,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

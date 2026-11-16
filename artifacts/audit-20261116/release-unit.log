@@ -1,0 +1,28 @@
+✔ signed APK/AAB identities bind to exact clean source, app and trusted certificate (3.3892ms)
+✔ wrong source, signer, package, version, debug and unsigned bundles fail closed (6.0618ms)
+✔ CI joins Glass Android, required UI regression and release safeguards (7.5418ms)
+✔ non-default dispatch explicitly fails before the protected signing job (1338.8088ms)
+✔ PostgreSQL entrypoint new empty cluster (1436.3109ms)
+✔ PostgreSQL entrypoint unknown/glibc cluster (395.666ms)
+✔ PostgreSQL entrypoint wrong ABI cluster (419.9075ms)
+✔ PostgreSQL entrypoint wrong major cluster (479.8152ms)
+✔ PostgreSQL entrypoint matching cluster (502.9754ms)
+✔ full governance passes without claiming production approval (5.0912ms)
+✔ each missing control fails closed (4.4516ms)
+✔ API errors are UNKNOWN and cannot become a pass (0.2939ms)
+✔ effective rulesets provide equivalent checks only with proven absence of bypass (0.4902ms)
+✔ an unprotected branch and unreviewed environments are never accepted (0.1635ms)
+✔ evidence VEX binds source, digest, proof bytes and separate review; invalid records fail closed (41.3792ms)
+✔ WAL-G refuses missing credentials before executing its child (1060.2684ms)
+✔ WAL-G refuses empty credentials before executing its child (297.5619ms)
+✔ WAL-G refuses partial credentials before executing its child (240.6969ms)
+✔ WAL-G exports both scoped S3 credentials only after successful reads (405.8327ms)
+✔ filesystem mode clears inherited S3 credentials and needs no secret files (361.3319ms)
+ℹ tests 20
+ℹ suites 0
+ℹ pass 20
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3408.5893

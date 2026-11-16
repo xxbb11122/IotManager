@@ -3,7 +3,7 @@ import {syntheticDevice} from '../src/dev/motion-preview/fixtures.js';
 
 // The real main entry, store, adapters and UI run here. Only network and
 // hardware boundaries are replaced; production ships none of this fixture.
-async function backend(page) {
+async function backend(page, {aiReady = false} = {}) {
   const errors = [], calls = {commands: [], locations: [], reads: 0, requests: []};
   page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript(() => {
@@ -61,6 +61,13 @@ async function backend(page) {
       return reply(command);
     }
     if (pathname === '/api/v1/me') return reply({subject: 'test-owner', roles: ['OWNER'], sites: [{id: 1}]});
+    if (aiReady && pathname.endsWith('/ai/status')) return reply({enabled:true});
+    if (aiReady && pathname.endsWith('/ai/capabilities')) return reply({contractVersion:1,
+      features:{history:true, requestRecovery:true, idempotency:true, personaActivationGuard:true}});
+    if (aiReady && pathname.endsWith('/ai/persona')) return reply({version:0, name:'默认性格', instructions:''});
+    if (aiReady && pathname.endsWith('/ai/persona/versions')) return reply([]);
+    if (aiReady && pathname.endsWith('/ai/chat') && request.method() === 'POST')
+      return reply({requestId:'fixture-request', conversationId:'fixture-conversation', answer:'模拟设备回答', personaVersion:0, citations:[]});
     return reply([]);
   });
   await page.goto('/');
@@ -69,6 +76,24 @@ async function backend(page) {
   await expect(page.locator('#app')).toHaveAttribute('data-glass', 'liquid');
   return {errors, calls};
 }
+
+test('production entry keeps AI draft controls responsive and sends once with the docked composer', async ({page}) => {
+  const {errors, calls} = await backend(page, {aiReady:true});
+  await page.getByRole('button', {name:'AI', exact:true}).click();
+  const input = page.getByRole('textbox', {name:'问题'});
+  await expect(input).toBeVisible();
+  await input.fill('设备状态');
+  await expect(input).toBeFocused();
+  await expect(page.locator('.ai-composer .ai-count')).toHaveText('4 / 2000 字符');
+  const send = page.getByRole('button', {name:'发送', exact:true});
+  await expect(send).toBeEnabled();
+  await page.setViewportSize({width:390, height:500});
+  expect((await send.boundingBox()).y + (await send.boundingBox()).height).toBeLessThanOrEqual(500);
+  await send.click();
+  await expect(page.locator('.ai-message--assistant')).toContainText('模拟设备回答');
+  expect(calls.requests.filter(row => row.method === 'POST' && row.pathname.endsWith('/ai/chat'))).toHaveLength(1);
+  expect(errors).toEqual([]);
+});
 
 async function noOverflow(page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
@@ -112,7 +137,7 @@ test('real connection and OIDC fields coexist with independent material and moti
   await expect(page.locator('#app')).toHaveAttribute('data-glass', 'frosted');
   await page.locator('[data-material-mode=solid]').click();
   await expect(page.locator('#app')).toHaveAttribute('data-glass', 'solid');
-  await expect(page.locator('.liquid-surface-layer').first()).toHaveAttribute('effect-mode', 'off');
+  await expect(page.locator('liquid-glass').first()).toHaveAttribute('effect-mode', 'off');
   await page.locator('[data-material-mode=liquid]').click();
   await page.locator('[data-action=toggle-display-motion]').click();
   await expect(page.locator('#app')).toHaveAttribute('data-motion', 'reduced');

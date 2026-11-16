@@ -10,6 +10,8 @@ export function createGlassAppearance(root) {
   let choice = 'liquid';
   let destroyed = false;
   let frame = null;
+  const resizeObserver = typeof windowObject.ResizeObserver === 'function'
+    ? new windowObject.ResizeObserver(() => schedule()) : null;
 
   function attribute(node, name, value) {
     if (node.getAttribute(name) !== value) node.setAttribute(name, value);
@@ -28,6 +30,7 @@ export function createGlassAppearance(root) {
     }
     nav.prepend(lens);
     navigation.set(nav, lens);
+    resizeObserver?.observe(nav);
     return lens;
   }
   function mode() {
@@ -40,10 +43,11 @@ export function createGlassAppearance(root) {
     const effect = documentObject.hidden || current === 'solid' ? 'off' : current === 'frosted' ? 'blur' : 'auto';
     for (const lens of root.querySelectorAll('.liquid-surface-layer')) attribute(lens, 'effect-mode', effect);
     for (const [nav, lens] of navigation) {
-      if (!root.contains(nav)) { lens.remove(); navigation.delete(nav); }
+      if (!root.contains(nav)) { resizeObserver?.unobserve(nav); lens.remove(); navigation.delete(nav); }
     }
     for (const nav of root.querySelectorAll('.bottom-nav, .primary-nav')) {
-      const lens = navigation.get(nav) ?? createLens(nav);
+      const savedLens = navigation.get(nav);
+      const lens = savedLens?.parentElement === nav ? savedLens : createLens(nav);
       const mobile = nav.classList.contains('bottom-nav');
       const active = nav.querySelector('[aria-current="page"]');
       const visible = (mobile ? !desktop.matches : desktop.matches) && Boolean(active);
@@ -59,7 +63,16 @@ export function createGlassAppearance(root) {
     if (destroyed || frame !== null) return;
     frame = windowObject.requestAnimationFrame(() => { frame = null; sync(); });
   }
-  const observer = new windowObject.MutationObserver(schedule);
+  const opticalSelector = '.bottom-nav, .primary-nav, .liquid-surface-layer';
+  const touchesMaterial = records => records.some(record => {
+    if (record.type === 'attributes') {
+      return record.target === root && record.attributeName === 'data-material'
+        || record.target.matches('.bottom-nav, .primary-nav, .nav-button, .desktop-nav-button');
+    }
+    return [...record.addedNodes, ...record.removedNodes].some(node => node.nodeType === 1
+      && (node.matches(opticalSelector) || node.querySelector(opticalSelector)));
+  });
+  const observer = new windowObject.MutationObserver(records => { if (touchesMaterial(records)) schedule(); });
   observer.observe(root, {subtree: true, childList: true, attributes: true,
     attributeFilter: ['class', 'style', 'aria-current', 'data-material']});
   windowObject.addEventListener('resize', schedule);
@@ -85,6 +98,7 @@ export function createGlassAppearance(root) {
     destroy() {
       destroyed = true;
       observer.disconnect();
+      resizeObserver?.disconnect();
       if (frame !== null) windowObject.cancelAnimationFrame(frame);
       windowObject.removeEventListener('resize', schedule);
       documentObject.removeEventListener('visibilitychange', sync);

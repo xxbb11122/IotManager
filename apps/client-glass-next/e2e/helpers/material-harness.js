@@ -4,7 +4,7 @@ import {expect} from '@playwright/test';
 // This harness starts no API, identity session, Bluetooth or geolocation calls.
 export async function materialHarness(page, {scenario = 'P01', variant = 'ready', screen} = {}) {
   await page.goto('/src/js/ui.js');
-  const styles = ['style', 'ai', 'glass', 'glass-layout', 'liquid', 'device-detail', 'weather'];
+  const styles = ['style', 'ai', 'glass', 'glass-layout', 'liquid', 'device-detail', 'weather', 'ai-docked'];
   await page.setContent('<!doctype html><html lang="zh-CN"><head><meta name="viewport" content="width=device-width,initial-scale=1">'
     + styles.map(name => `<link rel="stylesheet" href="/src/css/${name}.css">`).join('')
     + '</head><body><div id="app"></div></body></html>');

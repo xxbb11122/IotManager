@@ -13,6 +13,10 @@ import com.iot.manager.dto.DeviceCommandView;
 import com.iot.manager.dto.DeviceView;
 import com.iot.manager.dto.CurrentUserView;
 import com.iot.manager.dto.SiteView;
+import com.iot.manager.dto.SiteWeatherSettingsRequest;
+import com.iot.manager.dto.SiteWeatherSettingsView;
+import com.iot.manager.dto.LanCandidateView;
+import com.iot.manager.dto.ClaimLanDeviceRequest;
 import com.iot.manager.repository.AlertRepository;
 import com.iot.manager.repository.ActivityEventRepository;
 import com.iot.manager.repository.AppUserRepository;
@@ -211,6 +215,48 @@ class SecurityConfigurationTest {
 
         assertThat(allowed.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(denied.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    void authorizedWeatherWriteCannotBindAnotherSitesDevice() {
+        ensureOperatorMembership();
+        Site foreignSite = createForeignSite();
+        Device foreignDevice = deviceService.createInContext(
+                Device.builder().name("foreign-weather-source").deviceId("foreign-weather-" + UUID.randomUUID())
+                        .type("SENSOR").protocol("HTTP").build(),
+                spaceRepository.findFirstBySiteIdOrderById(foreignSite.getId()).orElseThrow());
+        HttpHeaders headers = bearerHeaders("operator-token");
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        ResponseEntity<String> denied = restTemplate.exchange(url("/api/v1/sites/demo-site/weather-settings"),
+                HttpMethod.PUT, new HttpEntity<>(new SiteWeatherSettingsRequest(true, null, 22.5, 114.0,
+                        "UTC", null, foreignDevice.getId(), "temperature"), headers), String.class);
+
+        assertThat(denied.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        ResponseEntity<SiteWeatherSettingsView> settings = restTemplate.exchange(
+                url("/api/v1/sites/demo-site/weather-settings"), HttpMethod.GET,
+                new HttpEntity<>(headers), SiteWeatherSettingsView.class);
+        assertThat(settings.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(settings.getBody()).isNotNull();
+        assertThat(settings.getBody().condensationTemperatureDeviceId()).isNotEqualTo(foreignDevice.getId());
+    }
+
+    @Test
+    void secureApiNeverFallsBackToFakeLanDevicesEvenWithTestDemoFlag() {
+        ensureOperatorMembership();
+        HttpHeaders headers = bearerHeaders("operator-token");
+        ResponseEntity<LanCandidateView[]> listed = restTemplate.exchange(
+                url("/api/v1/discovery/lan?siteCode=demo-site"), HttpMethod.GET,
+                new HttpEntity<>(headers), LanCandidateView[].class);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        ResponseEntity<String> claimed = restTemplate.exchange(
+                url("/api/v1/discovery/lan/lan-demo-sensor-01/claim"), HttpMethod.POST,
+                new HttpEntity<>(new ClaimLanDeviceRequest("demo-site", "/operations/field", "Not a real device"), headers),
+                String.class);
+
+        assertThat(listed.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(listed.getBody()).isEmpty();
+        assertThat(claimed.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
     @Test

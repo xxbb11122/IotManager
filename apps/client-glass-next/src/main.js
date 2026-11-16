@@ -5,6 +5,7 @@ import './css/glass-layout.css';
 import './css/liquid.css';
 import './css/device-detail.css';
 import './css/weather.css';
+import './css/ai-docked.css';
 import { resolveAiQuickPrompt } from './js/ai/ai-quick-prompts.js';
 
 import { Capacitor } from '@capacitor/core';
@@ -219,9 +220,9 @@ const ai = createAiController({
     auth: clientState.auth, endpoint: endpointProfile, organization: clientState.context.organizationCode
   }),
   recovery: createAiRecoveryStore(Preferences),
-  onChange: (state) => {
+  onChange: (state, change) => {
     clientState = { ...clientState, ai: state };
-    ui.patchAi(viewModel());
+    ui.patchAi(viewModel(), change);
   }
 });
 const stopStartupMotion = ui.motionPolicy?.subscribe?.(policy => startupTransition.setMotionPolicy?.(policy), { immediate: true });
@@ -237,8 +238,7 @@ const renderCoordinator = createRenderCoordinator({
   patchActivity: (references, snapshot) => ui.patchActivity(references, snapshot),
   patchAlerts: (references, snapshot) => ui.patchAlerts(references, snapshot),
   scheduler: window,
-  metrics: renderMetrics,
-  batchWindowMs: 150
+  metrics: renderMetrics
 });
 
 const weatherRefreshCooldown = createWeatherRefreshCooldown({
