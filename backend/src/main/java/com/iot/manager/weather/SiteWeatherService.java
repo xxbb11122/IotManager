@@ -11,6 +11,7 @@ import com.iot.manager.dto.SiteWeatherSettingsRequest;
 import com.iot.manager.dto.SiteWeatherSettingsView;
 import com.iot.manager.dto.SiteWeatherView;
 import com.iot.manager.dto.WeatherForecastPointView;
+import com.iot.manager.dto.WeatherAssessmentView;
 import com.iot.manager.entity.Device;
 import com.iot.manager.entity.DeviceProfile;
 import com.iot.manager.entity.DeviceTelemetrySample;
@@ -462,8 +463,9 @@ public class SiteWeatherService {
                 snapshot.getTemperatureC(), snapshot.getRelativeHumidityPct(), snapshot.getSurfacePressureHpa(),
                 surface.value(), condensationConfigured
         );
-        if (condensationConfigured && (surface.unavailableReason() != null || "EXPIRED".equals(weatherStatus)
-                || "UNAVAILABLE".equals(weatherStatus))) {
+        if ("EXPIRED".equals(weatherStatus) || "UNAVAILABLE".equals(weatherStatus)) {
+            indicators = unavailableIndicators(weatherStatus);
+        } else if (condensationConfigured && surface.unavailableReason() != null) {
             indicators = new EnvironmentIndicatorsView(indicators.temperature(), indicators.humidity(),
                     indicators.pressure(), indicators.esdRisk(), EnvironmentIndicator.unavailable("不可用",
                     surface.unavailableReason() == null ? "天气数据已过期或停用" : surface.unavailableReason()));
@@ -478,7 +480,9 @@ public class SiteWeatherService {
                         setting != null && setting.getManualElevationM() != null ? "MANUAL"
                                 : snapshot.getElevationM() == null ? "UNKNOWN" : "PROVIDER"
                 ),
-                indicators
+                indicators,
+                new WeatherAssessmentView(timeProvider.now(), snapshot.getFetchedAt() == null ? null
+                        : snapshot.getFetchedAt().plus(STALE_FOR), surface.source())
         );
     }
 
@@ -491,7 +495,7 @@ public class SiteWeatherService {
         return new EnvironmentIndicatorsView(
                 EnvironmentIndicator.unavailable("不可用", reason), EnvironmentIndicator.unavailable("不可用", reason),
                 EnvironmentIndicator.unavailable("不可用", reason), EnvironmentIndicator.unavailable("不可用", reason),
-                EnvironmentIndicator.notConfigured("未配置站点温度遥测来源")
+                EnvironmentIndicator.unavailable("不可用", reason)
         );
     }
 
@@ -580,10 +584,15 @@ public class SiteWeatherService {
             return new SurfaceReading(null, "温度遥测来源时间不可信");
         }
         Double value = fieldValue(sample, field);
-        return value == null ? new SurfaceReading(null, "温度遥测字段缺失或不是有效数值") : new SurfaceReading(value, null);
+        return value == null ? new SurfaceReading(null, "温度遥测字段缺失或不是有效数值")
+                : new SurfaceReading(value, null, new WeatherAssessmentView.TemperatureSource(
+                        device.getId(), device.getDeviceId(), field, sample.getReceivedAt(),
+                        sample.getReceivedAt().plus(SURFACE_TEMPERATURE_MAX_AGE)));
     }
 
-    private record SurfaceReading(Double value, String unavailableReason) { }
+    private record SurfaceReading(Double value, String unavailableReason, WeatherAssessmentView.TemperatureSource source) {
+        private SurfaceReading(Double value, String unavailableReason) { this(value, unavailableReason, null); }
+    }
 
     private Double fieldValue(DeviceTelemetrySample sample, String field) {
         try {

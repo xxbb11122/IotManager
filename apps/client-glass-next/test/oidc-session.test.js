@@ -258,7 +258,7 @@ test('asynchronous browser open failure rejects login and cleans only its PKCE t
     fetchImpl: async () => new Response(JSON.stringify(discoveryResponse())),
     navigate: async () => { throw new Error('browser unavailable'); }
   });
-  await assert.rejects(manager.beginLogin(), /browser unavailable/);
+  await assert.rejects(manager.beginLogin(), error => error.code === 'BROWSER_OPEN_FAILED' && error.cause?.message === 'browser unavailable');
   assert.equal(await store.getJson(OIDC_STORAGE_KEYS.TRANSACTION_KEY), null);
   assert.equal(manager.pendingLoginState, null); assert.equal(manager.loginInProgress, false);
 });

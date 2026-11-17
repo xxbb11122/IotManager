@@ -13,6 +13,8 @@ public interface SiteWeatherSettingsRepository extends JpaRepository<SiteWeather
 
     List<SiteWeatherSettings> findByEnabledTrue();
 
+    List<SiteWeatherSettings> findByEnabledTrueAndCondensationTemperatureDeviceIdIn(java.util.Collection<Long> deviceIds);
+
     List<SiteWeatherSettings> findByEnabledTrueAndRetryAfterLessThanEqual(Instant retryAfter);
 
     List<SiteWeatherSettings> findByLocationUpdatedAtBeforeAndLatitudeIsNotNullAndLongitudeIsNotNull(Instant cutoff);

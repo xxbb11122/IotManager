@@ -1,3 +1,4 @@
+import { maskUnavailableWeather } from './weather-freshness.js';
 import {
   Activity,
   ArrowLeft,
@@ -1117,7 +1118,7 @@ class ClientUi {
     const auth = authenticationState(this.model.auth);
     if (auth.configured) {
       const authBusy = this.isBusy('sign-in') || this.isBusy('sign-out')
-        || ['restoring', 'processing_callback', 'redirecting', 'signing_out'].includes(auth.status);
+        || ['restoring', 'processing_callback', 'redirecting', 'awaiting_callback', 'signing_out'].includes(auth.status);
       actions.append(actionButton(authBusy ? '处理中…' : auth.authenticated ? '退出登录' : '登录', auth.authenticated ? 'sign-out' : 'sign-in', {
         className: 'button button--quiet button--small',
         iconName: auth.authenticated ? 'LockKeyhole' : 'ShieldAlert',
@@ -1152,6 +1153,8 @@ class ClientUi {
       }));
       return summary;
     }
+    if (['EXPIRED', 'UNAVAILABLE'].includes(weather.status))
+      summary.append(element('span', 'weather-header-summary__empty', { text: '上次数据' }));
     summary.append(weatherHeaderMetric('Thermometer', weatherValue(current.temperatureC, '°C'), indicators.temperature));
     summary.append(weatherHeaderMetric('Droplets', weatherValue(current.relativeHumidityPct, '%'), indicators.humidity));
     summary.append(weatherHeaderMetric('Gauge', weatherValue(current.surfacePressureHpa, ' hPa'), indicators.pressure));
@@ -1234,8 +1237,11 @@ class ClientUi {
     const issue = this.model.error ?? this.local.transientError;
     if (issue) feedback.append(this.buildNotice(issue, 'danger', 'dismiss-error'));
     if (this.model.auth.error && this.model.auth.error !== issue) feedback.append(this.buildNotice(this.model.auth.error, 'danger', null, '登录状态'));
-    const authPhase = { restoring: '正在恢复登录状态，平台控制暂不可用。', processing_callback: '正在校验登录回调，请稍候。', redirecting: '正在准备身份提供方登录页面。', signing_out: '本机已停止平台控制，正在完成退出。' }[this.model.auth.status];
+    const loginStage = { discovering: '正在连接登录服务（最多 8 秒）。', saving_transaction: '正在准备安全登录事务。', opening_browser: '正在打开系统浏览器。', awaiting_callback: '已发起浏览器登录，完成后将返回 App；也可以取消本次登录。' }[this.model.auth.loginStage];
+    const authPhase = loginStage || { restoring: '正在恢复登录状态，平台控制暂不可用。', processing_callback: '正在校验登录回调，请稍候。', redirecting: '正在准备身份提供方登录页面。', signing_out: '本机已停止平台控制，正在完成退出。' }[this.model.auth.status];
     if (authPhase) feedback.append(this.buildNotice(authPhase, 'info', null, '登录状态'));
+    if (['redirecting', 'awaiting_callback'].includes(this.model.auth.status))
+      feedback.append(actionButton('取消登录', 'cancel-sign-in', { className: 'button button--secondary' }));
     if (this.model.auth.status === 'configuration_pending') {
       feedback.append(this.buildNotice('连接设置尚未确认，登录信息已保留。可重新读取已保存设置，或打开连接设置确认地址；平台控制暂不可用。', 'warning', null, '连接设置未确认'));
       const retrying = this.isBusy('endpoint-recovery') || this.model.loading.endpointRecovery;
@@ -1947,6 +1953,9 @@ class ClientUi {
       }));
     }
     surface.append(modes);
+    if (this.model.defaultEndpointProfile?.apiBaseUrl) surface.append(actionButton('填入安装包默认配置', 'load-default-endpoint', {
+      className: 'button button--secondary'
+    }));
     surface.append(this.textField('API 地址', 'endpoint-api-url', this.local.endpointDraft.apiBaseUrl, '正式服务器示例：https://iot.example.com/api/v1', 'endpointApiUrl'));
     surface.append(this.textField('WebSocket 地址', 'endpoint-ws-url', this.local.endpointDraft.wsUrl, '正式服务器示例：wss://iot.example.com/ws/devices', 'endpointWsUrl'));
     if (this.local.endpointDraft.accessRoute === 'SITE_API') {
@@ -2716,6 +2725,13 @@ class ClientUi {
         this.local.endpointDraft.accessRoute = target.dataset.route;
         this.render(this.model);
         break;
+      case 'load-default-endpoint':
+        this.local.endpointDraft = { accessRoute: 'SITE_API', ...this.model.defaultEndpointProfile };
+        this.local.endpointTest = null;
+        this.fieldErrors = {};
+        this.notify('已填入安装包默认配置，尚未保存；请测试后保存并登录。', 'info');
+        this.render(this.model);
+        break;
       case 'test-endpoint':
         if (!this.validateEndpointDraft(true)) break;
         this.local.endpointTest = null;
@@ -2750,6 +2766,9 @@ class ClientUi {
         break;
       case 'sign-in':
         this.invoke('signIn', {}, { busy: 'sign-in' });
+        break;
+      case 'cancel-sign-in':
+        this.invoke('cancelSignIn');
         break;
       case 'retry-endpoint-settings':
         this.invoke('retryEndpointConfiguration', {}, { busy: 'endpoint-recovery' });
@@ -3128,11 +3147,12 @@ function normalizeViewModel(viewModel) {
     activeConnection: source.activeConnection ?? source.connection ?? null,
     connectionHealth: source.connectionHealth ?? source.realtime?.health ?? source.wsHealth ?? null,
     runtime: plainObject(source.runtime),
-    weather: plainObject(source.weather),
+    weather: plainObject(maskUnavailableWeather(source.weather)),
     weatherForecast: plainObject(source.weatherForecast),
     weatherSettings: plainObject(source.weatherSettings),
     pendingWeatherLocation: plainObject(source.pendingWeatherLocation),
     endpointProfile: plainObject(source.endpointProfile),
+    defaultEndpointProfile: plainObject(source.defaultEndpointProfile),
     auth: plainObject(source.auth ?? source.authentication),
     ai: source.ai,
     commands: objectValues(commandsById),

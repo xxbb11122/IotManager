@@ -15,7 +15,7 @@ import { Preferences } from '@capacitor/preferences';
 import { resolveClientConfig } from './js/api.js';
 import { createAiController } from './js/ai/ai-controller.js';
 import { createAiRecoveryStore } from './js/ai/ai-state.js';
-import { OidcSessionManager, normalizeOidcConfig } from './js/auth/oidc-session.js';
+import { OidcSessionManager, normalizeOidcConfig, oidcErrorMessage } from './js/auth/oidc-session.js';
 import { createLocalBleDevice, decorateLanDevice, mergePlatformAndLocalDevices } from './js/client-flow.js';
 import { isTerminalCommandStatus } from './js/command-state.js';
 import { BleAdapter } from './js/adapters/ble-adapter.js';
@@ -26,12 +26,13 @@ import { createCommandDispatcher } from './js/platform/command-dispatcher.js';
 import { deviceLocationErrorMessage, getCurrentDeviceLocation } from './js/platform/device-location.js';
 import { friendlyEndpointError, probeEndpoint } from './js/platform/endpoint-probe.js';
 import { createPlatformAdapter } from './js/platform/platform-adapter-factory.js';
-import { ACCESS_ROUTES, normalizeEndpointProfile, repairLegacyNativeEndpoint, RuntimeConfigRepository } from './js/platform/runtime-config.js';
+import { ACCESS_ROUTES, normalizeEndpointProfile, repairLegacyNativeEndpoint, RuntimeConfigRepository, withDefaultOidcFields } from './js/platform/runtime-config.js';
 import { browserWeatherTimezone } from './js/platform/weather-timezone.js';
 import { CHANGE_DOMAIN, store } from './js/store.js';
 import { createRenderCoordinator } from './js/render-coordinator.js';
 import { createRenderMetrics } from './js/render-metrics.js';
 import { valueEqual } from './js/value-equality.js';
+import { createWeatherFreshnessGuard, stampWeatherReceipt } from './js/weather-freshness.js';
 import { createSnapshotRefreshGate } from './js/snapshot-refresh-gate.js';
 import { createStartupTransition } from './js/platform/startup-transition.js';
 import { createNativeStartupVisual } from './js/platform/native-startup-visual.js';
@@ -131,6 +132,8 @@ const runtimeTasks = createRuntimeTaskRegistry(() => JSON.stringify([
 let clientState = {
   context: DEMO_CONTEXT,
   endpointProfile: null,
+  defaultEndpointProfile: nativeRuntime ? DEFAULT_NATIVE_ENDPOINT
+    : { ...resolveClientConfig(), ...defaultOidcFields() },
   sites: [],
   lanCandidates: [],
   ble: {
@@ -195,6 +198,7 @@ const ui = createClientUi(document.getElementById('app'), {
   reconnectRealtime,
   switchSite,
   switchEndpoint,
+  cancelSignIn: () => authSession?.cancelLoginPreparation(),
   retryEndpointConfiguration,
   signIn,
   signOut,
@@ -264,6 +268,7 @@ const weatherRefreshCooldown = createWeatherRefreshCooldown({
   }
 });
 
+const weatherFreshnessGuard = createWeatherFreshnessGuard(store);
 store.subscribe((_state, metadata) => {
   if (!PARTIAL_RENDER_ENABLED) {
     renderCoordinator.forceFull('partial_render_disabled', viewModel());
@@ -433,6 +438,10 @@ function normalizeClientStateMetadata(patch = {}, metadata = {}) {
 }
 
 function setClientState(patch = {}, metadata = {}) {
+  const sameAuthIdentity = patch.auth && Object.keys(patch).length === 1
+    && Boolean(patch.auth.configured) === Boolean(clientState.auth.configured)
+    && Boolean(patch.auth.authenticated) === Boolean(clientState.auth.authenticated)
+    && patch.auth.cachePartition === clientState.auth.cachePartition;
   const next = {
     ...clientState,
     ...patch,
@@ -447,7 +456,9 @@ function setClientState(patch = {}, metadata = {}) {
     return;
   }
   clientState = next;
-  const change = normalizeClientStateMetadata(patch, metadata);
+  const change = sameAuthIdentity
+    ? { origin: 'local', domains: [CHANGE_DOMAIN.RUNTIME], structural: false, reason: 'auth_progress' }
+    : normalizeClientStateMetadata(patch, metadata);
   if (!PARTIAL_RENDER_ENABLED) {
     render('partial_render_disabled');
     return;
@@ -532,9 +543,10 @@ function bindPlatformEvents(adapter) {
     adapter.subscribe((event) => {
       if (adapter !== platform || revision !== sessionRevision) return;
       if (event?.payload?.siteCode && String(event.payload.siteCode) !== String(clientState.context.siteCode)) return;
+      weatherFreshnessGuard.handleDeviceEvent(event);
       const applied = store.applyRealtimeEvent(event);
       if (applied && event?.type === 'weather_update') {
-        void cacheRepository.putPlatformWeather(platformCacheScope(), event.payload).catch(() => {
+        void cacheRepository.putPlatformWeather(platformCacheScope(), store.getState().weather).catch(() => {
           if (revision === sessionRevision) storageNotice('实时天气已收到，但本机缓存保存失败。', 'weather-cache');
         });
         lastWeatherReadAt = Date.now();
@@ -591,11 +603,15 @@ async function configureAuthSession(profile, { deferRefresh = false, configurati
   manager = new OidcSessionManager({
     config,
     navigate: (url) => nativeRuntime ? Browser.open({ url }) : globalThis.location.assign(url),
+    onProgress: (stage) => {
+      if (authSession === manager) setClientState({ auth: { ...clientState.auth,
+        status: stage === 'awaiting_callback' ? 'awaiting_callback' : 'redirecting', loginStage: stage, error: null } });
+    },
     onStateChange: (auth) => {
       if (authSession !== manager) return;
       if (Boolean(auth.authenticated) !== Boolean(clientState.auth.authenticated)
         || auth.cachePartition !== clientState.auth.cachePartition) invalidateRuntimeContext();
-      setClientState({ auth });
+      setClientState({ auth: { ...auth, error: auth.error ? oidcErrorMessage({ code: auth.errorCode }) : null } });
       void ai.syncContext();
       if (!auth.authenticated) {
         platform?.disconnect();
@@ -884,7 +900,7 @@ async function signIn() {
   setClientState({ auth: { ...clientState.auth, status: 'redirecting', error: null } });
   try { await manager.beginLogin(); }
   catch (error) {
-    if (manager === authSession) setClientState({ auth: { ...manager.getState(), error: `登录准备失败：${error.message}` } });
+    if (manager === authSession) setClientState({ auth: { ...manager.getState(), error: oidcErrorMessage(error) } });
     throw error;
   }
 }
@@ -1010,7 +1026,7 @@ async function hydrateCachedWeather() {
   const weather = age > WEATHER_READ_CACHE_MS
     ? { ...cached.weather, status: cached.weather.status === 'EXPIRED' ? 'EXPIRED' : 'STALE' }
     : cached.weather;
-  store.setWeather(weather);
+  store.setWeather(stampWeatherReceipt(weather, null, Number(cached.cachedAt) || Date.now()));
   setResource('weather', resolveResource({ hasData: true, source: 'cache', updatedAt: cached.cachedAt }));
   lastWeatherReadAt = Number(cached.cachedAt) || 0;
   return weather;
@@ -1045,7 +1061,7 @@ async function refreshWeather({ forceRead = false, includeSettings = false } = {
       ? rejectResource(clientState.resources.weather, '后台暂无可用天气数据。', false)
       : resolveResource({ hasData: Boolean(weather?.current), source: ['STALE', 'EXPIRED'].includes(weather?.status) ? 'cache' : 'network' }));
     try {
-      await cacheRepository.putPlatformWeather(scope, weather);
+      await cacheRepository.putPlatformWeather(scope, store.getState().weather);
     } catch {
       if (runtimeTasks.current(task)) storageNotice('天气已读取，但本机缓存保存失败。', 'weather-cache');
     }
@@ -1148,7 +1164,7 @@ async function applyWeatherLocation(location, { retainOnFailure = false, task = 
   lastWeatherReadAt = Date.now();
   let partial = false;
   try {
-    await cacheRepository.putPlatformWeather(scope, weather);
+    await cacheRepository.putPlatformWeather(scope, store.getState().weather);
   } catch {
     partial = true;
     if (runtimeTasks.current(task)) storageNotice('位置已保存到后台，但本机天气缓存保存失败；不需要重复提交位置。', 'weather-cache');
@@ -1253,7 +1269,7 @@ async function performWeatherRefresh() {
     ? rejectResource(clientState.resources.weather, '后台暂无可用天气数据。', false)
     : resolveResource({ hasData: Boolean(weather?.current), source: ['STALE', 'EXPIRED'].includes(weather?.status) ? 'cache' : 'network' }));
   const auxiliary = await Promise.allSettled([
-    cacheRepository.putPlatformWeather(scope, weather), refreshWeatherSettings(), loadWeatherForecast({ forceRead: true })
+    cacheRepository.putPlatformWeather(scope, store.getState().weather), refreshWeatherSettings(), loadWeatherForecast({ forceRead: true })
   ]);
   if (!runtimeTasks.current(task)) return { status: 'superseded' };
   const partial = auxiliary.some((item) => item.status === 'rejected') || Boolean(clientState.resources.weatherForecast.error);
@@ -1396,16 +1412,6 @@ async function persistLocalCommandActivity(bindingKey, command) {
   const stored = await cacheRepository.addLocalActivity(activity);
   store.addActivity(command.deviceId, stored);
   return stored;
-}
-
-function withDefaultOidcFields(profile, defaults = defaultOidcFields({ native: nativeRuntime })) {
-  return {
-    ...profile,
-    oidcIssuerUrl: profile?.oidcIssuerUrl ?? defaults.oidcIssuerUrl ?? null,
-    oidcClientId: profile?.oidcClientId ?? defaults.oidcClientId ?? null,
-    oidcRedirectUri: profile?.oidcRedirectUri ?? defaults.oidcRedirectUri ?? null,
-    oidcScope: profile?.oidcScope ?? defaults.oidcScope ?? null
-  };
 }
 
 async function handleNativeOidcRedirect(url) {
@@ -1937,6 +1943,7 @@ window.addEventListener('beforeunload', () => {
   unsubscribeBle();
   void lifecycleHandle?.remove?.();
   void authUrlListener?.remove?.();
+  weatherFreshnessGuard.destroy();
   void browserFinishedListener?.remove?.();
   void nativeBackListener?.remove?.();
   authSession?.stopAutoRefresh();

@@ -12,5 +12,12 @@ public record SiteWeatherView(
         String refreshError,
         Instant retryAfter,
         CurrentWeatherView current,
-        EnvironmentIndicatorsView indicators
-) { }
+        EnvironmentIndicatorsView indicators,
+        WeatherAssessmentView assessment
+) {
+    public SiteWeatherView(String siteCode, Long siteId, String status, String source,
+                           Instant observedAt, Instant fetchedAt, String refreshError, Instant retryAfter,
+                           CurrentWeatherView current, EnvironmentIndicatorsView indicators) {
+        this(siteCode, siteId, status, source, observedAt, fetchedAt, refreshError, retryAfter, current, indicators, null);
+    }
+}

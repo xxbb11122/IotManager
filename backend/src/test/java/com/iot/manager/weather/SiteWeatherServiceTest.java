@@ -328,14 +328,40 @@ class SiteWeatherServiceTest {
                     .thenReturn("missing-sample".equals(scenario) ? Optional.empty() : Optional.of(sample));
         }
 
-        var indicator = fixedTimeService().current(site).indicators().condensationRisk();
+        var view = fixedTimeService().current(site);
+        var indicator = view.indicators().condensationRisk();
 
         boolean valid = List.of("fresh", "custom-field", "exact-five-minutes", "server-time-only", "warning").contains(scenario);
         assertThat(indicator.level()).isEqualTo("fresh-risk".equals(scenario) ? "RISK" : valid ? "SUITABLE" : "UNAVAILABLE");
+        if (valid || "fresh-risk".equals(scenario)) {
+            assertThat(view.assessment().evaluatedAt()).isEqualTo(NOW);
+            assertThat(view.assessment().temperatureSource().deviceId()).isEqualTo(8L);
+            assertThat(view.assessment().temperatureSource().validUntil()).isEqualTo(sample.getReceivedAt().plusSeconds(300));
+        }
         verify(telemetrySampleRepository, never()).findTopByDeviceIdOrderBySampledAtDesc(any());
     }
 
     private static final Instant NOW = Instant.parse("2026-11-16T15:00:00Z");
+
+    @ParameterizedTest
+    @ValueSource(strings = {"EXPIRED", "UNAVAILABLE"})
+    void invalidWeatherNeutralizesAllCurrentIndicatorsButRetainsHistoricalValues(String status) {
+        Site site = Site.builder().id(7L).code("demo-site").build();
+        SiteWeatherSettings setting = settings(site, 22.5, 114.0);
+        setting.setEnabled(!"UNAVAILABLE".equals(status));
+        SiteWeatherSnapshot snapshot = snapshot();
+        if ("EXPIRED".equals(status)) snapshot.setFetchedAt(NOW.minusSeconds(7 * 3600));
+        when(settingsRepository.findBySiteId(7L)).thenReturn(Optional.of(setting));
+        when(snapshotRepository.findTopBySiteIdAndConfigurationFingerprintOrderByFetchedAtDesc(eq(7L), anyString()))
+                .thenReturn(Optional.of(snapshot));
+        var view = fixedTimeService().current(site);
+        assertThat(view.status()).isEqualTo(status);
+        assertThat(view.current().temperatureC()).isEqualTo(24D);
+        assertThat(List.of(view.indicators().temperature(), view.indicators().humidity(), view.indicators().pressure(),
+                view.indicators().esdRisk(), view.indicators().condensationRisk()))
+                .allSatisfy(indicator -> assertThat(indicator.level()).isEqualTo("UNAVAILABLE"));
+        assertThat(view.assessment().weatherValidUntil()).isEqualTo(snapshot.getFetchedAt().plusSeconds(6 * 3600));
+    }
 
     private Device temperatureDevice(Site site) {
         return Device.builder().id(8L).site(site).profileId("temperature-v1").profileVersion(1).status("ONLINE").build();

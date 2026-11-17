@@ -10,6 +10,18 @@ export const ACCESS_ROUTES = Object.freeze({
 const STORAGE_KEY = 'iot-manager.active-endpoint.v1';
 const LEGACY_NATIVE_DEVELOPMENT_HOSTS = new Set(['10.0.2.2']);
 
+// An explicit empty setting is a user choice, not an invitation to restore
+// a build-time identity provider from a different deployment.
+export function withDefaultOidcFields(profile, defaults = {}) {
+  const fields = ['oidcIssuerUrl', 'oidcClientId', 'oidcRedirectUri', 'oidcScope'];
+  if (fields.some(field => Object.prototype.hasOwnProperty.call(profile ?? {}, field))) return { ...profile };
+  try {
+    if (new URL(profile.apiBaseUrl, globalThis.location?.origin).origin !== new URL(defaults.oidcIssuerUrl).origin)
+      return { ...profile };
+  } catch { return { ...profile }; }
+  return { ...profile, ...Object.fromEntries(fields.map(field => [field, defaults[field] ?? null])) };
+}
+
 function endpointId(value) {
   const id = String(value ?? '').trim();
   if (!id) throw new TypeError('Endpoint profile requires id');

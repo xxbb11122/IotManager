@@ -114,7 +114,7 @@ The platform provides a unified operational boundary for:
 - AI 页面支持问答、会话历史、按角色管理的版本化性格及不重复提交的请求恢复；模型调用、密钥和权限检查均在后端；
 - [独立 Glass Next Android App](apps/client-glass-next/README.md)在保留设备、BLE、天气、登录和启动体验的同时提供 AI 工作区；
 - Glass Next 工作区已实施内容实色化、连续设备列表、AI 底部输入和局部更新优化；同机生产构建对照、模拟范围及未验证项见[综合整改与复审记录](docs/GLASS-APP-COMPREHENSIVE-IMPLEMENTATION-REVIEW-2026-11-10.md)；
-- 2026-11-17 最小修复与[再次审核](docs/PROJECT-REAUDIT-2026-11-17.md)：构建、站点温度来源隔离、生产演示设备限制和固件 ACK 已修正；仍有两项 P2 天气显示/失效同步缺口，不能宣称全部验收完成。Current fixes and [re-audit](docs/PROJECT-REAUDIT-2026-11-17.md) retain two open P2 weather-display/freshness issues; this is not a production release approval.
+- 2026-11-17 `Glass 1.1.4-glass.8 / Android code 13`：[登录与天气定向修复](docs/APP-LOGIN-WEATHER-TARGETED-FIX-2026-11-17.md)补齐登录阶段提示、超时/取消、显式默认配置恢复，以及再次审核中的 RR-01/RR-02 天气失效链路。后端、两客户端和浏览器定向回归共 157 项通过；另有 TLS/PKCE/WSS/真实 Chat 协议检查通过。此结果不代表手机外部浏览器、真实 GPS/BLE、正式签名或生产发布已经验收。Targeted login-feedback and weather-validity fixes pass 157 scoped regression tests, plus a separate live protocol/Chat check; real-device and production-release acceptance remain open.
 - 生产环境默认 `IOT_AI_ENABLED=false`、`IOT_AI_KNOWLEDGE_ENABLED=false`。知识库/向量迁移代码已存在，但 Embedding 供应商与真实索引验收未完成，**不得将其描述为已上线功能**；
 - 既有安装包曾在 Android 16 模拟器完成专项验证；本轮界面修改的原生模拟器验证受 SDK 故障影响未执行。真机 GPS/BLE、完整原生 OIDC 与真实模型调用仍是验收项。
 

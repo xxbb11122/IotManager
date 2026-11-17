@@ -10,6 +10,8 @@
 
 本轮工作区实施全应用视觉与性能整改：设备首页统一为连续单列，AI 输入固定在对话底部，普通内容不再创建光学层；设备局部更新保留焦点、顺序与异常标识保护。非遥测更新约 16ms 合批，纯遥测继续使用原有初始窗口与 1Hz 策略。[实施、测试与复审记录](../../docs/GLASS-APP-COMPREHENSIVE-IMPLEMENTATION-REVIEW-2026-11-10.md)列出同机生产构建前后数据及模拟范围。
 
+`1.1.4-glass.8` 补齐登录准备的阶段提示、8 秒服务发现超时、3 秒安全存储/浏览器阶段截止、15 秒准备总截止与取消入口；已清空的 OIDC 设置不再回填旧默认值。连接设置新增“填入安装包默认配置”，需用户测试并保存后才生效。天气过期/停用统一中性化，温度来源到期或离线局部失效；详情与测试边界见[定向修复记录](../../docs/APP-LOGIN-WEATHER-TARGETED-FIX-2026-11-17.md)。
+
 ## 🤖 App AI 助手
 
 AI 是本 App 的主导航功能之一：登录并选择获授权站点后即可进入 AI 工作区。
@@ -25,7 +27,7 @@ AI 是本 App 的主导航功能之一：登录并选择获授权站点后即可
 | 项目 | Glass Next |
 | --- | --- |
 | 源码基线 | 客户端 1.1.3；来源提交和文件摘要见 [source-provenance.json](source-provenance.json) |
-| 当前版本 | 1.1.4-glass.6 / Android code 11 |
+| 当前版本 | 1.1.4-glass.8 / Android code 13 |
 | 开发/预览端口 | 5190 |
 | Android 包名 | `com.iot.manager.glassnext` |
 | Android 显示名称 | IoT Manager Glass |
