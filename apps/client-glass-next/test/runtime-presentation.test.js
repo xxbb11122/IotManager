@@ -11,8 +11,10 @@ import { valueEqual } from '../src/js/value-equality.js';
 import { createSnapshotRefreshGate } from '../src/js/snapshot-refresh-gate.js';
 import { createStartupTrace, startupFeatures } from '../src/js/platform/startup-policy.js';
 import { boundedStartupRead, createStartupPrefetch, readStartupSnapshot } from '../src/js/platform/startup-bootstrap.js';
-import { normalizeEndpointProfile } from '../src/js/platform/runtime-config.js';
-import { OidcSessionManager, normalizeOidcConfig } from '../src/js/auth/oidc-session.js';
+import { resolveClientConfig } from '../src/js/api.js';
+import { normalizeEndpointProfile, withDefaultOidcFields } from '../src/js/platform/runtime-config.js';
+import { OidcSessionManager, normalizeOidcConfig, oidcErrorMessage } from '../src/js/auth/oidc-session.js';
+import { createWeatherFreshnessGuard, stampWeatherReceipt } from '../src/js/weather-freshness.js';
 
 // Execute the actual main.js function bodies with inert platform boundaries.
 // No network, BLE, geolocation, DOM implementation or application bootstrap runs.
@@ -36,7 +38,8 @@ function fixture(adapter = {}, cacheOverrides = {}, env = {}) {
     createLocalBleDevice, decorateLanDevice, mergePlatformAndLocalDevices,
     createStartupTrace, startupFeatures, boundedStartupRead, createStartupPrefetch, readStartupSnapshot, AbortController,
     testEnv: { DEV: false, ...env }, Capacitor: { isNativePlatform: () => false },
-    normalizeEndpointProfile, createPlatformAdapter: () => ({ adapter }),
+    resolveClientConfig, normalizeEndpointProfile, withDefaultOidcFields, oidcErrorMessage,
+    createPlatformAdapter: () => ({ adapter }),
     RuntimeConfigRepository: class { async save(profile) { return profile; } }, CacheRepository: class { constructor() { return cache; } },
     BleAdapter: class { availability() { return { available: false }; } subscribe() { return noOp; } },
     createClientUi: () => ui, createStartupTransition: () => ({ markUiReady: noOp, dispose: noOp }),
@@ -46,6 +49,7 @@ function fixture(adapter = {}, cacheOverrides = {}, env = {}) {
     createRenderMetrics: () => ({ increment: noOp }),
     createRenderCoordinator: () => ({ forceFull: noOp, enqueue: noOp, setVisibility: noOp }),
     createWeatherRefreshCooldown: ({ onDeadlineChange }) => ({ set: (seconds) => onDeadlineChange(seconds ? Date.now() + seconds * 1000 : null) }),
+    createWeatherFreshnessGuard: store => createWeatherFreshnessGuard(store, { document: null }), stampWeatherReceipt,
     document: { getElementById: noOp, visibilityState: 'visible', addEventListener: noOp },
     window: { addEventListener: noOp, setTimeout: (callback) => { callback(); return 1; } },
     Preferences: { set: async () => {}, remove: async () => {} },
@@ -490,10 +494,12 @@ test('a late credential read cannot authenticate an unconfirmed endpoint', async
   f.tokenStore.getJson = async key => { await pending.promise; return read(key); };
   f.context.saved = f.saved;
   const restore = f.run('configureAuthSession(saved)');
+  const oldManager = f.run('authSession');
+  const cancelled = assert.rejects(restore, { code: 'LOGIN_CANCELLED' });
   await f.run('activateEndpoint(saved, { configurationVerified: false, persistProfile: false, startupReady: async () => true })');
   pending.resolve();
-  const oldManager = await restore;
-  oldManager.stopAutoRefresh();
+  await cancelled;
+  assert.equal(oldManager.getAccessToken(), null);
   assert.equal(f.values.has(f.key), true);
   assert.deepEqual(f.removed, []);
   assert.deepEqual(f.adapters, []);

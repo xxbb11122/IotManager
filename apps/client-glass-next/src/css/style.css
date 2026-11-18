@@ -185,6 +185,7 @@ select:focus-visible {
 
 .weather-header-summary:hover { background: var(--teal-soft); border-color: #c1dfe2; }
 .weather-header-summary__empty { font-size: 12px; font-weight: 650; }
+.weather-header-metrics { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
 .weather-header-metric {
   min-width: 0;
   display: inline-flex;
@@ -1538,15 +1539,7 @@ select:focus-visible {
   .app-brand h1 { font-size: 15px; white-space: nowrap; }
   .header-actions { gap: 1px; }
   .header-actions .button { width: 48px; min-width: 48px; padding: 0; }
-  .header-actions .button > span { display: none; }
-  .weather-header-summary { min-width: 48px; max-width: 78px; justify-content: center; gap: 2px; padding-right: 3px; padding-left: 3px; }
-  .weather-header-summary__empty,
-  .weather-header-metric:not(:first-child) { display: none; }
-  .weather-header-metric { gap: 2px; padding-right: 0; border-right: 0; font-size: 11px; }
-  .app-brand p,
-  .header-status {
-    display: none;
-  }
+  .app-brand p { display: none; }
 }
 
 @media (max-width: 359px) {
@@ -1555,9 +1548,6 @@ select:focus-visible {
   .app-brand h1 { font-size: 14px; white-space: nowrap; }
   .header-actions { flex: 1 1 auto; gap: 0; }
   .header-actions .button { min-height: 48px; padding-right: 0; padding-left: 0; font-size: 11px; white-space: nowrap; }
-  .weather-header-summary { gap: 1px; padding-right: 1px; padding-left: 1px; }
-  .weather-header-metric { gap: 0; padding-right: 2px; font-size: 10px; }
-  .weather-header-metric svg { width: 12px; height: 12px; }
 }
 
 @media (min-width: 820px) {

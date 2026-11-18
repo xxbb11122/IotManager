@@ -1,4 +1,5 @@
-/* Content uses opaque, quiet surfaces. Only navigation keeps optical material. */
+/* The three appearances share one palette. Content uses CSS fills and edges;
+   optical blur is reserved for navigation, not repeated for each card/row. */
 body { background: var(--canvas); background-attachment: scroll; }
 #app {
   --surface: #fff;
@@ -20,29 +21,89 @@ body { background: var(--canvas); background-attachment: scroll; }
   --amber-soft: #fff2d9;
   --red: #9b2d3a;
   --red-soft: #fcecef;
+  --material-backdrop: var(--canvas);
+  --material-panel: var(--surface);
+  --material-entry: var(--surface);
+  --material-inset: var(--surface);
+  --material-user-bubble: #e5f1ef;
+  --material-chrome: var(--surface);
+  --material-edge: var(--line);
+  --material-sheen: none;
+  --material-toast-sheen: none;
+  --material-filter: none;
+}
+#app[data-glass='frosted'] {
+  --material-backdrop: linear-gradient(155deg, #e7eff2, #f4f8fa 58%, #eaf2f3);
+  --material-panel: #f6fafb;
+  --material-entry: #fcfefe;
+  --material-inset: #eff6f8;
+  --material-user-bubble: #e2f0ed;
+  --material-chrome: #f5fafb;
+  --material-edge: #c4d7dc;
+  --material-sheen: inset 0 1px 0 #fff;
+  --material-toast-sheen: linear-gradient(165deg, rgb(255 255 255 / 7%), transparent 70%);
+}
+#app[data-glass='liquid'] {
+  --material-backdrop: radial-gradient(ellipse 40rem 24rem at 6% 4rem, #b9e5e0, transparent),
+    radial-gradient(ellipse 42rem 25rem at 94% 16rem, #cadbf6, transparent),
+    linear-gradient(160deg, #e7f3f5, #e9f3f5 66%, #e7f2ef);
+  --material-panel: #eef9fb;
+  --material-entry: #f3fbfc;
+  --material-inset: #e9f5f8;
+  --material-user-bubble: #dcf0e9;
+  --material-chrome: #f0f9fa;
+  --material-edge: #adcbd3;
+  --material-sheen: inset 0 1px 0 rgb(255 255 255 / 92%), 0 3px 12px rgb(34 70 82 / 6%);
+  --material-toast-sheen: linear-gradient(150deg, rgb(255 255 255 / 14%), transparent 60%);
+}
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  #app[data-glass='frosted'] {
+    --material-panel: rgb(251 254 255 / 88%);
+    --material-chrome: rgb(246 251 252 / 87%);
+    --material-filter: blur(10px) saturate(104%);
+  }
+  #app[data-glass='liquid'] {
+    --material-panel: rgb(248 254 255 / 72%);
+    --material-chrome: rgb(240 252 253 / 78%);
+    --material-filter: blur(16px) saturate(122%);
+  }
+}
+.app-shell { background: var(--material-backdrop, var(--canvas)); }
+#app :is(.app-header--glass, .bottom-nav--glass, .primary-nav) {
+  background: var(--material-chrome);
+  border-color: var(--material-edge);
+  box-shadow: var(--material-sheen);
+  -webkit-backdrop-filter: var(--material-filter);
+  backdrop-filter: var(--material-filter);
 }
 :where(.glass-panel) { position: relative; isolation: isolate; }
 .liquid-surface-layer {
   display: block; position: absolute; inset: 0; z-index: -1;
   pointer-events: none; border-radius: inherit;
 }
-#app :is(.surface, .device-row--card, .context-row, .path-choice, .candidate-row,
-  .ai-workspace, .empty-state--panel, .ble-device-summary, .segmented-control) {
-  background: var(--surface);
-  border-color: var(--line);
-  box-shadow: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+#app :is(.surface, .device-list--cards, .detail-layout, .weather-overview,
+  .context-row, .path-choice, .ai-workspace, .empty-state--panel, .ble-device-summary) {
+  background: var(--material-panel);
+  border-color: var(--material-edge);
+  box-shadow: var(--material-sheen);
 }
-#app [data-region='device-list-surface'] {
+#app [data-region='device-list-surface'],
+#app .device-list--cards:has(> .empty-state--panel) {
   background: transparent; border: 0; box-shadow: none;
+}
+#app :is(.segmented-control, .candidate-row, .weather-hourly-item) {
+  background: var(--material-inset); border-color: var(--material-edge);
+}
+#app .candidate-row:hover { background: var(--material-entry); }
+#app :is(.candidate-row--selected, .path-choice--selected) {
+  background: var(--teal-soft); border-color: var(--teal);
 }
 #app :is(.button, .icon-button, .mode-button, .segment, .switch-button,
   .status-chip, .ai-chip, .device-icon, .range-value) {
   box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none;
 }
 #app :is(.button--secondary, .icon-button, .mode-button, .segment, .ai-chip) {
-  background: var(--surface); border-color: var(--line-strong);
+  background: var(--material-entry); border-color: var(--line-strong);
 }
 #app .button--primary { background: var(--teal); border-color: var(--teal); color: #fff; }
 #app .button--primary:hover:not(:disabled):not([aria-disabled='true']) { background: var(--teal-strong); }
@@ -50,38 +111,29 @@ body { background: var(--canvas); background-attachment: scroll; }
   background: var(--teal-soft); border-color: var(--teal); color: var(--teal-strong);
 }
 #app :where(.input, .select, .ai-input) {
-  background: var(--surface); border-color: var(--line-strong); box-shadow: none;
+  background: var(--material-entry); border-color: var(--line-strong); box-shadow: none;
 }
+#app .input[aria-invalid='true'] { border-color: var(--red); }
 #app :is(.site-picker-trigger, .weather-header-summary) {
   min-height: 48px; border: 0; border-radius: 8px; background: transparent; box-shadow: none;
 }
-#app :is(.ai-field, .ai-history-item) { background: var(--surface); border-color: var(--line); }
-#app .ai-message { background: var(--surface); }
-#app .ai-message--user { background: #e5f1ef; }
+#app :is(.ai-field, .ai-history-item) { background: var(--material-inset); border-color: var(--material-edge); }
+#app .ai-message { background: var(--material-panel); }
+#app .ai-message--user { background: var(--material-user-bubble); }
 #app .ai-pending { background: var(--blue-soft); }
 #app :is(.notice, .ai-notice) {
-  color: var(--blue); background: var(--blue-soft); border: 1px solid #b7cde4; box-shadow: none;
+  color: var(--blue); background: var(--blue-soft); border: 1px solid #b7cde4; box-shadow: var(--material-sheen);
 }
 #app .notice--warning { color: var(--amber); background: var(--amber-soft); border-color: #c8a974; }
 #app :is(.notice--danger, .ai-notice--error) { color: var(--red); background: var(--red-soft); border-color: #d1a3aa; }
 #app .notice--success { color: var(--green); background: var(--green-soft); border-color: #9bc6ad; }
-#app .toast { background: #24353d; border-color: #24353d; box-shadow: 0 4px 16px rgb(29 41 46 / 12%); }
-#app .toast--success { background: #21634c; }
-#app .toast--warning { background: #805000; }
-#app .toast--danger { background: #9b2d3a; }
-
-@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  #app:not([data-glass='solid']) :is(.app-header.app-header--glass, .bottom-nav) {
-    background: rgb(250 252 252 / 94%);
-    border-color: var(--line);
-    box-shadow: none;
-  }
-  #app:not([data-glass='solid']) .primary-nav {
-    background: rgb(245 248 249 / 94%);
-    border-color: var(--line);
-    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-  }
+#app .toast {
+  background-color: #24353d; background-image: var(--material-toast-sheen);
+  box-shadow: 0 4px 16px rgb(29 41 46 / 12%);
 }
+#app .toast--success { background-color: #21634c; }
+#app .toast--warning { background-color: #805000; }
+#app .toast--danger { background-color: #9b2d3a; }
 #app[data-glass='solid'] .liquid-surface-layer { display: none; }
 .liquid-nav-lens {
   display: block; position: absolute; pointer-events: none; border-radius: 10px;
@@ -89,7 +141,6 @@ body { background: var(--canvas); background-attachment: scroll; }
   transition: transform var(--motion-page) var(--ease-enter), opacity var(--motion-feedback) var(--ease-enter);
 }
 #app[data-glass='liquid'] .liquid-nav-lens[data-active='true'] { opacity: .55; }
-#app[data-glass='liquid'] .bottom-nav::before { opacity: 0; }
 .bottom-nav > .liquid-nav-lens {
   top: 6px; bottom: calc(8px + var(--safe-bottom));
   left: calc(8px + var(--safe-left));
@@ -103,14 +154,16 @@ body { background: var(--canvas); background-attachment: scroll; }
 }
 .primary-nav > .desktop-nav-button { position: relative; z-index: 1; }
 #app[data-glass='solid'] .liquid-nav-lens,
-#app[data-glass='frosted'] .liquid-nav-lens { visibility: hidden; }
+#app[data-glass='frosted'] .liquid-nav-lens,
+#app[data-glass-optics='unavailable'] .liquid-nav-lens { visibility: hidden; }
 #app[data-motion='reduced'] .liquid-nav-lens { transition: none; }
 
 @media (prefers-contrast: more), (forced-colors: active) {
+  #app .app-shell { background: Canvas; }
   #app :is(.app-header.app-header--glass, .bottom-nav, .primary-nav,
-    .surface, .device-row--card, .context-row, .path-choice, .candidate-row,
+    .surface, .device-list--cards, .detail-layout, .weather-overview, .device-row--card, .context-row, .path-choice, .candidate-row,
     .ai-workspace, .ai-field, .ai-input, .ai-message, .ai-history-item,
-    .ai-pending, .ai-notice, .notice, .toast, .segmented-control,
+    .ai-pending, .ai-notice, .notice, .toast, .segmented-control, .input, .select,
     .ble-device-summary, .empty-state--panel, .site-picker-trigger, .weather-header-summary) {
     color: CanvasText; background: Canvas; border-color: CanvasText;
     backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none;

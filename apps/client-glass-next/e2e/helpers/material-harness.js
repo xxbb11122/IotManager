@@ -2,7 +2,7 @@ import {expect} from '@playwright/test';
 
 // Exercise the production UI and all its styles with bounded, synthetic state.
 // This harness starts no API, identity session, Bluetooth or geolocation calls.
-export async function materialHarness(page, {scenario = 'P01', variant = 'ready', screen} = {}) {
+export async function materialHarness(page, {scenario = 'P01', variant = 'ready', screen, expectedMaterial = 'liquid'} = {}) {
   await page.goto('/src/js/ui.js');
   const styles = ['style', 'ai', 'glass', 'glass-layout', 'liquid', 'device-detail', 'weather', 'ai-docked'];
   await page.setContent('<!doctype html><html lang="zh-CN"><head><meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -45,7 +45,7 @@ export async function materialHarness(page, {scenario = 'P01', variant = 'ready'
     };
     mount(configuration);
   }, {scenario, variant, screen});
-  await expect(page.locator('#app')).toHaveAttribute('data-glass', 'liquid');
+  await expect(page.locator('#app')).toHaveAttribute('data-glass', expectedMaterial);
 }
 
 export async function noHorizontalOverflow(page) {

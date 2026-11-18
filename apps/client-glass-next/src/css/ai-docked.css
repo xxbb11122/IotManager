@@ -12,7 +12,7 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
-  background: #f4f7f7;
+  background: transparent;
 }
 #app[data-active-screen='ai'] .screen-region {
   display: flex;
@@ -72,7 +72,7 @@
   flex: 0 0 auto;
   gap: 4px 12px;
   padding: 2px 0 8px;
-  border-bottom: 1px solid #dce5e6;
+  border-bottom: 1px solid var(--material-edge, var(--line));
 }
 #app[data-active-screen='ai'] .ai-workspace--chat .ai-title {
   font-size: 1.25rem;
@@ -91,7 +91,7 @@
 }
 #app[data-active-screen='ai'] .ai-workspace--chat .ai-header .button:hover:not(:disabled),
 #app[data-active-screen='ai'] .ai-workspace--chat .ai-message .button:hover:not(:disabled) {
-  background: #e7eeee;
+  background: var(--material-inset, var(--surface-muted));
 }
 #app[data-active-screen='ai'] .ai-workspace--chat .ai-quick-chips {
   flex-wrap: nowrap;
@@ -100,10 +100,10 @@
 }
 #app[data-active-screen='ai'] .ai-workspace--chat .ai-chip {
   padding: 8px 12px;
-  border: 1px solid #728790;
+  border: 1px solid var(--line-strong);
   border-radius: 10px;
-  background: #fff;
-  color: #315c61;
+  background: var(--material-entry, var(--surface));
+  color: var(--teal-strong);
   box-shadow: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -116,13 +116,12 @@
 #app[data-active-screen='ai'] .ai-workspace--chat .ai-message {
   max-width: min(90%, 46rem);
   padding: 12px 14px;
-  border: 1px solid #e0e8e8;
+  border: 1px solid var(--material-edge, var(--line));
   border-radius: 12px;
-  background: #fff;
+  background: var(--material-panel, var(--surface));
 }
 #app[data-active-screen='ai'] .ai-workspace--chat .ai-message--user {
-  background: #e5f1ef;
-  border-color: #d4e7e3;
+  background: var(--material-user-bubble, #e5f1ef);
 }
 #app[data-active-screen='ai'] .ai-workspace--chat .ai-message-text {
   line-height: 1.6;
@@ -138,10 +137,10 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 8px;
-  border: 1px solid #728790;
+  border: 1px solid var(--line-strong);
   border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 2px 8px rgb(23 49 60 / 4%);
+  background: var(--material-panel, var(--surface));
+  box-shadow: var(--material-sheen, none);
 }
 #app[data-active-screen='ai'] .ai-workspace--chat .ai-composer:focus-within {
   border-color: #327781;

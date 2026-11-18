@@ -1,5 +1,16 @@
 import { ensureGlassComponent } from './glass-surfaces.js';
 
+const modes = new Set(['liquid', 'frosted', 'solid']);
+const materialKey = 'iot-manager.glass.material.v1';
+
+function storedMode(windowObject) {
+  try {
+    const saved = windowObject.localStorage.getItem(materialKey);
+    if (modes.has(saved)) return saved;
+  } catch { /* Appearance still works when the WebView disallows storage. */ }
+  return 'liquid';
+}
+
 export function createGlassAppearance(root) {
   const documentObject = root.ownerDocument;
   const windowObject = documentObject.defaultView;
@@ -7,7 +18,8 @@ export function createGlassAppearance(root) {
   const highContrast = windowObject.matchMedia('(prefers-contrast: more)');
   const desktop = windowObject.matchMedia('(min-width: 820px)');
   const navigation = new Map();
-  let choice = 'liquid';
+  let choice = modes.has(root.dataset.material) ? root.dataset.material : storedMode(windowObject);
+  root.dataset.material = choice;
   let destroyed = false;
   let frame = null;
   const resizeObserver = typeof windowObject.ResizeObserver === 'function'
@@ -33,9 +45,8 @@ export function createGlassAppearance(root) {
     resizeObserver?.observe(nav);
     return lens;
   }
-  function mode() {
-    return root.dataset.material === 'solid' || forcedColors.matches || highContrast.matches ? 'solid' : choice;
-  }
+  const chosenMode = () => modes.has(root.dataset.material) ? root.dataset.material : choice;
+  const mode = () => forcedColors.matches || highContrast.matches ? 'solid' : chosenMode();
   function sync() {
     if (destroyed) return;
     const current = mode();
@@ -88,11 +99,12 @@ export function createGlassAppearance(root) {
   });
   sync();
   return {
-    choice: () => root.dataset.material === 'solid' ? 'solid' : choice,
+    choice: chosenMode,
     select(requested) {
-      if (!['liquid', 'frosted', 'solid'].includes(requested)) return;
-      if (requested !== 'solid') choice = requested;
-      root.dataset.material = requested === 'solid' ? 'solid' : 'auto';
+      if (!modes.has(requested)) return;
+      choice = requested;
+      attribute(root, 'data-material', choice);
+      try { windowObject.localStorage.setItem(materialKey, choice); } catch { /* Keep the current choice in memory. */ }
       sync();
     },
     destroy() {

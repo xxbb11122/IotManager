@@ -1142,17 +1142,18 @@ class ClientUi {
     const mark = element('div', 'brand-mark', { ariaHidden: 'true' });
     mark.append(icon('Workflow', 19));
     brand.append(mark);
-    const copy = element('div');
+    const copy = element('div', 'app-brand__copy');
     copy.append(element('h1', '', { text: '设备运营' }));
     copy.append(actionButton(this.model.context.siteName, 'open-site-switcher', {
-      className: 'site-picker-trigger', iconName: 'MapPin', ariaLabel: '切换站点：' + this.model.context.siteName
+      className: 'site-picker-trigger', iconName: 'MapPin', ariaLabel: '切换站点：' + this.model.context.siteName,
+      title: this.model.context.siteName
     }));
     brand.append(copy);
     main.append(brand);
 
     const actions = element('div', 'header-actions');
     actions.append(actionButton('连接设置', 'open-connection-settings', {
-      className: 'button button--quiet button--small',
+      className: 'button button--quiet button--small header-action--settings',
       iconName: 'Link',
       ariaLabel: '连接设置'
     }));
@@ -1161,7 +1162,7 @@ class ClientUi {
       const authBusy = this.isBusy('sign-in') || this.isBusy('sign-out')
         || ['restoring', 'processing_callback', 'redirecting', 'awaiting_callback', 'signing_out'].includes(auth.status);
       actions.append(actionButton(authBusy ? '处理中…' : auth.authenticated ? '退出登录' : '登录', auth.authenticated ? 'sign-out' : 'sign-in', {
-        className: 'button button--quiet button--small',
+        className: 'button button--quiet button--small header-action--account',
         iconName: auth.authenticated ? 'LockKeyhole' : 'ShieldAlert',
         ariaLabel: auth.authenticated ? '退出当前账号' : '使用身份提供方登录', disabled: authBusy
       }));
@@ -1173,7 +1174,6 @@ class ClientUi {
     main.append(actions);
     const ribbon = element('div', 'header-context-ribbon');
     ribbon.append(this.buildWeatherHeaderSummary());
-    ribbon.append(element('span', 'header-reference', { text: '室外天气参考' }));
     ribbon.append(status);
     header.append(main, ribbon);
     return header;
@@ -1184,25 +1184,27 @@ class ClientUi {
     const current = plainObject(weather?.current);
     const indicators = plainObject(weather?.indicators);
     const available = Object.keys(current).length > 0;
+    const previous = ['EXPIRED', 'UNAVAILABLE', 'STALE'].includes(weather?.status);
     const summary = actionButton('', 'open-weather', {
-      className: 'weather-header-summary',
+      className: 'weather-header-summary' + (available ? ' weather-header-summary--readings' : ''),
       data: { region: 'weather-header' },
       ariaLabel: available
-        ? `站点天气：温度 ${weatherValue(current.temperatureC, '°C')}，湿度 ${weatherValue(current.relativeHumidityPct, '%')}，气压 ${weatherValue(current.surfacePressureHpa, ' hPa')}`
+        ? `${previous ? '上次天气数据' : '室外天气参考'}：温度 ${weatherValue(current.temperatureC, '°C')}，湿度 ${weatherValue(current.relativeHumidityPct, '%')}，气压 ${weatherValue(current.surfacePressureHpa, ' hPa')}`
         : '打开站点天气'
     });
     if (!available) {
       summary.append(icon('CloudSun', 17));
       summary.append(element('span', 'weather-header-summary__empty', {
-        text: weather?.status === 'UNAVAILABLE' ? '天气未配置' : weather?.status === 'PENDING' ? '等待天气同步' : '天气加载中'
+        text: ({ UNAVAILABLE: '天气未配置', PENDING: '等待天气同步', EXPIRED: '天气已过期' })[weather?.status] ?? '天气加载中'
       }));
       return summary;
     }
-    if (['EXPIRED', 'UNAVAILABLE'].includes(weather.status))
-      summary.append(element('span', 'weather-header-summary__empty', { text: '上次数据' }));
-    summary.append(weatherHeaderMetric('Thermometer', weatherValue(current.temperatureC, '°C'), indicators.temperature));
-    summary.append(weatherHeaderMetric('Droplets', weatherValue(current.relativeHumidityPct, '%'), indicators.humidity));
-    summary.append(weatherHeaderMetric('Gauge', weatherValue(current.surfacePressureHpa, ' hPa'), indicators.pressure));
+    summary.append(element('span', 'weather-header-caption', { text: previous ? '上次数据' : '室外天气' }));
+    const readings = element('span', 'weather-header-metrics');
+    readings.append(weatherHeaderMetric('Thermometer', weatherValue(current.temperatureC, '°C'), indicators.temperature),
+      weatherHeaderMetric('Droplets', weatherValue(current.relativeHumidityPct, '%'), indicators.humidity),
+      weatherHeaderMetric('Gauge', weatherValue(current.surfacePressureHpa, ' hPa'), indicators.pressure));
+    summary.append(readings);
     return summary;
   }
 
@@ -2028,7 +2030,7 @@ class ClientUi {
   buildConnectionSettingsScreen() {
     const fragment = document.createDocumentFragment();
     fragment.append(screenHeading('连接设置', '切换现场或互联网平台连接。', backButton('devices')));
-    const surface = element('section', 'surface surface--padded');
+    const surface = element('section', 'surface surface--padded connection-settings', { data: { region: 'connection-settings' } });
     const modes = element('div', 'segmented-control', { role: 'group', ariaLabel: '平台连接方式' });
     for (const [route, label] of [['SITE_API', '现场 LAN'], ['CLOUD_API', '互联网远程']]) {
       modes.append(actionButton(label, 'choose-endpoint-route', {
@@ -2058,10 +2060,15 @@ class ClientUi {
       this.revealOidcFields = false;
       surface.append(this.buildNotice('生产连接使用 Authorization Code + PKCE 登录。此处只保存公开的 Issuer、Client ID 与回调地址，不会保存 Access Token 或 Refresh Token。', 'info', null, '安全登录'));
     }
-    surface.append(actionButton(this.isBusy('test-endpoint') ? '测试中…' : '测试连接', 'test-endpoint', {
+    const actions = element('div', 'connection-settings__actions', { data: { region: 'endpoint-actions' } });
+    actions.append(actionButton(this.isBusy('test-endpoint') ? '测试中…' : '测试连接', 'test-endpoint', {
       className: 'button button--secondary',
       disabled: this.isBusy('test-endpoint') || this.isBusy('switch-endpoint')
+    }), actionButton(this.isBusy('switch-endpoint') ? '切换中…' : '保存并切换', 'save-endpoint', {
+      className: 'button button--primary',
+      disabled: this.isBusy('switch-endpoint')
     }));
+    surface.append(actions);
     if (this.local.endpointTest) {
       const result = this.buildNotice(
         this.local.endpointTest.message,
@@ -2074,10 +2081,6 @@ class ClientUi {
       this.revealEndpointTest = false;
       surface.append(result);
     }
-    surface.append(actionButton(this.isBusy('switch-endpoint') ? '切换中…' : '保存并切换', 'save-endpoint', {
-      className: 'button button--primary',
-      disabled: this.isBusy('switch-endpoint')
-    }));
     fragment.append(surface, this.buildDisplaySettings());
     const identity = element('section', 'surface surface--padded', { data: { region: 'build-identity' } });
     identity.append(surfaceHeading('当前安装版本', '反馈问题时请同时提供此构建标识，便于核对手机安装的版本。'));
@@ -2088,8 +2091,8 @@ class ClientUi {
   }
 
   buildDisplaySettings() {
-    const display = element('section', 'surface surface--padded', { data: { region: 'display-settings' } });
-    display.append(surfaceHeading('界面显示', '选择适合当前设备的材质与动画。'));
+    const display = element('section', 'surface surface--padded display-settings', { data: { region: 'display-settings' } });
+    display.append(surfaceHeading('界面显示', '材质应用于整个 App，自动记住选择。系统高对比度开启时优先使用实色。'));
     const material = element('div', 'segmented-control', { role: 'group', ariaLabel: '界面材质' });
     for (const [mode, label] of [['liquid', '混合玻璃'], ['frosted', '轻毛玻璃'], ['solid', '实色']]) {
       const selected = this.glassAppearance.choice() === mode;
@@ -2636,7 +2639,11 @@ class ClientUi {
       case 'set-display-material':
         if (['liquid', 'frosted', 'solid'].includes(target.dataset.materialMode)) {
           this.glassAppearance.select(target.dataset.materialMode);
-          this.render(this.model);
+          for (const option of this.root.querySelectorAll('[data-action="set-display-material"]')) {
+            const selected = option === target;
+            option.classList.toggle('segment--active', selected);
+            option.setAttribute('aria-pressed', String(selected));
+          }
         }
         break;
       case 'toggle-display-motion':
