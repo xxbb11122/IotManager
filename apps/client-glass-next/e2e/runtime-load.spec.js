@@ -253,6 +253,10 @@ test.describe('explicit 1000-device runtime simulation', () => {
         attempted: createdIds.length,
         archived: cleanupResults.filter((status) => status === 204).length,
         failed: cleanupResults.filter((status) => status !== 204).length,
+        statusCounts: cleanupResults.reduce((counts, status) => {
+          counts[status] = (counts[status] ?? 0) + 1;
+          return counts;
+        }, {}),
         listStatus: cleanupListStatus,
         remainingActive,
         websocketBeforeClose: socketStats

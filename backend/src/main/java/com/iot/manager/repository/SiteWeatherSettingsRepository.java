@@ -4,6 +4,7 @@ import com.iot.manager.entity.SiteWeatherSettings;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -13,7 +14,9 @@ public interface SiteWeatherSettingsRepository extends JpaRepository<SiteWeather
 
     List<SiteWeatherSettings> findByEnabledTrue();
 
-    List<SiteWeatherSettings> findByEnabledTrueAndCondensationTemperatureDeviceIdIn(java.util.Collection<Long> deviceIds);
+    List<SiteWeatherSettings> findByEnabledTrueAndCondensationTemperatureDeviceIdIn(Collection<Long> deviceIds);
+
+    List<SiteWeatherSettings> findByEnabledTrueAndCondensationTemperatureDeviceIdIsNotNull();
 
     List<SiteWeatherSettings> findByEnabledTrueAndRetryAfterLessThanEqual(Instant retryAfter);
 
