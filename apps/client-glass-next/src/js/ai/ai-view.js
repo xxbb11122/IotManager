@@ -1,5 +1,6 @@
 import { createAiState, aiCanSend } from './ai-state.js';
 import { AI_QUICK_PROMPTS, resolveAiQuickPrompt } from './ai-quick-prompts.js';
+import { buildDeviceAssessmentView } from '../assessment/assessment-view.js';
 
 function node(tag, className, text) {
   const value = document.createElement(tag);
@@ -44,7 +45,7 @@ function unavailable(parent, state) {
   parent.append(actions);
 }
 
-export function buildAiView(value, { screen = 'ai' } = {}) {
+export function buildAiView(value, { screen = 'ai', assessment = null } = {}) {
   const state = value ?? createAiState();
   const unavailableState = !state.enabled || ['offline', 'auth_required', 'login', 'site', 'unconfigured'].includes(state.status);
   const chatReady = screen === 'ai' && !unavailableState;
@@ -62,6 +63,7 @@ export function buildAiView(value, { screen = 'ai' } = {}) {
   header.append(actions);
   if (chatReady) root.append(header, content); else content.append(header);
   notice(content, state.error, true); notice(content, state.notice);
+  if (screen === 'ai') content.append(buildDeviceAssessmentView(assessment, state));
   if (unavailableState) {
     unavailable(root, state); return root;
   }
@@ -87,7 +89,8 @@ export function buildAiView(value, { screen = 'ai' } = {}) {
   if (state.pending) {
     const pending = node('div', 'ai-pending');
     pending.append(node('p', 'ai-caption', '请求编号：' + state.pending.clientRequestId));
-    if (['FAILED', 'UNKNOWN'].includes(state.pending.state)) pending.append(button('明确重试', 'ai-retry', { disabled: state.busy }));
+    if (['FAILED', 'UNKNOWN'].includes(state.pending.state)) pending.append(button(
+      state.pending.kind === 'DEVICE_DIAGNOSIS' ? '清除等待，重新排查' : '明确重试', 'ai-retry', { disabled: state.busy }));
     else if (state.features.requestRecovery) pending.append(button('查询本次结果', 'ai-recover', { disabled: state.busy }));
     if (state.busy || state.status === 'waiting') pending.append(button('停止本地等待', 'ai-cancel', { plain: true }));
     notice(pending, '停止等待不会取消服务器生成；查询结果不会再次发送问题。'); content.append(pending);

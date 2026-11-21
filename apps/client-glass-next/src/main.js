@@ -15,6 +15,8 @@ import { Preferences } from '@capacitor/preferences';
 import { resolveClientConfig } from './js/api.js';
 import { createAiController } from './js/ai/ai-controller.js';
 import { createAiRecoveryStore } from './js/ai/ai-state.js';
+import { createDeviceAssessmentController } from './js/assessment/assessment-controller.js';
+import { readBleEvidence } from './js/assessment/ble-evidence.js';
 import { OidcSessionManager, normalizeOidcConfig, oidcErrorMessage } from './js/auth/oidc-session.js';
 import { createLocalBleDevice, decorateLanDevice, mergePlatformAndLocalDevices } from './js/client-flow.js';
 import { isTerminalCommandStatus } from './js/command-state.js';
@@ -229,6 +231,13 @@ const ai = createAiController({
     ui.patchAi(viewModel(), change);
   }
 });
+const assessment = createDeviceAssessmentController({
+  contextProvider: deviceAssessmentContext,
+  observeBle: (options) => readBleEvidence({
+    adapter: ble, getStore: () => store.getState(), errorCode: clientState.ble.errorCode, ...options
+  }),
+  onChange: () => ui.patchDeviceAssessment(viewModel())
+});
 const stopStartupMotion = ui.motionPolicy?.subscribe?.(policy => startupTransition.setMotionPolicy?.(policy), { immediate: true });
 const renderCoordinator = createRenderCoordinator({
   fullRender: (snapshot) => ui.renderFull(snapshot),
@@ -348,17 +357,52 @@ function createScopedCommandDispatch(device) {
 
 function viewModel() {
   const state = store.getState();
-  return { ...state, ...clientState, runtime: { ...state.runtime, sessionRevision }, endpointProfile };
+  return { ...state, ...clientState, runtime: { ...state.runtime, sessionRevision }, endpointProfile,
+    deviceAssessment: assessment.getState() };
 }
 
-async function aiAction({ action, id }) {
+function deviceAssessmentContext() {
+  const context = clientState.context;
+  const auth = clientState.auth;
+  const allowed = !auth.configured || auth.authenticated;
+  return {
+    api: allowed ? platform?.api ?? null : null,
+    siteId: allowed ? context.siteId : null,
+    scopeKey: JSON.stringify([platformCacheScope(), sessionRevision, context.siteId, Boolean(auth.authenticated)]),
+    cachedPlatform: () => {
+      const snapshot = store.getState();
+      const asOf = snapshot.runtime.lastSyncedAt;
+      if (!allowed || !asOf || String(snapshot.runtime.siteCode) !== String(context.siteCode)) return null;
+      const demo = context.organizationCode === 'demo-org' && context.siteCode === 'demo-site';
+      return { asOf, demo, items: snapshot.devices.filter((device) => !device.localOnly && device.publicId && !device.archivedAt)
+        .map((device) => ({ key: 'site:' + device.publicId, name: device.name, demo, asOf,
+          source: device.connections?.some((row) => row.transport === 'LAN_AGENT') ? 'EDGE_AGENT' : 'PLATFORM',
+          profileId: device.profileId, linkState: 'UNKNOWN', fields: [] })) };
+    }
+  };
+}
+
+async function aiAction({ action, id, field }) {
   switch (action) {
+    case 'ai-assessment-overview': return assessment.load();
+    case 'ai-assessment-more': return assessment.load(true);
+    case 'ai-assessment-diagnose': return assessment.diagnose(id, field);
+    case 'ai-assessment-verify': return assessment.verify();
+    case 'ai-assessment-explain': {
+      const context = assessment.explanation();
+      if (!context) return false;
+      const scope = deviceAssessmentContext().scopeKey;
+      if (context.source === 'MOBILE_BLE'
+        && !window.confirm('本次向当前站点 AI 发送蓝牙连接、错误类别、是否有读数及观测时间。不发送设备名、蓝牙地址、令牌或原始日志。AI 回答会保留在会话中。继续吗？')) return false;
+      return ai.send(context, { stillCurrent: () => deviceAssessmentContext().scopeKey === scope });
+    }
     case 'ai-send': return ai.send();
     case 'ai-new': return ai.newConversation();
     case 'ai-recover': return ai.recover();
     case 'ai-cancel': return ai.cancelWait();
     case 'ai-retry':
-      if (ai.getState().pending?.state === 'UNKNOWN' && !window.confirm('原请求结果及费用无法确认，再次生成可能重复计费。确定重新提问？')) return;
+      if (ai.getState().pending?.state === 'UNKNOWN' && ai.getState().pending?.kind !== 'DEVICE_DIAGNOSIS'
+        && !window.confirm('原请求结果及费用无法确认，再次生成可能重复计费。确定重新提问？')) return;
       return ai.retry();
     case 'ai-reload': return ai.reload();
     case 'ai-history-more': return ai.loadHistory(true);
@@ -480,8 +524,9 @@ function storageNotice(message, id = 'storage') {
 
 function invalidateRuntimeContext({ preserveSites = false } = {}) {
   startupPrefetch.cancel();
-  ai.reset();
   sessionRevision += 1;
+  assessment.reset({ notify: false });
+  ai.reset();
   runtimeTasks.invalidate();
   lastWeatherReadAt = 0;
   lastForecastReadAt = 0;
@@ -1932,6 +1977,7 @@ window.addEventListener('beforeunload', () => {
   startupPrefetch.cancel();
   stopStartupMotion?.();
   ai.destroy();
+  assessment.reset({ notify: false });
   if (browserCloseTimer !== null) clearTimeout(browserCloseTimer);
   startupTransition.dispose();
   document.removeEventListener('visibilitychange', handleDocumentVisibility);

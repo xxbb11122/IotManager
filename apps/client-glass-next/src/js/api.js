@@ -164,11 +164,24 @@ export class ApiClient {
     return this.request('/sites', options);
   }
 
+  getDeviceStatusOverview(siteId, { cursor = null, limit = 50 } = {}, options = {}) {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (cursor) params.set('cursor', cursor);
+    return this.request('/sites/' + encodeURIComponent(siteId) + '/device-status-overview?' + params, options);
+  }
+
+  getDeviceStatusEvidence(siteId, publicId, { commandId = null } = {}, options = {}) {
+    const query = commandId ? '?' + new URLSearchParams({ commandId }) : '';
+    return this.request('/sites/' + encodeURIComponent(siteId) + '/device-status-overview/'
+      + encodeURIComponent(publicId) + query, options);
+  }
+
   askAi(siteId, question, conversationId = null, options = {}) {
+    const { deviceDiagnosis, ...requestOptions } = options;
     return this.request('/sites/' + encodeURIComponent(siteId) + '/ai/chat', {
-      ...options,
+      ...requestOptions,
       method: 'POST',
-      body: { question, conversationId }
+      body: { question, conversationId, ...(deviceDiagnosis ? { deviceDiagnosis } : {}) }
     });
   }
 

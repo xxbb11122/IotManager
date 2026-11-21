@@ -126,6 +126,18 @@ export class BleAdapter extends ConnectionAdapter {
     return this.registry.getCapabilities(this.profile?.id ?? null);
   }
 
+  assessmentConnection() {
+    if (!this.activeConnection) return null;
+    return { ...this.activeConnection, deviceId: this.activeConnection.id };
+  }
+
+  async verifyConnection() {
+    if (this.activeConnection?.status !== 'CONNECTED') return false;
+    if (this.activeConnection.id !== this.device?.id) return null;
+    if (typeof this.device?.gatt?.connected !== 'boolean') return null;
+    return this.device.gatt.connected;
+  }
+
   async sendCommand(command) {
     if (!this.server) {
       throw new Error('BLE device is not connected');

@@ -56,6 +56,7 @@ import { createPullRefreshState } from './pull-refresh.js';
 import { reconcileElement } from './dom-reconcile.js';
 import { BUILD_INFO } from './build-info.js';
 import { buildAiView } from './ai/ai-view.js';
+import { buildDeviceAssessmentView } from './assessment/assessment-view.js';
 import { aiCanSend } from './ai/ai-state.js';
 import { createAiViewport } from './ai/ai-viewport.js';
 import { createGlassAppearance } from './appearance/glass-appearance.js';
@@ -821,10 +822,26 @@ class ClientUi {
     const log = content.querySelector('[data-region="ai-scroll"]') ?? content.querySelector('[data-region="ai-messages"]');
     const position = log?.scrollTop ?? 0;
     const atBottom = !log || log.scrollHeight - log.clientHeight - position < 48;
-    this.reconcile(content, buildAiView(this.model.ai, { screen: this.local.screen }));
+    this.reconcile(content, buildAiView(this.model.ai, {
+      screen: this.local.screen, assessment: this.model.deviceAssessment
+    }));
     this.restoreRenderState(focus);
     const next = content.querySelector('[data-region="ai-scroll"]') ?? content.querySelector('[data-region="ai-messages"]');
     if (next) next.scrollTop = atBottom ? next.scrollHeight : position;
+    return true;
+  }
+
+  patchDeviceAssessment(viewModel) {
+    const previousPlan = this.model.deviceAssessment?.plan;
+    this.updateModel(viewModel);
+    if (this.local.screen !== 'ai') return true;
+    const content = this.root.querySelector('[data-region="device-assessment"]');
+    if (!content) return false;
+    this.reconcile(content, buildDeviceAssessmentView(this.model.deviceAssessment, this.model.ai));
+    if (this.model.deviceAssessment?.plan && previousPlan !== this.model.deviceAssessment.plan) {
+      // User-requested repair cards remain reachable after selecting an item far down a page.
+      content.querySelector('[data-region="device-repair-plan"]')?.scrollIntoView?.({ block: 'nearest' });
+    }
     return true;
   }
 
@@ -1245,7 +1262,7 @@ class ClientUi {
       case 'ai':
       case 'ai-history':
       case 'ai-persona':
-        screen.append(buildAiView(this.model.ai, { screen: this.local.screen }));
+        screen.append(buildAiView(this.model.ai, { screen: this.local.screen, assessment: this.model.deviceAssessment }));
         break;
       case 'add':
         screen.append(this.buildAddScreen());
@@ -2631,7 +2648,7 @@ class ClientUi {
     event.preventDefault();
     if (handleAiQuickPromptClick(this, action, target)) return;
     if (action.startsWith('ai-')) {
-      this.invoke('aiAction', { action, id: target.dataset.aiId }, { render: false });
+      this.invoke('aiAction', { action, id: target.dataset.aiId, field: target.dataset.aiField }, { render: false });
       return;
     }
 
@@ -3239,6 +3256,7 @@ function normalizeViewModel(viewModel) {
     defaultEndpointProfile: plainObject(source.defaultEndpointProfile),
     auth: plainObject(source.auth ?? source.authentication),
     ai: source.ai,
+    deviceAssessment: source.deviceAssessment,
     commands: objectValues(commandsById),
     activitiesByDeviceId: plainObject(activitiesByDeviceId),
     activities: arrayOf(source.activities ?? source.activity),

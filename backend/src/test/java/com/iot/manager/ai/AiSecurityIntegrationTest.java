@@ -91,6 +91,22 @@ class AiSecurityIntegrationTest {
         assertThat(memberStatus.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(draftList.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(adminWrite.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+
+        jdbc.update("""
+                INSERT INTO devices (name, device_id, public_id, organization_id, site_id, status, profile_id, profile_version)
+                VALUES ('Private fixture', 'foreign-assessment-device', 'foreign-assessment-public', ?, ?, 'ONLINE', 'legacy-generic-v1', 1)
+                """, organization, foreign);
+        var withinSite = "/api/v1/sites/" + member + "/device-status-overview";
+        var foreignSite = "/api/v1/sites/" + foreign + "/device-status-overview";
+        var viewer = new HttpEntity<>(bearer("viewer-token"));
+        assertThat(rest.exchange(withinSite, HttpMethod.GET, viewer, Map.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(rest.exchange(foreignSite, HttpMethod.GET, viewer, Map.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(rest.exchange(withinSite + "/foreign-assessment-public", HttpMethod.GET, viewer, Map.class).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(rest.postForEntity(memberRoot + "/chat", new HttpEntity<>(Map.of("question", "diagnose",
+                "deviceDiagnosis", Map.of("version", 1, "source", "PLATFORM", "issue", "PLATFORM_LINK",
+                        "publicId", "foreign-assessment-public")), bearer("viewer-token")), Map.class).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
     private static HttpHeaders bearer(String token) {

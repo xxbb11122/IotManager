@@ -3,8 +3,19 @@ import {syntheticDevice} from '../src/dev/motion-preview/fixtures.js';
 
 // The real main entry, store, adapters and UI run here. Only network and
 // hardware boundaries are replaced; production ships none of this fixture.
-async function backend(page, {aiReady = false} = {}) {
-  const errors = [], calls = {commands: [], locations: [], reads: 0, requests: []};
+async function backend(page, {aiReady = false, assessment = false} = {}) {
+  const errors = [], calls = {commands: [], locations: [], reads: 0, requests: [], ai: []};
+  let restored = false, details = 0;
+  const fixtureAt = Date.parse('2026-11-21T03:00:00Z');
+  const sample = (offset, bucket) => ({ value: 0, source: 'EDGE_AGENT', timeTrust: 'TRUSTED',
+    observedAt: new Date(fixtureAt + offset - 100).toISOString(), receivedAt: new Date(fixtureAt + offset).toISOString(),
+    bucketStart: new Date(fixtureAt + bucket).toISOString() });
+  const assessmentDevice = (publicId = 'assessment-valve') => ({
+    publicId, name: publicId === 'assessment-valve' ? '排障验证设备' : '下一页设备',
+    source: 'PLATFORM', linkState: 'RECENT', demo: false, asOf: new Date(fixtureAt + (restored ? 181_000 : 0)).toISOString(),
+    fields: [{ key: 'temperature', unit: 'C', validity: restored ? 'FRESH' : 'STALE',
+      samples: restored ? [sample(121_000, 120_000), sample(61_000, 60_000)] : [sample(-121_000, -180_000)] }]
+  });
   page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript(() => {
     // Browser-only fixture: this endpoint and bearer token never leave the
@@ -61,21 +72,77 @@ async function backend(page, {aiReady = false} = {}) {
       return reply(command);
     }
     if (pathname === '/api/v1/me') return reply({subject: 'test-owner', roles: ['OWNER'], sites: [{id: 1}]});
+    if (assessment && pathname.endsWith('/device-status-overview')) {
+      const more = new URL(request.url()).searchParams.has('cursor');
+      return reply({siteId: 1, asOf: new Date(fixtureAt).toISOString(), demo: false, total: 2,
+        links: {RECENT: 2}, items: [assessmentDevice(more ? 'other-device' : undefined)], nextCursor: more ? null : '1:2:1'});
+    }
+    if (assessment && pathname.endsWith('/device-status-overview/assessment-valve')) {
+      const data = assessmentDevice();
+      if (!restored) data.asOf = new Date(fixtureAt + ++details * 100).toISOString();
+      return reply(data);
+    }
+    if (assessment && !aiReady && pathname.endsWith('/ai/status')) return reply({enabled:false, knowledgeEnabled:false});
+    if (assessment && !aiReady && pathname.endsWith('/ai/capabilities')) return reply({contractVersion:1,features:{}});
     if (aiReady && pathname.endsWith('/ai/status')) return reply({enabled:true});
     if (aiReady && pathname.endsWith('/ai/capabilities')) return reply({contractVersion:1,
-      features:{history:true, requestRecovery:true, idempotency:true, personaActivationGuard:true}});
+      features:{history:true, requestRecovery:true, idempotency:true, personaActivationGuard:true, deviceDiagnosis:assessment}});
     if (aiReady && pathname.endsWith('/ai/persona')) return reply({version:0, name:'默认性格', instructions:''});
     if (aiReady && pathname.endsWith('/ai/persona/versions')) return reply([]);
-    if (aiReady && pathname.endsWith('/ai/chat') && request.method() === 'POST')
+    if (aiReady && pathname.endsWith('/ai/chat') && request.method() === 'POST') {
+      calls.ai.push(request.postDataJSON());
       return reply({requestId:'fixture-request', conversationId:'fixture-conversation', answer:'模拟设备回答', personaVersion:0, citations:[]});
+    }
     return reply([]);
   });
   await page.goto('/');
   await expect(page.locator('#startup-overlay')).toHaveCount(0);
   await expect(page.locator('[data-action=open-device]'), JSON.stringify(calls.requests)).toHaveCount(1);
   await expect(page.locator('#app')).toHaveAttribute('data-glass', 'liquid');
-  return {errors, calls};
+  return {errors, calls, restoreEvidence: () => { restored = true; }};
 }
+
+test('device assessment works without the model, pages all devices, and verifies only after two new samples', async ({page}) => {
+  const {errors, calls, restoreEvidence} = await backend(page, {assessment:true});
+  await page.getByRole('button', {name:'AI', exact:true}).click();
+  await expect(page.getByText('服务器尚未启用 AI', {exact:false})).toBeVisible();
+  expect(calls.requests.filter(row => row.pathname.includes('/device-status-overview'))).toHaveLength(0);
+  await page.getByRole('button', {name:'查看全部设备状态'}).click();
+  await expect(page.getByRole('heading', {name:'排障验证设备'})).toBeVisible();
+  await page.getByRole('button', {name:'查看下一页设备'}).click();
+  await expect(page.getByRole('heading', {name:'下一页设备'})).toBeVisible();
+  await page.getByRole('button', {name:'排查此项'}).first().click();
+  const card = page.locator('[data-region="device-repair-plan"]');
+  await expect(card).toContainText('修复步骤');
+  const verify = card.getByRole('button', {name:'重新验证'});
+  await verify.click();
+  await expect(card).toContainText('仍异常');
+  restoreEvidence();
+  await verify.click();
+  await expect(card).toContainText('已恢复');
+  expect(calls.requests.filter(row => row.pathname.includes('/device-status-overview'))).toHaveLength(5);
+  expect(calls.requests.filter(row => row.method === 'POST' && (row.pathname.includes('/commands') || row.pathname.endsWith('/ai/chat')))).toEqual([]);
+  expect(errors).toEqual([]);
+  await noOverflow(page);
+});
+
+test('asking AI about a repair sends one scoped diagnosis without overwriting the composer draft', async ({page}) => {
+  const {errors, calls} = await backend(page, {aiReady:true, assessment:true});
+  await page.getByRole('button', {name:'AI', exact:true}).click();
+  const question = page.getByRole('textbox', {name:'问题'});
+  await question.fill('保留这段普通聊天草稿');
+  await page.getByRole('button', {name:'查看全部设备状态'}).click();
+  await page.getByRole('button', {name:'排查此项'}).first().click();
+  const card = page.locator('[data-region="device-repair-plan"]');
+  await card.getByRole('button', {name:'用 AI 细化方案'}).click();
+  await expect(page.locator('.ai-message--assistant')).toContainText('模拟设备回答');
+  await expect(question).toHaveValue('保留这段普通聊天草稿');
+  expect(calls.ai).toHaveLength(1);
+  expect(calls.ai[0].deviceDiagnosis).toEqual({
+    version:1, source:'PLATFORM', issue:'FIELD_STALE', publicId:'assessment-valve', field:'temperature'
+  });
+  expect(errors).toEqual([]);
+});
 
 test('production entry keeps AI draft controls responsive and sends once with the docked composer', async ({page}) => {
   const {errors, calls} = await backend(page, {aiReady:true});

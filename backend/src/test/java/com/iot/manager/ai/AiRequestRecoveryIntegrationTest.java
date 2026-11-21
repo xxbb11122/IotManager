@@ -26,7 +26,7 @@ import static org.mockito.ArgumentMatchers.*;
         "iot.ai.enabled=true", "iot.ai.knowledge-enabled=false", "iot.ai.allowed-hosts[0]=example.test",
         "spring.ai.openai.chat.base-url=https://example.test", "spring.ai.openai.chat.api-key=test-only-key",
         "spring.ai.openai.embedding.enabled=false"})
-@ActiveProfiles("dev")
+@ActiveProfiles("test")
 class AiRequestRecoveryIntegrationTest {
     @Autowired AiChatService chat;
     @Autowired AiConversationStore requests;
@@ -60,6 +60,43 @@ class AiRequestRecoveryIntegrationTest {
         assertThat(count("ai_usage_events")).isEqualTo(2); // one attempt, one paid chat
         verify(models,times(1)).answer(any(),any());
         assertThatThrownBy(()->chat.submit(site,"owner","different input",null,key)).satisfies(e->code(e,"IDEMPOTENCY_CONFLICT"));
+    }
+    @Test void scopedDeviceDiagnosisIsSanitizedAndPinsTheFirstObservation() {
+        String key = key();
+        String root = "/api/v1/sites/" + site + "/ai";
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Idempotency-Key", key);
+        var observation = new java.util.LinkedHashMap<String, Object>();
+        observation.put("capturedAt", time.now().toString());
+        observation.put("linkState", "UNKNOWN");
+        observation.put("errorCode", "BLE_PERMISSION_DENIED");
+        observation.put("rawName", "discard-me-fixture");
+        var context = Map.of("version", 1, "source", "MOBILE_BLE", "issue", "BLE_CONNECT", "observation", observation);
+        var input = Map.of("question", "设备排查", "deviceDiagnosis", context);
+        var first = rest.postForEntity(root + "/chat", new HttpEntity<>(input, headers), Map.class);
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
+        var same = rest.postForEntity(root + "/chat", new HttpEntity<>(input, headers), Map.class);
+        assertThat(same.getBody()).isEqualTo(first.getBody());
+        observation.put("linkState", "DISCONNECTED");
+        assertThat(rest.postForEntity(root + "/chat", new HttpEntity<>(input, headers), Map.class).getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT);
+        verify(models, times(1)).answer(argThat(rules -> rules.contains("ordered user/maintainer steps")),
+                argThat(prompt -> prompt.contains("caller's app-local BLE observation")
+                        && prompt.contains("BLE_PERMISSION_DENIED") && !prompt.contains("discard-me-fixture")));
+        assertThat(jdbc.queryForObject("SELECT question FROM ai_chat_requests WHERE site_id=? AND client_key=?",
+                String.class, site, key)).isEqualTo("设备排查");
+        assertThat(count("ai_messages")).isEqualTo(2);
+    }
+
+    @Test void expiredMobileEvidenceCannotReachTheModel() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Idempotency-Key", key());
+        var context = Map.of("version", 1, "source", "MOBILE_BLE", "issue", "BLE_CONNECT",
+                "observation", Map.of("capturedAt", time.now().minusSeconds(181).toString(), "linkState", "UNKNOWN"));
+        assertThat(rest.postForEntity("/api/v1/sites/" + site + "/ai/chat",
+                new HttpEntity<>(Map.of("question", "排查", "deviceDiagnosis", context), headers), Map.class).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        verifyNoInteractions(models);
     }
     @Test void invalidOrForeignConversationDoesNotConsumeQuota() {
         String id=repository.createConversation(site,"other",null).id();

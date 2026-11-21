@@ -15,6 +15,8 @@ import { resolveClientConfig } from '../src/js/api.js';
 import { normalizeEndpointProfile, withDefaultOidcFields } from '../src/js/platform/runtime-config.js';
 import { OidcSessionManager, normalizeOidcConfig, oidcErrorMessage } from '../src/js/auth/oidc-session.js';
 import { createWeatherFreshnessGuard, stampWeatherReceipt } from '../src/js/weather-freshness.js';
+import { createDeviceAssessmentController } from '../src/js/assessment/assessment-controller.js';
+import { readBleEvidence } from '../src/js/assessment/ble-evidence.js';
 
 // Execute the actual main.js function bodies with inert platform boundaries.
 // No network, BLE, geolocation, DOM implementation or application bootstrap runs.
@@ -46,6 +48,7 @@ function fixture(adapter = {}, cacheOverrides = {}, env = {}) {
     createNativeStartupVisual: () => null,
     createAiRecoveryStore: () => ({}),
     createAiController: () => ({ reset: noOp, syncContext: noOp, destroy: noOp, setForeground: noOp }),
+    createDeviceAssessmentController, readBleEvidence,
     createRenderMetrics: () => ({ increment: noOp }),
     createRenderCoordinator: () => ({ forceFull: noOp, enqueue: noOp, setVisibility: noOp }),
     createWeatherRefreshCooldown: ({ onDeadlineChange }) => ({ set: (seconds) => onDeadlineChange(seconds ? Date.now() + seconds * 1000 : null) }),

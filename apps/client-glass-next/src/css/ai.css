@@ -27,6 +27,20 @@ textarea.ai-input { min-height: 88px; resize: vertical; }
 .ai-persona-text { padding: 0 2px; line-height: 1.65; }
 .ai-pending { padding: 14px 16px; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--blue-soft); }
 .ai-pending > .ai-caption, .ai-pending > .ai-notice { flex-basis: 100%; }
+.ai-device-assessment, .assessment-group { display: grid; gap: 10px; min-width: 0; }
+.assessment-device, .assessment-plan {
+  display: grid; gap: 8px; min-width: 0; padding: 12px;
+  border: 1px solid var(--material-edge, var(--line));
+  border-radius: 14px;
+  background: var(--material-entry, var(--surface));
+  overflow-wrap: anywhere;
+}
+.assessment-device > button, .assessment-group > button, .assessment-field > button { justify-self: start; }
+.assessment-title, .assessment-device .ai-caption, .assessment-plan .ai-caption { margin: 0; }
+.assessment-steps, .assessment-fields { margin: 0; padding-inline-start: 1.25rem; }
+.assessment-steps > li + li, .assessment-fields > li + li { margin-top: 5px; }
+.assessment-field > small { display: block; }
+.assessment-field > button { margin-block-start: 3px; display: block; }
 @media (max-width: 640px) {
   .ai-workspace { padding: 14px; border-radius: 16px; }
   .ai-messages { max-height: 38dvh; }

@@ -1,5 +1,15 @@
 # Glass Next 验证记录
 
+## 2026-11-21 设备盘点与修复复验 / Device assessment
+
+在本地验证两条流程：**设备状态总览**逐页读取授权站点、本机 BLE 单独核验；**排查与解决**按证据生成操作方案，用户执行后按需只读复验。覆盖跨站点访问、历史绑定、缓存时效、读数缺失与真实零值、不同遥测时间桶、命令反馈、可选模型请求防重及保留聊天草稿。
+
+- 后端 Maven / JDK 17：258 项，237 通过、0 失败、21 跳过。最终复测使用内存 H2；Docker 不可用，PostgreSQL 容器套件未运行。
+- Glass Next：283 项 Node 单元测试、21 项 AI/Glass 浏览器用例通过。浏览器替换网络和硬件边界，覆盖普通问答兼容及不额外发送控制请求。
+- Android Debug：`1.1.4-glass.9 / code 14` 本地构建成功，核对了内嵌网页入口摘要和 Debug APK 签名。安装包不纳入 Git。
+
+Passed locally: 237 backend tests, 283 app unit tests and 21 browser tests; the 21 PostgreSQL tests were skipped. APK and simulated checks do not establish physical BLE, live deployment, signed release, or same-commit CI acceptance. 真实手机、实体设备复验、正式签名与发布门禁为独立验收项。入口、数据时效和部署配置见 [设备状态与修复](README.md#设备状态与修复)。
+
 ## 2026-10-20 剩余测试模拟补测
 
 完成本轮已识别缺口中可在隔离环境执行的补测：7 项 Android 存储延迟/拒绝、真实返回键取消和权限拒绝检查，4 项 CPU 降速/模块恢复检查，9 项实际 SDK/JDK 签名与包完整性负向检查均通过。实验签名 Release 两端完成正常覆盖升级及兼容版本往返，保留 UID、首次安装时间和原生数据；Glass 另验证实际缓存类跨版本读写。最终 APK 源码均为 `de263fa...`、`dirty=false`，未将实验证书作为正式发布证书。
