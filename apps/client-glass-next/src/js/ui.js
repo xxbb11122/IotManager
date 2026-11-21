@@ -1,4 +1,5 @@
 import { rangeSpec } from './range-contract.js';
+import { maskUnavailableWeather } from './weather-freshness.js';
 import {
   Activity,
   ArrowLeft,
@@ -55,8 +56,10 @@ import { createPullRefreshState } from './pull-refresh.js';
 import { reconcileElement } from './dom-reconcile.js';
 import { BUILD_INFO } from './build-info.js';
 import { buildAiView } from './ai/ai-view.js';
+import { buildDeviceAssessmentView } from './assessment/assessment-view.js';
+import { aiCanSend } from './ai/ai-state.js';
+import { createAiViewport } from './ai/ai-viewport.js';
 import { createGlassAppearance } from './appearance/glass-appearance.js';
-import { addGlassSurface } from './appearance/glass-surfaces.js';
 
 const icons = {
   Activity,
@@ -233,6 +236,7 @@ class ClientUi {
     this.deferredControlPatch = false;
     this.rangeGuard = createRangeGuard(this);
     this.glassAppearance = createGlassAppearance(root);
+    this.aiViewport = createAiViewport(root);
     this.commandPresentation = new Map();
     this.activityPresentation = new Map();
     this.lastBleCandidateId = null;
@@ -439,6 +443,8 @@ class ClientUi {
     this.reconcileLocalState();
     const previousScreen = this.renderedScreen;
     const nextScreen = this.local.screen;
+    if (this.root.dataset.activeScreen !== nextScreen) this.root.dataset.activeScreen = nextScreen;
+    this.aiViewport.update();
     const motionContext = JSON.stringify([this.model.context.organizationCode, this.model.context.siteCode,
       this.model.endpointProfile.id, this.model.endpointProfile.apiBaseUrl,
       this.model.auth.authenticated === true, this.model.auth.cachePartition]);
@@ -535,7 +541,7 @@ class ClientUi {
     main.classList.remove('screen-region--motion-peer', 'screen-region--motion-forward', 'screen-region--motion-back', 'screen-region--motion-context');
     if (!this.motionPolicy.snapshot().animate) return;
     // Restoring the startup endpoint/site is hydration, not user navigation.
-    if (hint === 'context' && ['loading', 'syncing'].includes(this.model.startup.phase)) return;
+    if (hint === 'context' && ['loading', 'syncing', 'local_ui_ready', 'interactive'].includes(this.model.startup.phase)) return;
     const kind = navigationMotionKind(from, to, hint);
     if (!kind) return;
     // Restart only for another real navigation; a same-screen redraw keeps the main node intact.
@@ -788,19 +794,54 @@ class ClientUi {
     return this.patchScreenContent();
   }
 
-  patchAi(viewModel = {}) {
+  patchAi(viewModel = {}, change = null) {
     const focus = this.captureRenderState();
+    const previousAi = this.model.ai;
     this.updateModel(viewModel);
     if (!this.local.screen.startsWith('ai')) return true;
     const content = this.root.querySelector('[data-region="ai-content"]');
     if (!content) return false;
-    const log = content.querySelector('[data-region="ai-messages"]');
+    const ai = this.model.ai;
+    // Draft events cannot change messages or permissions. Patch the controls
+    // directly, while retaining the full render for cooldowns and all other events.
+    if (change?.kind === 'draft' && this.local.screen === 'ai' && content.classList.contains('ai-workspace--chat')
+      && previousAi?.scopeKey === ai?.scopeKey && previousAi?.enabled === ai?.enabled
+      && previousAi?.status === ai?.status && previousAi?.busy === ai?.busy && previousAi?.loading === ai?.loading
+      && previousAi?.retryAt <= previousAi?.now && ai?.retryAt <= ai?.now) {
+      const input = content.querySelector('#ai-question');
+      const count = content.querySelector('.ai-composer .ai-count');
+      const send = content.querySelector('.ai-composer [data-action="ai-send"]');
+      if (input && count && send) {
+        if (input.value !== ai.draft) input.value = ai.draft;
+        const label = ai.draft.length + ' / ' + ai.limits.maxQuestionChars + ' 字符';
+        if (count.textContent !== label) count.textContent = label;
+        send.disabled = !aiCanSend(ai);
+        return true;
+      }
+    }
+    const log = content.querySelector('[data-region="ai-scroll"]') ?? content.querySelector('[data-region="ai-messages"]');
     const position = log?.scrollTop ?? 0;
     const atBottom = !log || log.scrollHeight - log.clientHeight - position < 48;
-    this.reconcile(content, buildAiView(this.model.ai, { screen: this.local.screen }));
+    this.reconcile(content, buildAiView(this.model.ai, {
+      screen: this.local.screen, assessment: this.model.deviceAssessment
+    }));
     this.restoreRenderState(focus);
-    const next = content.querySelector('[data-region="ai-messages"]');
+    const next = content.querySelector('[data-region="ai-scroll"]') ?? content.querySelector('[data-region="ai-messages"]');
     if (next) next.scrollTop = atBottom ? next.scrollHeight : position;
+    return true;
+  }
+
+  patchDeviceAssessment(viewModel) {
+    const previousPlan = this.model.deviceAssessment?.plan;
+    this.updateModel(viewModel);
+    if (this.local.screen !== 'ai') return true;
+    const content = this.root.querySelector('[data-region="device-assessment"]');
+    if (!content) return false;
+    this.reconcile(content, buildDeviceAssessmentView(this.model.deviceAssessment, this.model.ai));
+    if (this.model.deviceAssessment?.plan && previousPlan !== this.model.deviceAssessment.plan) {
+      // User-requested repair cards remain reachable after selecting an item far down a page.
+      content.querySelector('[data-region="device-repair-plan"]')?.scrollIntoView?.({ block: 'nearest' });
+    }
     return true;
   }
 
@@ -930,44 +971,49 @@ class ClientUi {
 
   patchDeviceList(deviceRefs = []) {
     const restoreState = this.captureRenderState();
+    if (this.model.devices.length === 0) {
+      const result = this.patchScreenContent();
+      this.restoreDeviceListState(restoreState);
+      return result;
+    }
     const list = this.root.querySelector('[data-region="device-list"]');
     const count = this.root.querySelector('[data-region="device-list-count"]');
     const online = this.root.querySelector('[data-region="device-online-count"]');
     if (!list || !count || !online) return this.patchScreenContent();
     const refs = new Set(deviceRefs.map(String));
-    const devices = refs.size
-      ? this.model.devices.filter((device) => referencesContainDevice([...refs], device))
-      : this.model.devices;
-
-    if (refs.size > 0 && devices.length > 0) {
-      for (const device of devices) {
-        const existing = findDeviceElement(list, device);
-        if (existing) {
-          const replacement = this.buildDeviceRow(device);
-          if (existing.dataset.online !== replacement.dataset.online) replacement.classList.add('device-row--status-changed');
-          this.reconcile(existing, replacement);
-        }
-      }
-    }
-
-    // A REST reconciliation may add or remove entities. Rebuilding only the
-    // list region is safe and keeps header, navigation, focus and scroll intact.
-    const renderedRefs = [...list.querySelectorAll('[data-device-ref]')].map((node) => node.dataset.deviceRef);
+    const rendered = [...list.children].filter(node => node.hasAttribute('data-device-ref'));
+    const renderedRefs = rendered.map(node => node.dataset.deviceRef);
     const desiredRefs = this.model.devices.map((device) => deviceKey(device));
-    const hasSameEntities = renderedRefs.length === desiredRefs.length
-      && renderedRefs.every((reference) => desiredRefs.includes(reference));
-    if (!hasSameEntities) {
+    // Order matters. Ambiguous/missing keys take the conservative reconciliation
+    // path instead of letting a map silently select the wrong device.
+    const stableKeys = desiredRefs.every(Boolean) && new Set(desiredRefs).size === desiredRefs.length;
+    const sameOrder = stableKeys && renderedRefs.length === desiredRefs.length
+      && renderedRefs.every((reference, index) => reference === desiredRefs[index]);
+    if (!sameOrder) {
       const updated = list.cloneNode(false);
-      updated.replaceChildren(...(this.model.devices.length
-        ? this.model.devices.map((device) => this.buildDeviceRow(device))
-        : [element('div', 'empty-inline', { text: '还没有设备。' })]));
+      updated.replaceChildren(...this.buildDeviceRows());
       this.reconcile(list, updated);
+    } else {
+      const existingByKey = new Map(rendered.map(node => [node.dataset.deviceRef, node]));
+      for (const device of this.model.devices) {
+        if (refs.size && !referencesContainDevice(refs, device)) continue;
+        const existing = existingByKey.get(deviceKey(device));
+        const replacement = this.buildDeviceRow(device);
+        if (existing.dataset.online !== replacement.dataset.online) replacement.classList.add('device-row--status-changed');
+        this.reconcile(existing, replacement);
+      }
     }
     const countText = `已认领设备 (${this.model.devices.length})`;
     if (count.textContent !== countText) { count.textContent = countText; this.metrics?.increment('domMutationCount'); }
     this.reconcile(online, this.buildDeviceOnlineCount(this.model.devices));
-    this.restoreRenderState(restoreState);
+    this.restoreDeviceListState(restoreState);
     return true;
+  }
+
+  restoreDeviceListState(state) {
+    if (!this.restoreRenderState(state) && state.focusAction === 'open-device' && state.focusScope === 'screen') {
+      this.root.querySelector('[data-action="open-add-device"]')?.focus({ preventScroll: true });
+    }
   }
 
   patchActiveDeviceDetail(deviceRefs = []) {
@@ -989,6 +1035,7 @@ class ClientUi {
   destroy() {
     this.rangeGuard?.dispose();
     this.glassAppearance?.destroy();
+    this.aiViewport?.destroy();
     this.destroyed = true;
     this.commandPress = null;
     this.motionPolicy.destroy();
@@ -1112,26 +1159,27 @@ class ClientUi {
     const mark = element('div', 'brand-mark', { ariaHidden: 'true' });
     mark.append(icon('Workflow', 19));
     brand.append(mark);
-    const copy = element('div');
+    const copy = element('div', 'app-brand__copy');
     copy.append(element('h1', '', { text: '设备运营' }));
     copy.append(actionButton(this.model.context.siteName, 'open-site-switcher', {
-      className: 'site-picker-trigger', iconName: 'MapPin', ariaLabel: '切换站点：' + this.model.context.siteName
+      className: 'site-picker-trigger', iconName: 'MapPin', ariaLabel: '切换站点：' + this.model.context.siteName,
+      title: this.model.context.siteName
     }));
     brand.append(copy);
     main.append(brand);
 
     const actions = element('div', 'header-actions');
     actions.append(actionButton('连接设置', 'open-connection-settings', {
-      className: 'button button--quiet button--small',
+      className: 'button button--quiet button--small header-action--settings',
       iconName: 'Link',
       ariaLabel: '连接设置'
     }));
     const auth = authenticationState(this.model.auth);
     if (auth.configured) {
       const authBusy = this.isBusy('sign-in') || this.isBusy('sign-out')
-        || ['restoring', 'processing_callback', 'redirecting', 'signing_out'].includes(auth.status);
+        || ['restoring', 'processing_callback', 'redirecting', 'awaiting_callback', 'signing_out'].includes(auth.status);
       actions.append(actionButton(authBusy ? '处理中…' : auth.authenticated ? '退出登录' : '登录', auth.authenticated ? 'sign-out' : 'sign-in', {
-        className: 'button button--quiet button--small',
+        className: 'button button--quiet button--small header-action--account',
         iconName: auth.authenticated ? 'LockKeyhole' : 'ShieldAlert',
         ariaLabel: auth.authenticated ? '退出当前账号' : '使用身份提供方登录', disabled: authBusy
       }));
@@ -1143,7 +1191,6 @@ class ClientUi {
     main.append(actions);
     const ribbon = element('div', 'header-context-ribbon');
     ribbon.append(this.buildWeatherHeaderSummary());
-    ribbon.append(element('span', 'header-reference', { text: '室外天气参考' }));
     ribbon.append(status);
     header.append(main, ribbon);
     return header;
@@ -1154,23 +1201,27 @@ class ClientUi {
     const current = plainObject(weather?.current);
     const indicators = plainObject(weather?.indicators);
     const available = Object.keys(current).length > 0;
+    const previous = ['EXPIRED', 'UNAVAILABLE', 'STALE'].includes(weather?.status);
     const summary = actionButton('', 'open-weather', {
-      className: 'weather-header-summary',
+      className: 'weather-header-summary' + (available ? ' weather-header-summary--readings' : ''),
       data: { region: 'weather-header' },
       ariaLabel: available
-        ? `站点天气：温度 ${weatherValue(current.temperatureC, '°C')}，湿度 ${weatherValue(current.relativeHumidityPct, '%')}，气压 ${weatherValue(current.surfacePressureHpa, ' hPa')}`
+        ? `${previous ? '上次天气数据' : '室外天气参考'}：温度 ${weatherValue(current.temperatureC, '°C')}，湿度 ${weatherValue(current.relativeHumidityPct, '%')}，气压 ${weatherValue(current.surfacePressureHpa, ' hPa')}`
         : '打开站点天气'
     });
     if (!available) {
       summary.append(icon('CloudSun', 17));
       summary.append(element('span', 'weather-header-summary__empty', {
-        text: weather?.status === 'UNAVAILABLE' ? '天气未配置' : weather?.status === 'PENDING' ? '等待天气同步' : '天气加载中'
+        text: ({ UNAVAILABLE: '天气未配置', PENDING: '等待天气同步', EXPIRED: '天气已过期' })[weather?.status] ?? '天气加载中'
       }));
       return summary;
     }
-    summary.append(weatherHeaderMetric('Thermometer', weatherValue(current.temperatureC, '°C'), indicators.temperature));
-    summary.append(weatherHeaderMetric('Droplets', weatherValue(current.relativeHumidityPct, '%'), indicators.humidity));
-    summary.append(weatherHeaderMetric('Gauge', weatherValue(current.surfacePressureHpa, ' hPa'), indicators.pressure));
+    summary.append(element('span', 'weather-header-caption', { text: previous ? '上次数据' : '室外天气' }));
+    const readings = element('span', 'weather-header-metrics');
+    readings.append(weatherHeaderMetric('Thermometer', weatherValue(current.temperatureC, '°C'), indicators.temperature),
+      weatherHeaderMetric('Droplets', weatherValue(current.relativeHumidityPct, '%'), indicators.humidity),
+      weatherHeaderMetric('Gauge', weatherValue(current.surfacePressureHpa, ' hPa'), indicators.pressure));
+    summary.append(readings);
     return summary;
   }
 
@@ -1211,7 +1262,7 @@ class ClientUi {
       case 'ai':
       case 'ai-history':
       case 'ai-persona':
-        screen.append(buildAiView(this.model.ai, { screen: this.local.screen }));
+        screen.append(buildAiView(this.model.ai, { screen: this.local.screen, assessment: this.model.deviceAssessment }));
         break;
       case 'add':
         screen.append(this.buildAddScreen());
@@ -1250,8 +1301,18 @@ class ClientUi {
     const issue = this.model.error ?? this.local.transientError;
     if (issue) feedback.append(this.buildNotice(issue, 'danger', 'dismiss-error'));
     if (this.model.auth.error && this.model.auth.error !== issue) feedback.append(this.buildNotice(this.model.auth.error, 'danger', null, '登录状态'));
-    const authPhase = { restoring: '正在恢复登录状态，平台控制暂不可用。', processing_callback: '正在校验登录回调，请稍候。', redirecting: '正在准备身份提供方登录页面。', signing_out: '本机已停止平台控制，正在完成退出。' }[this.model.auth.status];
+    const loginStage = { discovering: '正在连接登录服务（最多 8 秒）。', saving_transaction: '正在准备安全登录事务。', opening_browser: '正在打开系统浏览器。', awaiting_callback: '已发起浏览器登录，完成后将返回 App；也可以取消本次登录。' }[this.model.auth.loginStage];
+    const authPhase = loginStage || { restoring: '正在恢复登录状态，平台控制暂不可用。', processing_callback: '正在校验登录回调，请稍候。', redirecting: '正在准备身份提供方登录页面。', signing_out: '本机已停止平台控制，正在完成退出。' }[this.model.auth.status];
     if (authPhase) feedback.append(this.buildNotice(authPhase, 'info', null, '登录状态'));
+    if (['redirecting', 'awaiting_callback'].includes(this.model.auth.status))
+      feedback.append(actionButton('取消登录', 'cancel-sign-in', { className: 'button button--secondary' }));
+    if (this.model.auth.status === 'configuration_pending') {
+      feedback.append(this.buildNotice('连接设置尚未确认，登录信息已保留。可重新读取已保存设置，或打开连接设置确认地址；平台控制暂不可用。', 'warning', null, '连接设置未确认'));
+      const retrying = this.isBusy('endpoint-recovery') || this.model.loading.endpointRecovery;
+      feedback.append(actionButton(retrying ? '正在读取…' : '重新读取已保存设置', 'retry-endpoint-settings', {
+        className: 'button button--secondary', disabled: retrying
+      }));
+    }
     const endpointPhase = { saving: '正在保存连接配置。', restoring_auth: '新端点已激活，正在恢复授权状态。', synchronizing: '正在同步新端点的站点、设备和天气；收到最新状态前保持只读。' }[this.model.loading.endpointPhase];
     if (endpointPhase) feedback.append(this.buildNotice(endpointPhase, 'info', null, '连接切换'));
     for (const notice of this.model.notices) feedback.append(this.buildNotice(notice.message, notice.tone ?? 'warning', null, '操作提示'));
@@ -1262,14 +1323,15 @@ class ClientUi {
 
   buildDeviceListScreen() {
     const fragment = document.createDocumentFragment();
-    fragment.append(screenHeading('我的设备', '查看当前站点已认领的设备。', actionButton('添加设备', 'open-add-device', {
+    const actions = element('div', 'home-actions');
+    actions.append(actionButton(this.isBusy('pull-refresh') ? '刷新中…' : '刷新', 'pull-refresh', {
+      className: 'button button--secondary', iconName: 'RefreshCw', disabled: this.isBusy('pull-refresh'),
+      ariaLabel: '刷新设备与天气'
+    }), actionButton('添加设备', 'open-add-device', {
       className: 'button button--primary',
       iconName: 'Plus'
-    })));
-    fragment.append(this.buildContextRow());
-    fragment.append(actionButton(this.isBusy('pull-refresh') ? '刷新中…' : '刷新设备与天气', 'pull-refresh', {
-      className: 'button button--secondary', iconName: 'RefreshCw', disabled: this.isBusy('pull-refresh')
     }));
+    fragment.append(screenHeading('我的设备', null, actions), this.buildContextRow());
 
     if (this.model.runtime.stale && this.model.runtime.accessRoute !== 'BLE_LOCAL') {
       const lastSync = this.model.runtime.lastSyncedAt ? `，最后同步 ${formatDate(this.model.runtime.lastSyncedAt)}` : '';
@@ -1288,7 +1350,7 @@ class ClientUi {
     if (resource.error) surface.append(this.buildNotice(resource.error, 'warning', null, devices.length ? '保留已有设备' : '设备读取失败'));
     if (devices.length === 0) {
       const list = element('div', 'device-list device-list--cards', { data: { region: 'device-list' } });
-      const empty = element('div', 'empty-state');
+      const empty = element('div', 'empty-state empty-state--panel');
       const iconWrap = element('div', 'empty-state__icon', { ariaHidden: 'true' });
       iconWrap.append(icon('Boxes', 27));
       empty.append(iconWrap);
@@ -1310,7 +1372,7 @@ class ClientUi {
       surface.append(titleRow);
 
       const list = element('div', 'device-list device-list--cards', { data: { region: 'device-list' } });
-      devices.forEach((device) => list.append(this.buildDeviceRow(device)));
+      list.append(...this.buildDeviceRows());
       surface.append(list);
     }
     fragment.append(surface);
@@ -1343,8 +1405,8 @@ class ClientUi {
       weatherLine.append(element('span', 'context-row__weather-text', {
         text: `${current.conditionText ?? '未知'} · 海拔 ${weatherValue(current.elevationM, ' m')}`
       }));
-      weatherLine.append(environmentChip(indicatorLabel(weather?.indicators?.esdRisk, 'ESD'), weather?.indicators?.esdRisk));
-      weatherLine.append(environmentChip(indicatorLabel(weather?.indicators?.condensationRisk, '结露'), weather?.indicators?.condensationRisk));
+      if (weather?.indicators?.esdRisk) weatherLine.append(environmentChip(indicatorLabel(weather.indicators.esdRisk, 'ESD'), weather.indicators.esdRisk));
+      if (weather?.indicators?.condensationRisk) weatherLine.append(environmentChip(indicatorLabel(weather.indicators.condensationRisk, '结露'), weather.indicators.condensationRisk));
       row.append(weatherLine);
     } else if (weather?.status === 'UNAVAILABLE' || weather?.status === 'PENDING') {
       row.append(actionButton(weather.status === 'PENDING' ? '等待天气同步' : '天气未配置', 'open-weather', {
@@ -1629,13 +1691,24 @@ class ClientUi {
     return surface;
   }
 
-  buildDeviceRow(device) {
+  buildDeviceRows() {
+    const counts = new Map();
+    for (const device of this.model.devices) {
+      const key = deviceKey(device);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return this.model.devices.map(device => this.buildDeviceRow(device, counts.get(deviceKey(device)) !== 1));
+  }
+
+  buildDeviceRow(device, ambiguous = false) {
     const id = deviceKey(device);
+    const invalidReference = !id || ambiguous;
     const online = deviceOnline(device, this.model.connectionHealth);
     const row = actionButton('', 'open-device', {
       className: 'device-row device-row--card',
       data: { deviceId: id, deviceRef: id, online: String(online) },
-      ariaLabel: `打开设备 ${deviceName(device)}`
+      disabled: invalidReference,
+      ariaLabel: invalidReference ? `设备标识异常，暂不可打开：${deviceName(device)}` : `打开设备 ${deviceName(device)}`
     });
     const deviceIcon = element('div', `device-icon${online ? '' : ' device-icon--offline'}`, { ariaHidden: 'true' });
     deviceIcon.append(icon(deviceIconName(device), 20));
@@ -1653,7 +1726,7 @@ class ClientUi {
     });
     const summary = readings.join(' · ') || (state.temperature != null
       ? `${state.temperature}°C${state.humidity != null ? ` · 湿度 ${state.humidity}%` : ''}` : '等待最新状态');
-    body.append(element('div', 'device-row__reading', { text: summary }));
+    body.append(element('div', 'device-row__reading', { text: invalidReference ? '设备标识异常，请刷新设备列表' : summary }));
     row.append(body);
 
     const aside = element('div', 'device-row__aside');
@@ -1974,7 +2047,7 @@ class ClientUi {
   buildConnectionSettingsScreen() {
     const fragment = document.createDocumentFragment();
     fragment.append(screenHeading('连接设置', '切换现场或互联网平台连接。', backButton('devices')));
-    const surface = element('section', 'surface surface--padded');
+    const surface = element('section', 'surface surface--padded connection-settings', { data: { region: 'connection-settings' } });
     const modes = element('div', 'segmented-control', { role: 'group', ariaLabel: '平台连接方式' });
     for (const [route, label] of [['SITE_API', '现场 LAN'], ['CLOUD_API', '互联网远程']]) {
       modes.append(actionButton(label, 'choose-endpoint-route', {
@@ -1983,6 +2056,9 @@ class ClientUi {
       }));
     }
     surface.append(modes);
+    if (this.model.defaultEndpointProfile?.apiBaseUrl) surface.append(actionButton('填入安装包默认配置', 'load-default-endpoint', {
+      className: 'button button--secondary'
+    }));
     surface.append(this.textField('API 地址', 'endpoint-api-url', this.local.endpointDraft.apiBaseUrl, '服务器示例：https://iot.example.com/api/v1', 'endpointApiUrl'));
     surface.append(this.textField('WebSocket 地址', 'endpoint-ws-url', this.local.endpointDraft.wsUrl, '服务器示例：wss://iot.example.com/ws/devices', 'endpointWsUrl'));
     if (this.local.endpointDraft.accessRoute === 'SITE_API') {
@@ -2001,10 +2077,15 @@ class ClientUi {
       this.revealOidcFields = false;
       surface.append(this.buildNotice('生产连接使用 Authorization Code + PKCE 登录。此处只保存公开的 Issuer、Client ID 与回调地址，不会保存 Access Token 或 Refresh Token。', 'info', null, '安全登录'));
     }
-    surface.append(actionButton(this.isBusy('test-endpoint') ? '测试中…' : '测试连接', 'test-endpoint', {
+    const actions = element('div', 'connection-settings__actions', { data: { region: 'endpoint-actions' } });
+    actions.append(actionButton(this.isBusy('test-endpoint') ? '测试中…' : '测试连接', 'test-endpoint', {
       className: 'button button--secondary',
       disabled: this.isBusy('test-endpoint') || this.isBusy('switch-endpoint')
+    }), actionButton(this.isBusy('switch-endpoint') ? '切换中…' : '保存并切换', 'save-endpoint', {
+      className: 'button button--primary',
+      disabled: this.isBusy('switch-endpoint')
     }));
+    surface.append(actions);
     if (this.local.endpointTest) {
       const result = this.buildNotice(
         this.local.endpointTest.message,
@@ -2017,10 +2098,6 @@ class ClientUi {
       this.revealEndpointTest = false;
       surface.append(result);
     }
-    surface.append(actionButton(this.isBusy('switch-endpoint') ? '切换中…' : '保存并切换', 'save-endpoint', {
-      className: 'button button--primary',
-      disabled: this.isBusy('switch-endpoint')
-    }));
     fragment.append(surface, this.buildDisplaySettings());
     const identity = element('section', 'surface surface--padded', { data: { region: 'build-identity' } });
     identity.append(surfaceHeading('当前安装版本', '反馈问题时请同时提供此构建标识，便于核对手机安装的版本。'));
@@ -2031,8 +2108,8 @@ class ClientUi {
   }
 
   buildDisplaySettings() {
-    const display = element('section', 'surface surface--padded', { data: { region: 'display-settings' } });
-    display.append(surfaceHeading('界面显示', '选择适合当前设备的材质与动画。'));
+    const display = element('section', 'surface surface--padded display-settings', { data: { region: 'display-settings' } });
+    display.append(surfaceHeading('界面显示', '材质应用于整个 App，自动记住选择。系统高对比度开启时优先使用实色。'));
     const material = element('div', 'segmented-control', { role: 'group', ariaLabel: '界面材质' });
     for (const [mode, label] of [['liquid', '混合玻璃'], ['frosted', '轻毛玻璃'], ['solid', '实色']]) {
       const selected = this.glassAppearance.choice() === mode;
@@ -2273,6 +2350,7 @@ class ClientUi {
         className: `mode-button${value === current ? ' mode-button--selected' : ''}${disabled && value === current ? ' mode-button--pending' : ''}`,
         data: capabilityActionData(device, capability, option.value),
         disabled,
+        ariaPressed: String(value === current),
         ariaLabel: `设置 ${capability.label} 为 ${option.label}`
       }));
     });
@@ -2314,36 +2392,6 @@ class ClientUi {
       disabled
     }));
     row.append(heading);
-    return row;
-  }
-
-  buildLevelControl(device, capability, disabled) {
-    const reported = plainObject(device.reportedState ?? device.state);
-    const desired = plainObject(device.desiredState);
-    const stored = this.local.commandValues[`level:${deviceKey(device)}`];
-    const value = clampNumber(disabled
-      ? stored ?? desired.level ?? desired.brightness ?? reported.level ?? reported.brightness ?? 0
-      : reported.level ?? reported.brightness ?? 0, 0, 100);
-    const row = element('div', 'control-row');
-    const heading = element('div', 'control-row__heading');
-    const copy = element('div');
-    copy.append(element('h4', '', { text: capability.label ?? '强度' }));
-    copy.append(element('p', '', { text: '拖动后松开以发送新命令。' }));
-    heading.append(copy);
-    row.append(heading);
-    const rangeRow = element('div', 'range-row');
-    rangeRow.append(element('input', 'range-input', {
-      type: 'range',
-      min: '0',
-      max: '100',
-      step: '1',
-      value: String(value),
-      disabled,
-      data: { deviceId: deviceKey(device), commandType: capability.commandType ?? 'set_level', field: 'level' },
-      ariaLabel: `${capability.label ?? '强度'} ${value}%`
-    }));
-    rangeRow.append(element('output', `range-value${disabled ? ' range-value--pending' : ''}`, { text: `${value}%` }));
-    row.append(rangeRow);
     return row;
   }
 
@@ -2441,6 +2489,11 @@ class ClientUi {
     heading.append(openAll);
     surface.append(heading);
     const activities = this.activitiesForDevice(device).slice(0, limit);
+    const resource = this.model.resources.activity ?? {};
+    if (String(resource.entityId) === String(device.id)) {
+      if (resource.phase === 'loading' || resource.refreshing) surface.append(this.buildResourceMessage('正在读取动态…', true));
+      if (resource.error) surface.append(this.buildNotice(resource.error, 'warning', null, '动态读取失败'));
+    }
     const timeline = this.buildActivityTimeline(activities, `device:${deviceKey(device)}`, 'timeline');
     if (!activities.length) {
       surface.append(element('p', 'empty-inline', { text: '暂无活动记录。' }));
@@ -2491,7 +2544,10 @@ class ClientUi {
     const resource = this.model.resources.activity ?? {};
     if (resource.phase === 'loading' || resource.refreshing) surface.append(this.buildResourceMessage('正在读取动态…', true));
     if (resource.error) surface.append(this.buildNotice(resource.error, 'warning', null, '动态读取失败'));
-    const list = this.buildActivityTimeline(activities.slice(0, 30), `all:${this.model.context.siteCode}`, 'activity-list');
+    const list = this.buildActivityTimeline(resource.local ? activities : activities.slice(0, 30), `all:${this.model.context.siteCode}`, 'activity-list');
+    if (resource.local && resource.hasMore) surface.append(actionButton('加载更多本地动态', 'load-local-history', {
+      className: 'button button--secondary', data: { deviceId: resource.entityId }, disabled: Boolean(resource.refreshing)
+    }));
     if (!activities.length) {
       const empty = element('div', 'empty-state');
       const iconWrap = element('div', 'empty-state__icon', { ariaHidden: 'true' });
@@ -2592,7 +2648,7 @@ class ClientUi {
     event.preventDefault();
     if (handleAiQuickPromptClick(this, action, target)) return;
     if (action.startsWith('ai-')) {
-      this.invoke('aiAction', { action, id: target.dataset.aiId }, { render: false });
+      this.invoke('aiAction', { action, id: target.dataset.aiId, field: target.dataset.aiField }, { render: false });
       return;
     }
 
@@ -2600,7 +2656,11 @@ class ClientUi {
       case 'set-display-material':
         if (['liquid', 'frosted', 'solid'].includes(target.dataset.materialMode)) {
           this.glassAppearance.select(target.dataset.materialMode);
-          this.render(this.model);
+          for (const option of this.root.querySelectorAll('[data-action="set-display-material"]')) {
+            const selected = option === target;
+            option.classList.toggle('segment--active', selected);
+            option.setAttribute('aria-pressed', String(selected));
+          }
         }
         break;
       case 'toggle-display-motion':
@@ -2732,6 +2792,9 @@ class ClientUi {
       case 'retry-command':
         this.invoke('retryCommand', { commandId: target.dataset.commandId, deviceId: target.dataset.deviceId }, { busy: 'retry-command' });
         break;
+      case 'load-local-history':
+        this.invoke('loadLocalHistory', { deviceId: target.dataset.deviceId }, { busy: 'load-local-history' });
+        break;
       case 'reconnect-realtime':
         this.invoke('reconnectRealtime', {}, { busy: 'reconnect-realtime' });
         break;
@@ -2756,6 +2819,13 @@ class ClientUi {
         this.viewRevision += 1;
         this.local.endpointTest = null;
         this.local.endpointDraft.accessRoute = target.dataset.route;
+        this.render(this.model);
+        break;
+      case 'load-default-endpoint':
+        this.local.endpointDraft = { accessRoute: 'SITE_API', ...this.model.defaultEndpointProfile };
+        this.local.endpointTest = null;
+        this.fieldErrors = {};
+        this.notify('已填入安装包默认配置，尚未保存；请测试后保存并登录。', 'info');
         this.render(this.model);
         break;
       case 'test-endpoint':
@@ -2792,6 +2862,12 @@ class ClientUi {
         break;
       case 'sign-in':
         this.invoke('signIn', {}, { busy: 'sign-in' });
+        break;
+      case 'cancel-sign-in':
+        this.invoke('cancelSignIn');
+        break;
+      case 'retry-endpoint-settings':
+        this.invoke('retryEndpointConfiguration', {}, { busy: 'endpoint-recovery' });
         break;
       case 'sign-out':
         this.invoke('signOut', {}, { busy: 'sign-out' });
@@ -3172,13 +3248,15 @@ function normalizeViewModel(viewModel) {
     activeConnection: source.activeConnection ?? source.connection ?? null,
     connectionHealth: source.connectionHealth ?? source.realtime?.health ?? source.wsHealth ?? null,
     runtime: plainObject(source.runtime),
-    weather: plainObject(source.weather),
+    weather: plainObject(maskUnavailableWeather(source.weather)),
     weatherForecast: plainObject(source.weatherForecast),
     weatherSettings: plainObject(source.weatherSettings),
     pendingWeatherLocation: plainObject(source.pendingWeatherLocation),
     endpointProfile: plainObject(source.endpointProfile),
+    defaultEndpointProfile: plainObject(source.defaultEndpointProfile),
     auth: plainObject(source.auth ?? source.authentication),
     ai: source.ai,
+    deviceAssessment: source.deviceAssessment,
     commands: objectValues(commandsById),
     activitiesByDeviceId: plainObject(activitiesByDeviceId),
     activities: arrayOf(source.activities ?? source.activity),
@@ -3474,7 +3552,8 @@ function element(tag, className = '', attributes = {}) {
       node.setAttribute(key, String(value));
     }
   });
-  return addGlassSurface(node);
+  // Ordinary content stays flat. Navigation owns the bounded optical layers.
+  return node;
 }
 
 function textNode(value) {
@@ -3493,17 +3572,13 @@ function weatherCooldownSeconds(retryAt, now = Date.now()) {
 }
 
 function referencesContainDevice(references, device) {
-  const expected = new Set(arrayOf(references).map((reference) => String(reference)));
+  const expected = references instanceof Set ? references : new Set(arrayOf(references).map((reference) => String(reference)));
   if (expected.size === 0) return true;
   return [device?.id, device?.deviceId, device?.publicId]
     .filter((reference) => reference !== null && reference !== undefined)
     .some((reference) => expected.has(String(reference)));
 }
 
-function findDeviceElement(container, device) {
-  return [...container.querySelectorAll('[data-device-ref]')]
-    .find((node) => referencesContainDevice([node.dataset.deviceRef], device)) ?? null;
-}
 
 function candidateKey(candidate = {}) {
   return String(candidate.candidateId ?? candidate.id ?? candidate.deviceId ?? '');

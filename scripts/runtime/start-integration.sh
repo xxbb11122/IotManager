@@ -15,6 +15,11 @@ release_services_file="$(printenv IOT_RELEASE_SERVICES_FILE 2>/dev/null || true)
 release_candidate_file="$(printenv IOT_RELEASE_CANDIDATE_FILE 2>/dev/null || true)"
 release_topology_file="$(printenv IOT_RELEASE_TOPOLOGY_FILE 2>/dev/null || true)"
 verify=false
+case "${IOT_INTEGRATION_STORAGE_MODE:-filesystem}" in
+  filesystem|s3) ;;
+  *) printf 'IOT_INTEGRATION_STORAGE_MODE must be filesystem or s3.\n' >&2; exit 64 ;;
+esac
+
 
 [[ -n "$mode" ]] || mode=local
 while (( $# > 0 )); do
@@ -161,6 +166,7 @@ if [[ "$mode" == immutable ]]; then
   [[ -n "${IOT_IMAGE_MANIFEST_SHA256:-}" ]] && manifest_validation_args+=(--expected-manifest-sha256 "$IOT_IMAGE_MANIFEST_SHA256")
   [[ -n "${IOT_RELEASE_CANDIDATE_ID:-}" ]] && manifest_validation_args+=(--expected-release-candidate-id "$IOT_RELEASE_CANDIDATE_ID")
   [[ -n "${IOT_SOURCE_SHA:-}" ]] && manifest_validation_args+=(--expected-source-sha "$IOT_SOURCE_SHA")
+  [[ "$rollback_compatibility_enabled" == true ]] && manifest_validation_args+=(--allow-legacy-external-backup true)
   node "$repository_root/scripts/ci/release-tools.mjs" "${manifest_validation_args[@]}"
   node "$repository_root/scripts/ci/release-tools.mjs" render-digest-env \
     --manifest "$digest_manifest" \
@@ -197,6 +203,7 @@ done
 compose=(compose --project-name "$project_name" --env-file "$environment_file")
 [[ -n "$image_environment_file" ]] && compose+=(--env-file "$image_environment_file")
 compose+=(-f "$repository_root/deploy/docker-compose.yml" -f "$repository_root/deploy/docker-compose.integration.yml")
+[[ "${IOT_INTEGRATION_STORAGE_MODE:-filesystem}" == s3 ]] && compose+=(-f "$repository_root/deploy/docker-compose.integration.s3.yml")
 [[ "$mode" == immutable ]] && compose+=(-f "$repository_root/deploy/docker-compose.immutable.yml")
 [[ "$rollback_compatibility_enabled" == true ]] && compose+=(-f "$repository_root/deploy/docker-compose.rollback.yml")
 start_flags=(-d)
@@ -246,6 +253,8 @@ application_compose=(compose --project-name "$project_name" --profile applicatio
 [[ -n "$image_environment_file" ]] && application_compose+=(--env-file "$image_environment_file")
 [[ -f "$state_file" ]] && application_compose+=(--env-file "$state_file")
 application_compose+=(-f "$repository_root/deploy/docker-compose.yml" -f "$repository_root/deploy/docker-compose.integration.yml")
+[[ "${IOT_INTEGRATION_STORAGE_MODE:-filesystem}" == s3 ]] && application_compose+=(-f "$repository_root/deploy/docker-compose.integration.s3.yml")
+[[ "${IOT_INTEGRATION_STORAGE_MODE:-filesystem}" == s3 ]] && compose+=(-f "$repository_root/deploy/docker-compose.integration.s3.yml")
 [[ "$mode" == immutable ]] && application_compose+=(-f "$repository_root/deploy/docker-compose.immutable.yml")
 [[ "$rollback_compatibility_enabled" == true ]] && application_compose+=(-f "$repository_root/deploy/docker-compose.rollback.yml")
 application_services=(backup wal-g-archive wal-g-backup)
@@ -254,6 +263,8 @@ if [[ "$observability_enabled" == true ]]; then
   [[ -n "$image_environment_file" ]] && application_compose+=(--env-file "$image_environment_file")
   [[ -f "$state_file" ]] && application_compose+=(--env-file "$state_file")
   application_compose+=(-f "$repository_root/deploy/docker-compose.yml" -f "$repository_root/deploy/docker-compose.integration.yml")
+[[ "${IOT_INTEGRATION_STORAGE_MODE:-filesystem}" == s3 ]] && application_compose+=(-f "$repository_root/deploy/docker-compose.integration.s3.yml")
+[[ "${IOT_INTEGRATION_STORAGE_MODE:-filesystem}" == s3 ]] && compose+=(-f "$repository_root/deploy/docker-compose.integration.s3.yml")
   [[ "$mode" == immutable ]] && application_compose+=(-f "$repository_root/deploy/docker-compose.immutable.yml")
   [[ "$rollback_compatibility_enabled" == true ]] && application_compose+=(-f "$repository_root/deploy/docker-compose.rollback.yml")
   application_services+=(alertmanager prometheus)
@@ -268,10 +279,12 @@ wait_service_healthy backup 180 application
 
 if [[ "$verify" == true ]]; then
   IOT_COMPOSE_PROJECT="$project_name" IOT_ENVIRONMENT_FILE="$environment_file" IOT_RUNTIME_STATE_FILE="$state_file" \
-    "$repository_root/scripts/runtime/verify-stack.sh"
+    bash "$repository_root/scripts/runtime/verify-stack.sh"
 fi
 
 if [[ "$mode" == immutable ]]; then
+  runtime_inspection_args=()
+  [[ "${IOT_INTEGRATION_STORAGE_MODE:-filesystem}" == s3 ]] && runtime_inspection_args+=(--runtime-extra-compose "$repository_root/deploy/docker-compose.integration.s3.yml")
   runtime_evidence_file="${IOT_RUNTIME_DIGEST_EVIDENCE_FILE:-$repository_root/artifacts/release/runtime-service-digests.json}"
   node "$repository_root/scripts/ci/release-tools.mjs" verify-service-digests \
     --phase runtime \
@@ -284,7 +297,7 @@ if [[ "$mode" == immutable ]]; then
     --immutable-compose "$repository_root/deploy/docker-compose.immutable.yml" \
     --services "$release_services_file" \
     --manifest "$digest_manifest" \
-    --output "$runtime_evidence_file"
+    --output "$runtime_evidence_file" "${runtime_inspection_args[@]}"
 fi
 
 printf 'Integration stack started. Project: %s (mode: %s)\n' "$project_name" "$mode"

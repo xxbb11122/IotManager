@@ -1,5 +1,16 @@
 import { ensureGlassComponent } from './glass-surfaces.js';
 
+const modes = new Set(['liquid', 'frosted', 'solid']);
+const materialKey = 'iot-manager.glass.material.v1';
+
+function storedMode(windowObject) {
+  try {
+    const saved = windowObject.localStorage.getItem(materialKey);
+    if (modes.has(saved)) return saved;
+  } catch { /* Appearance still works when the WebView disallows storage. */ }
+  return 'liquid';
+}
+
 export function createGlassAppearance(root) {
   const documentObject = root.ownerDocument;
   const windowObject = documentObject.defaultView;
@@ -7,9 +18,12 @@ export function createGlassAppearance(root) {
   const highContrast = windowObject.matchMedia('(prefers-contrast: more)');
   const desktop = windowObject.matchMedia('(min-width: 820px)');
   const navigation = new Map();
-  let choice = 'liquid';
+  let choice = modes.has(root.dataset.material) ? root.dataset.material : storedMode(windowObject);
+  root.dataset.material = choice;
   let destroyed = false;
   let frame = null;
+  const resizeObserver = typeof windowObject.ResizeObserver === 'function'
+    ? new windowObject.ResizeObserver(() => schedule()) : null;
 
   function attribute(node, name, value) {
     if (node.getAttribute(name) !== value) node.setAttribute(name, value);
@@ -28,11 +42,11 @@ export function createGlassAppearance(root) {
     }
     nav.prepend(lens);
     navigation.set(nav, lens);
+    resizeObserver?.observe(nav);
     return lens;
   }
-  function mode() {
-    return root.dataset.material === 'solid' || forcedColors.matches || highContrast.matches ? 'solid' : choice;
-  }
+  const chosenMode = () => modes.has(root.dataset.material) ? root.dataset.material : choice;
+  const mode = () => forcedColors.matches || highContrast.matches ? 'solid' : chosenMode();
   function sync() {
     if (destroyed) return;
     const current = mode();
@@ -40,10 +54,11 @@ export function createGlassAppearance(root) {
     const effect = documentObject.hidden || current === 'solid' ? 'off' : current === 'frosted' ? 'blur' : 'auto';
     for (const lens of root.querySelectorAll('.liquid-surface-layer')) attribute(lens, 'effect-mode', effect);
     for (const [nav, lens] of navigation) {
-      if (!root.contains(nav)) { lens.remove(); navigation.delete(nav); }
+      if (!root.contains(nav)) { resizeObserver?.unobserve(nav); lens.remove(); navigation.delete(nav); }
     }
     for (const nav of root.querySelectorAll('.bottom-nav, .primary-nav')) {
-      const lens = navigation.get(nav) ?? createLens(nav);
+      const savedLens = navigation.get(nav);
+      const lens = savedLens?.parentElement === nav ? savedLens : createLens(nav);
       const mobile = nav.classList.contains('bottom-nav');
       const active = nav.querySelector('[aria-current="page"]');
       const visible = (mobile ? !desktop.matches : desktop.matches) && Boolean(active);
@@ -59,7 +74,16 @@ export function createGlassAppearance(root) {
     if (destroyed || frame !== null) return;
     frame = windowObject.requestAnimationFrame(() => { frame = null; sync(); });
   }
-  const observer = new windowObject.MutationObserver(schedule);
+  const opticalSelector = '.bottom-nav, .primary-nav, .liquid-surface-layer';
+  const touchesMaterial = records => records.some(record => {
+    if (record.type === 'attributes') {
+      return record.target === root && record.attributeName === 'data-material'
+        || record.target.matches('.bottom-nav, .primary-nav, .nav-button, .desktop-nav-button');
+    }
+    return [...record.addedNodes, ...record.removedNodes].some(node => node.nodeType === 1
+      && (node.matches(opticalSelector) || node.querySelector(opticalSelector)));
+  });
+  const observer = new windowObject.MutationObserver(records => { if (touchesMaterial(records)) schedule(); });
   observer.observe(root, {subtree: true, childList: true, attributes: true,
     attributeFilter: ['class', 'style', 'aria-current', 'data-material']});
   windowObject.addEventListener('resize', schedule);
@@ -75,16 +99,18 @@ export function createGlassAppearance(root) {
   });
   sync();
   return {
-    choice: () => root.dataset.material === 'solid' ? 'solid' : choice,
+    choice: chosenMode,
     select(requested) {
-      if (!['liquid', 'frosted', 'solid'].includes(requested)) return;
-      if (requested !== 'solid') choice = requested;
-      root.dataset.material = requested === 'solid' ? 'solid' : 'auto';
+      if (!modes.has(requested)) return;
+      choice = requested;
+      attribute(root, 'data-material', choice);
+      try { windowObject.localStorage.setItem(materialKey, choice); } catch { /* Keep the current choice in memory. */ }
       sync();
     },
     destroy() {
       destroyed = true;
       observer.disconnect();
+      resizeObserver?.disconnect();
       if (frame !== null) windowObject.cancelAnimationFrame(frame);
       windowObject.removeEventListener('resize', schedule);
       documentObject.removeEventListener('visibilitychange', sync);

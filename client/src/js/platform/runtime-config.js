@@ -10,6 +10,18 @@ export const ACCESS_ROUTES = Object.freeze({
 const STORAGE_KEY = 'iot-manager.active-endpoint.v1';
 const LEGACY_NATIVE_DEVELOPMENT_HOSTS = new Set(['10.0.2.2']);
 
+// An explicit empty setting is a user choice, not an invitation to restore
+// a build-time identity provider from a different deployment.
+export function withDefaultOidcFields(profile, defaults = {}) {
+  const fields = ['oidcIssuerUrl', 'oidcClientId', 'oidcRedirectUri', 'oidcScope'];
+  if (fields.some(field => Object.prototype.hasOwnProperty.call(profile ?? {}, field))) return { ...profile };
+  try {
+    if (new URL(profile.apiBaseUrl, globalThis.location?.origin).origin !== new URL(defaults.oidcIssuerUrl).origin)
+      return { ...profile };
+  } catch { return { ...profile }; }
+  return { ...profile, ...Object.fromEntries(fields.map(field => [field, defaults[field] ?? null])) };
+}
+
 function endpointId(value) {
   const id = String(value ?? '').trim();
   if (!id) throw new TypeError('Endpoint profile requires id');
@@ -72,24 +84,25 @@ export function repairLegacyNativeEndpoint(profile, nativeDefaults) {
 export class RuntimeConfigRepository {
   constructor({ preferences = Preferences } = {}) {
     this.preferences = preferences;
+    this.writes = Promise.resolve();
   }
 
-  async load() {
+  async load({ migrate = true } = {}) {
     const { value } = await this.preferences.get({ key: STORAGE_KEY });
     if (!value) return null;
     const parsed = JSON.parse(value);
-    const normalized = normalizeEndpointProfile(parsed);
+    const normalized = normalizeEndpointProfile({ ...parsed, accessToken: null });
     // One-way migration for pre-PKCE clients: a token that used to be stored
     // in Preferences is discarded rather than copied into another store.
-    if (parsed?.accessToken) {
-      await this.preferences.set({ key: STORAGE_KEY, value: JSON.stringify(persistedEndpointProfile(normalized)) });
-    }
+    if (parsed?.accessToken && migrate) await this.save(normalized);
     return normalized;
   }
 
   async save(profile) {
     const normalized = normalizeEndpointProfile(profile);
-    await this.preferences.set({ key: STORAGE_KEY, value: JSON.stringify(persistedEndpointProfile(normalized)) });
+    const write = this.writes.catch(() => {}).then(() => this.preferences.set({ key: STORAGE_KEY, value: JSON.stringify(persistedEndpointProfile(normalized)) }));
+    this.writes = write;
+    await write;
     return normalized;
   }
 }

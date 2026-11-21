@@ -1,0 +1,5900 @@
+{
+  "schemaVersion": 1,
+  "scope": "offline-release-governance-simulation",
+  "simulation": true,
+  "productionApproved": false,
+  "checkedAt": "2026-10-29T15:33:36.175Z",
+  "node": "v22.23.3",
+  "platform": "win32",
+  "status": "PASS",
+  "total": 79,
+  "passed": 79,
+  "failed": 0,
+  "skipped": 0,
+  "forbiddenExternalIoAttempts": [],
+  "sources": [
+    {
+      "file": "scripts/testing/release-governance-simulation.mjs",
+      "sha256": "f8e633dd66b4a39f5425cfcdaf3dce7a48b5d2b079569000872c95a0f1824f89"
+    },
+    {
+      "file": "scripts/ci/release-readiness-preflight.mjs",
+      "sha256": "e7f603465a5e75097ee4a01eee9551d619afe406b8dab81960396ab262d801c6"
+    },
+    {
+      "file": "scripts/ops/release-operations.mjs",
+      "sha256": "517e6e48913b36d00f8dc702f2f9d7125fe7dcc2670863a44a5a010c7e3319ad"
+    },
+    {
+      "file": "scripts/ops/common.mjs",
+      "sha256": "1c46ddc62487324c3ff300158c61c479359dcc2c8da62dcbfbed60b37826f1d5"
+    }
+  ],
+  "boundaries": [
+    "Synthetic API snapshots and in-memory requests; no GitHub environment was created or approved.",
+    "Reviewer presence does not prove an independent eligible reviewer can approve.",
+    "Runner status and labels do not prove host isolation, OS, capacity or successful registration.",
+    "Signing metadata presence does not prove key validity or signed APK/AAB acceptance.",
+    "Distinct digests do not prove artifact existence, attestation validity or a known-good N-1.",
+    "Preflight does not check quick-gate App ID or require_last_push_approval.",
+    "A simulated dispatch remains pending and is never production approval.",
+    "The external I/O guard prevents common accidental transports; it is not an OS sandbox."
+  ],
+  "cases": [
+    {
+      "id": "valid-client",
+      "description": "client: valid synthetic metadata permits pending requests",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": true,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "app": "client"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "android",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/android-release.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "app": "client",
+                  "version_code": "26",
+                  "version_name": "1.2.0-simulation"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "valid-glass",
+      "description": "glass: valid synthetic metadata permits pending requests",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": true,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "app": "glass"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "android",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/android-release.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "app": "glass",
+                  "version_code": "26",
+                  "version_name": "1.2.0-simulation"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "r1-recovery-drill-missing",
+      "description": "r1-recovery-drill: missing environment",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "environment:r1-recovery-drill": "UNKNOWN"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "UNKNOWN",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "r1-recovery-drill-unreadable",
+      "description": "r1-recovery-drill: API unavailable",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "environment:r1-recovery-drill": "UNKNOWN"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "UNKNOWN",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "r1-recovery-drill-no-review-rule",
+      "description": "r1-recovery-drill: approval rule missing",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "environment:r1-recovery-drill": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "FAIL",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "r1-recovery-drill-no-reviewer",
+      "description": "r1-recovery-drill: reviewer list empty",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "environment:r1-recovery-drill": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "FAIL",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "r1-recovery-drill-self-review",
+      "description": "r1-recovery-drill: self-review allowed",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "environment:r1-recovery-drill": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "FAIL",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "r1-recovery-drill-admin-bypass",
+      "description": "r1-recovery-drill: administrator bypass allowed",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "environment:r1-recovery-drill": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "FAIL",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "r1-recovery-drill-unrestricted-branches",
+      "description": "r1-recovery-drill: deployment branch policy missing",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "environment:r1-recovery-drill": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "FAIL",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "r1-rollback-drill-missing",
+      "description": "r1-rollback-drill: missing environment",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "environment:r1-rollback-drill": "UNKNOWN"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "UNKNOWN",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "r1-rollback-drill-unreadable",
+      "description": "r1-rollback-drill: API unavailable",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "environment:r1-rollback-drill": "UNKNOWN"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "UNKNOWN",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "r1-rollback-drill-no-review-rule",
+      "description": "r1-rollback-drill: approval rule missing",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "environment:r1-rollback-drill": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "FAIL",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "r1-rollback-drill-no-reviewer",
+      "description": "r1-rollback-drill: reviewer list empty",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "environment:r1-rollback-drill": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "FAIL",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "r1-rollback-drill-self-review",
+      "description": "r1-rollback-drill: self-review allowed",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "environment:r1-rollback-drill": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "FAIL",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "r1-rollback-drill-admin-bypass",
+      "description": "r1-rollback-drill: administrator bypass allowed",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "environment:r1-rollback-drill": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "FAIL",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "r1-rollback-drill-unrestricted-branches",
+      "description": "r1-rollback-drill: deployment branch policy missing",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "environment:r1-rollback-drill": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "FAIL",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "android-release-missing",
+      "description": "android-release: missing environment",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "environment:android-release": "UNKNOWN"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "UNKNOWN",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "android-release-unreadable",
+      "description": "android-release: API unavailable",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "environment:android-release": "UNKNOWN"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "UNKNOWN",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "android-release-no-review-rule",
+      "description": "android-release: approval rule missing",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "environment:android-release": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "FAIL",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "android-release-no-reviewer",
+      "description": "android-release: reviewer list empty",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "environment:android-release": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "FAIL",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "android-release-self-review",
+      "description": "android-release: self-review allowed",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "environment:android-release": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "FAIL",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "android-release-admin-bypass",
+      "description": "android-release: administrator bypass allowed",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "environment:android-release": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "FAIL",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "android-release-unrestricted-branches",
+      "description": "android-release: deployment branch policy missing",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "environment:android-release": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "FAIL",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "unprotected-branch",
+      "description": "No effective default branch protection",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "FAIL",
+          "required-quick-gate": "FAIL",
+          "admin-and-history-protection": "UNKNOWN",
+          "reviewed-default-branch": "FAIL",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "missing-quick-gate",
+      "description": "Required quick-gate missing",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "required-quick-gate": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "FAIL",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "non-strict-checks",
+      "description": "Checks not required against current base",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "required-quick-gate": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "FAIL",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "branch-admin-bypass",
+      "description": "Branch administrator enforcement disabled",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "admin-and-history-protection": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "FAIL",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "force-push-allowed",
+      "description": "Force push permitted",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "admin-and-history-protection": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "FAIL",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "deletion-allowed",
+      "description": "Branch deletion permitted",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "admin-and-history-protection": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "FAIL",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "no-pr-approval",
+      "description": "No pull request approval required",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "reviewed-default-branch": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "FAIL",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "stale-review",
+      "description": "Stale approval not dismissed",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "reviewed-default-branch": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "FAIL",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "repository-unreadable",
+      "description": "Repository identity unavailable",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "UNKNOWN"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "UNKNOWN",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "valid-ruleset",
+      "description": "Equivalent ruleset-only protections",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": true,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {}
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "android",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/android-release.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "app": "glass",
+                  "version_code": "26",
+                  "version_name": "1.2.0-simulation"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "ruleset-bypass",
+      "description": "Ruleset has bypass actor",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "admin-and-history-protection": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "FAIL",
+          "reviewed-default-branch": "FAIL",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "ruleset-unreadable",
+      "description": "Ruleset details unavailable",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "admin-and-history-protection": "UNKNOWN"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "UNKNOWN",
+          "reviewed-default-branch": "FAIL",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "ruleset-inactive",
+      "description": "Ruleset is not active",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "admin-and-history-protection": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "FAIL",
+          "reviewed-default-branch": "FAIL",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "ruleset-no-deletion-rule",
+      "description": "Ruleset deletion protection missing",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "admin-and-history-protection": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "FAIL",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "runner-empty",
+      "description": "No registered runner",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "recovery-runner": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "FAIL",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "runner-offline",
+      "description": "Runner offline",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "recovery-runner": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "FAIL",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "runner-unreadable",
+      "description": "Runner API unavailable",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "recovery-runner": "UNKNOWN"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "UNKNOWN",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "runner-missing-self-hosted",
+      "description": "Runner missing self-hosted label",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "recovery-runner": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "FAIL",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "runner-missing-linux",
+      "description": "Runner missing linux label",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "recovery-runner": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "FAIL",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "runner-missing-iot-manager-recovery",
+      "description": "Runner missing iot-manager-recovery label",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "recovery-runner": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "FAIL",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "runner-split-labels",
+      "description": "Required labels spread across separate runners",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "recovery-runner": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "FAIL",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "runner-one-qualified",
+      "description": "One qualified runner among unsuitable runners",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": true,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {}
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "android",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/android-release.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "app": "glass",
+                  "version_code": "26",
+                  "version_name": "1.2.0-simulation"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "source-moved",
+      "description": "Candidate does not match current default branch HEAD",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "PASS",
+        "controls": {
+          "reviewed-source": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "FAIL"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "source-unreadable",
+      "description": "Candidate does not match current default branch HEAD",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "PASS",
+        "controls": {
+          "reviewed-source": "FAIL"
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "FAIL"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "source-not-sha",
+      "description": "Branch name cannot replace complete source SHA",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": true,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "reject": "reviewed full main-branch SHA"
+      },
+      "observed": {
+        "stages": {},
+        "requests": [],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS"
+        },
+        "outcome": "PLAN_REJECTED"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "client-missing-keystore_base64",
+      "description": "client: missing signing Secret name KEYSTORE_BASE64",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": false,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "app": "client",
+        "signing": "MISSING_OR_VERSION_REUSED"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "MISSING_OR_VERSION_REUSED"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "client-missing-store_password",
+      "description": "client: missing signing Secret name STORE_PASSWORD",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": false,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "app": "client",
+        "signing": "MISSING_OR_VERSION_REUSED"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "MISSING_OR_VERSION_REUSED"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "client-missing-key_alias",
+      "description": "client: missing signing Secret name KEY_ALIAS",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": false,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "app": "client",
+        "signing": "MISSING_OR_VERSION_REUSED"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "MISSING_OR_VERSION_REUSED"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "client-missing-key_password",
+      "description": "client: missing signing Secret name KEY_PASSWORD",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": false,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "app": "client",
+        "signing": "MISSING_OR_VERSION_REUSED"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "MISSING_OR_VERSION_REUSED"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "client-other-app-secrets",
+      "description": "client: other App credentials cannot satisfy signing configuration",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": false,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "app": "client",
+        "signing": "MISSING_OR_VERSION_REUSED"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "MISSING_OR_VERSION_REUSED"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "client-bad-fingerprint",
+      "description": "client: invalid certificate fingerprint metadata",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": false,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "app": "client",
+        "signing": "MISSING_OR_VERSION_REUSED"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "MISSING_OR_VERSION_REUSED"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "client-version-reused",
+      "description": "client: version must increase above a valid baseline",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": false,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "app": "client",
+        "signing": "MISSING_OR_VERSION_REUSED"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "MISSING_OR_VERSION_REUSED"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "client-version-lower",
+      "description": "client: version must increase above a valid baseline",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": false,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "app": "client",
+        "signing": "MISSING_OR_VERSION_REUSED"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "MISSING_OR_VERSION_REUSED"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "client-bad-baseline",
+      "description": "client: version must increase above a valid baseline",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": false,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "app": "client",
+        "signing": "MISSING_OR_VERSION_REUSED"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "MISSING_OR_VERSION_REUSED"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "client-missing-baseline",
+      "description": "client: version must increase above a valid baseline",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": false,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "app": "client",
+        "signing": "MISSING_OR_VERSION_REUSED"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "MISSING_OR_VERSION_REUSED"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "glass-missing-keystore_base64",
+      "description": "glass: missing signing Secret name KEYSTORE_BASE64",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": false,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "app": "glass",
+        "signing": "MISSING_OR_VERSION_REUSED"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "MISSING_OR_VERSION_REUSED"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "glass-missing-store_password",
+      "description": "glass: missing signing Secret name STORE_PASSWORD",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": false,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "app": "glass",
+        "signing": "MISSING_OR_VERSION_REUSED"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "MISSING_OR_VERSION_REUSED"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "glass-missing-key_alias",
+      "description": "glass: missing signing Secret name KEY_ALIAS",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": false,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "app": "glass",
+        "signing": "MISSING_OR_VERSION_REUSED"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "MISSING_OR_VERSION_REUSED"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "glass-missing-key_password",
+      "description": "glass: missing signing Secret name KEY_PASSWORD",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": false,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "app": "glass",
+        "signing": "MISSING_OR_VERSION_REUSED"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "MISSING_OR_VERSION_REUSED"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "glass-other-app-secrets",
+      "description": "glass: other App credentials cannot satisfy signing configuration",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": false,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "app": "glass",
+        "signing": "MISSING_OR_VERSION_REUSED"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "MISSING_OR_VERSION_REUSED"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "glass-bad-fingerprint",
+      "description": "glass: invalid certificate fingerprint metadata",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": false,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "app": "glass",
+        "signing": "MISSING_OR_VERSION_REUSED"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "MISSING_OR_VERSION_REUSED"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "glass-version-reused",
+      "description": "glass: version must increase above a valid baseline",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": false,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "app": "glass",
+        "signing": "MISSING_OR_VERSION_REUSED"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "MISSING_OR_VERSION_REUSED"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "glass-version-lower",
+      "description": "glass: version must increase above a valid baseline",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": false,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "app": "glass",
+        "signing": "MISSING_OR_VERSION_REUSED"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "MISSING_OR_VERSION_REUSED"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "glass-bad-baseline",
+      "description": "glass: version must increase above a valid baseline",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": false,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "app": "glass",
+        "signing": "MISSING_OR_VERSION_REUSED"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "MISSING_OR_VERSION_REUSED"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "glass-missing-baseline",
+      "description": "glass: version must increase above a valid baseline",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": false,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "app": "glass",
+        "signing": "MISSING_OR_VERSION_REUSED"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "MISSING_OR_VERSION_REUSED"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "missing-currentEvidenceDigest",
+      "description": "Both N and N-1 digests required for rollback",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": true,
+          "rollback": false
+        },
+        "governance": "PASS",
+        "controls": {}
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "android",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/android-release.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "app": "glass",
+                  "version_code": "26",
+                  "version_name": "1.2.0-simulation"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "invalid-currentEvidenceDigest",
+      "description": "Malformed digest rejected before dispatch",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": true,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "reject": "sha256:"
+      },
+      "observed": {
+        "stages": {},
+        "requests": [],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS"
+        },
+        "outcome": "PLAN_REJECTED"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "missing-rollbackEvidenceDigest",
+      "description": "Both N and N-1 digests required for rollback",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": true,
+          "rollback": false
+        },
+        "governance": "PASS",
+        "controls": {}
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "android",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/android-release.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "app": "glass",
+                  "version_code": "26",
+                  "version_name": "1.2.0-simulation"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "invalid-rollbackEvidenceDigest",
+      "description": "Malformed digest rejected before dispatch",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": true,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "reject": "sha256:"
+      },
+      "observed": {
+        "stages": {},
+        "requests": [],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS"
+        },
+        "outcome": "PLAN_REJECTED"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "equal-evidence",
+      "description": "N and N-1 cannot have the same digest",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": true,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "reject": "N and N-1 must be distinct"
+      },
+      "observed": {
+        "stages": {},
+        "requests": [],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS"
+        },
+        "outcome": "PLAN_REJECTED"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "request-failure-gate",
+      "description": "Request transport error must propagate without a successful result",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": true,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "requestFailure": "gate"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_REJECTED",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "android",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/android-release.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "app": "glass",
+                  "version_code": "26",
+                  "version_name": "1.2.0-simulation"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "request-failure-recovery",
+      "description": "Request transport error must propagate without a successful result",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": true,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "requestFailure": "recovery"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_REJECTED",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "android",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/android-release.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "app": "glass",
+                  "version_code": "26",
+                  "version_name": "1.2.0-simulation"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "request-failure-android",
+      "description": "Request transport error must propagate without a successful result",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": true,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "requestFailure": "android"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_REJECTED",
+            "requestCount": 1
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "android",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/android-release.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "app": "glass",
+                  "version_code": "26",
+                  "version_name": "1.2.0-simulation"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "request-failure-rollback",
+      "description": "Request transport error must propagate without a successful result",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": true,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "requestFailure": "rollback"
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_REJECTED",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "android",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/android-release.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "app": "glass",
+                  "version_code": "26",
+                  "version_name": "1.2.0-simulation"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "invalid-stage",
+      "description": "Unknown workflow stage cannot issue a request",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": true,
+          "recovery": true,
+          "android": true,
+          "rollback": true
+        },
+        "governance": "PASS",
+        "controls": {},
+        "invalidStage": true
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "recovery": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "android": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          },
+          "rollback": {
+            "ready": true,
+            "outcome": "SIMULATED_REQUEST_PENDING",
+            "requestCount": 1
+          }
+        },
+        "requests": [
+          {
+            "stage": "gate",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/release-gate.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "recovery",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/recovery-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_project": "synthetic-source"
+                }
+              }
+            }
+          },
+          {
+            "stage": "android",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/android-release.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "app": "glass",
+                  "version_code": "26",
+                  "version_name": "1.2.0-simulation"
+                }
+              }
+            }
+          },
+          {
+            "stage": "rollback",
+            "endpoint": "repos/simulation-only/fixture/actions/workflows/rollback-drill.yml/dispatches",
+            "request": {
+              "method": "POST",
+              "body": {
+                "ref": "main",
+                "inputs": {
+                  "current_evidence_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "rollback_evidence_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          }
+        ],
+        "governance": "PASS",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "PASS",
+          "environment:r1-rollback-drill": "PASS",
+          "environment:android-release": "PASS",
+          "recovery-runner": "PASS",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT",
+        "invalidStage": "BLOCKED_NO_REQUEST"
+      },
+      "status": "PASS"
+    },
+    {
+      "id": "historical-gap-replay",
+      "description": "Synthetic replay of 2026-10-27 governance gaps; not a live snapshot",
+      "simulation": true,
+      "productionApproved": false,
+      "expected": {
+        "ready": {
+          "gate": false,
+          "recovery": false,
+          "android": false,
+          "rollback": false
+        },
+        "governance": "FAIL",
+        "controls": {
+          "environment:r1-recovery-drill": "FAIL",
+          "environment:r1-rollback-drill": "UNKNOWN",
+          "environment:android-release": "UNKNOWN",
+          "recovery-runner": "FAIL"
+        },
+        "counts": {
+          "PASS": 4,
+          "FAIL": 2,
+          "UNKNOWN": 2
+        }
+      },
+      "observed": {
+        "stages": {
+          "gate": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "recovery": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "android": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          },
+          "rollback": {
+            "ready": false,
+            "outcome": "BLOCKED_NO_REQUEST",
+            "requestCount": 0
+          }
+        },
+        "requests": [],
+        "governance": "FAIL",
+        "controls": {
+          "default-branch-protection": "PASS",
+          "required-quick-gate": "PASS",
+          "admin-and-history-protection": "PASS",
+          "reviewed-default-branch": "PASS",
+          "environment:r1-recovery-drill": "FAIL",
+          "environment:r1-rollback-drill": "UNKNOWN",
+          "environment:android-release": "UNKNOWN",
+          "recovery-runner": "FAIL",
+          "reviewed-source": "PASS"
+        },
+        "signingConfiguration": "PRESENT"
+      },
+      "status": "PASS"
+    }
+  ]
+}

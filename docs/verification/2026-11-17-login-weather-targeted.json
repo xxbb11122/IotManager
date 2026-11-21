@@ -1,0 +1,27 @@
+{
+  "date": "2026-11-17",
+  "timezone": "Asia/Shanghai",
+  "applicationVersion": "1.1.4-glass.8",
+  "androidVersionCode": 13,
+  "scope": "targeted-regression-not-full-project-acceptance",
+  "suites": {
+    "backend": { "tests": 64, "passed": 64, "failed": 0, "skipped": 0 },
+    "glassUnit": { "tests": 38, "passed": 38, "failed": 0, "skipped": 0 },
+    "clientUnit": { "tests": 37, "passed": 37, "failed": 0, "skipped": 0 },
+    "chromium": { "tests": 18, "passed": 18, "failed": 0, "skipped": 0 }
+  },
+  "totalTests": 157,
+  "liveProtocol": {
+    "passedCheckpoints": 13,
+    "verifiedTls": true,
+    "authenticatedWss": true,
+    "realBackendChat": true,
+    "chatPosts": 1,
+    "testConversationRemoved": true,
+    "credentialsLogged": false
+  },
+  "actualPhoneVerified": false,
+  "nativeExternalBrowserVerified": false,
+  "releaseSignedApk": false,
+  "productionReleaseApproved": false
+}

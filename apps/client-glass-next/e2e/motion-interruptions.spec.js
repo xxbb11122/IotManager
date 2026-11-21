@@ -54,7 +54,7 @@ async function fixture(page) {
   });
 }
 
-async function pointerSequence(page, { id = 1, moves = [[0, 180]], cancel = false, target = '.screen-heading p', pointerType = 'touch' } = {}) {
+async function pointerSequence(page, { id = 1, moves = [[0, 180]], cancel = false, target = '.context-row__location', pointerType = 'touch' } = {}) {
   await page.evaluate(({ id, moves, cancel, target, pointerType }) => {
     window.scrollTo(0, 0);
     const element = document.querySelector(`[data-region="screen-content"] ${target}`);

@@ -50,6 +50,11 @@ public class AiChatService {
     }
 
     public Submission submit(long siteId, String actor, String question, String conversationId, String key) {
+        return submit(siteId, actor, question, conversationId, key, null, null);
+    }
+
+    public Submission submit(long siteId, String actor, String question, String conversationId, String key,
+                             String diagnosisFingerprint, java.util.function.Supplier<String> diagnosisEvidence) {
         if (question == null || question.isBlank() || question.length() > properties.getMaxQuestionChars())
             throw new IllegalArgumentException("Question is empty or too long");
         key = AiConversationStore.key(key);
@@ -60,7 +65,7 @@ public class AiChatService {
         AiConversationStore.Request request = null;
         String outcome = "failed";
         try {
-            var claim = requests.claim(siteId, actor, key, question, conversationId, () -> {
+            var claim = requests.claim(siteId, actor, key, question, conversationId, diagnosisFingerprint, () -> {
                 if (!concurrency.tryAcquire()) throw new AiException(HttpStatus.TOO_MANY_REQUESTS,
                         "CONCURRENCY_LIMITED", "AI chat concurrency limit reached", 10);
                 acquired.set(true);
@@ -77,9 +82,10 @@ public class AiChatService {
                         "UNKNOWN".equals(state.state()) ? "AI result is uncertain; query this request before retrying" : "This request previously failed", 0);
             }
             var owned = request;
+            var evidence = diagnosisEvidence == null ? null : diagnosisEvidence.get();
             var generated = generator.generate(claim, () -> {
                 if (!requests.dispatched(owned)) throw new AiException(HttpStatus.GONE, "REQUEST_INACTIVE", "AI request is no longer active", 0);
-            });
+            }, evidence);
             if (!requests.finish(request, generated.reply(), generated.usages(), generated.outcome())) {
                 requests.status(siteId, actor, key);
                 throw new AiException(HttpStatus.SERVICE_UNAVAILABLE, "RESULT_UNKNOWN", "AI result could not be committed", 0);

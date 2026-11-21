@@ -18,6 +18,8 @@ spring:
     baseline-on-migrate: true
 
 iot:
+  discovery:
+    demo-enabled: true
   command-simulator:
     # Real Android testing should receive actual platform events, not a
     # one-second simulated stream that forces the UI to re-render constantly.

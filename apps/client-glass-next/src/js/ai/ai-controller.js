@@ -15,7 +15,7 @@ export function createAiController({
     history: value.history, historyCursor: value.historyCursor, messageCursor: value.messageCursor, retryAt: value.retryAt
   });
   const visible = () => screen.startsWith('ai');
-  const emit = (patch = {}) => { state = { ...state, ...patch, now: now() }; onChange(structuredClone(state)); };
+  const emit = (patch = {}, change = null) => { state = { ...state, ...patch, now: now() }; onChange(structuredClone(state), change); };
   const current = (ticket, action = null) => ticket === epoch && (action === null || action === operation);
   const stopTimer = () => { if (timer !== null) scheduler.clearTimeout(timer); timer = null; };
   const abort = () => { for (const controller of controllers) controller.abort(); controllers.clear(); };
@@ -74,7 +74,9 @@ export function createAiController({
           limits: { ...state.limits, ...(capability?.limits ?? {}) }, loading: false,
           status: status.enabled ? (legacy ? 'legacy' : 'ready') : 'disabled',
           canManage: (me.roles ?? []).some((role) => ['OWNER', 'ADMIN'].includes(String(role).replace(/^ROLE_/, ''))),
-          notice: legacy ? '服务器需要升级：当前可提问，历史分页、请求恢复和性格管理暂不可用。' : '站点知识库暂未启用；设备状态仅作只读解释。' });
+          notice: legacy ? '服务器需要升级：当前可提问，历史分页、请求恢复和性格管理暂不可用。'
+            : status.knowledgeEnabled === true ? '站点知识库可用；设备状态和验证结果来自只读证据。'
+              : '站点知识库暂未启用；设备状态和内置排查规则可单独使用。' });
         if (!status.enabled) return;
         const saved = state.features.requestRecovery ? await recovery.get(scopeKey) : null;
         if (!current(ticket)) return;
@@ -114,26 +116,34 @@ export function createAiController({
     messages.push({ id: reply.requestId + ':user', turnId: reply.requestId, role: 'USER', content: question },
       { id: reply.requestId + ':assistant', turnId: reply.requestId, role: 'ASSISTANT', content: reply.answer });
     const scope = state.scopeKey;
+    const draft = state.pending?.kind === 'DEVICE_DIAGNOSIS' ? state.draft : '';
     emit({ messages, conversationId: reply.conversationId, personaVersion: reply.personaVersion,
-      pending: null, busy: false, status: state.legacy ? 'legacy' : 'ready', error: null, draft: '',
+      pending: null, busy: false, status: state.legacy ? 'legacy' : 'ready', error: null, draft,
       notice: reply.contextNotice === 'HISTORY_OMITTED_OVERSIZE' ? '上一轮内容过长，本次回答未带入历史上下文；原记录仍可查看。' : state.notice });
     stopTimer();
     await recovery.remove(scope).catch(() => {});
   }
-  async function send() {
+  async function send(deviceDiagnosis = null, { stillCurrent = () => true } = {}) {
     await syncContext();
-    if (!aiCanSend(state)) return false;
-    const ticket = epoch, action = ++operation, question = state.draft.trim(), key = keyFactory();
-    const pending = { clientRequestId: key, conversationId: state.conversationId, submittedAt: now(), state: 'PROCESSING', question };
+    if (!stillCurrent()) return false;
+    if (deviceDiagnosis && (!state.features.deviceDiagnosis || !state.features.idempotency)) return false;
+    const question = deviceDiagnosis
+      ? '请根据本次选定设备的证据给出修复步骤、验证条件及失败后的处理。'
+      : state.draft.trim();
+    if (!aiCanSend(deviceDiagnosis ? { ...state, draft: question } : state)) return false;
+    const ticket = epoch, action = ++operation, key = keyFactory();
+    const pending = { clientRequestId: key, conversationId: state.conversationId, submittedAt: now(), state: 'PROCESSING', question,
+      ...(deviceDiagnosis ? { kind: 'DEVICE_DIAGNOSIS' } : {}) };
     emit({ pending, busy: true, status: 'waiting', error: null,
       messages: [...state.messages, { id: key + ':pending', role: 'USER', content: question, temporary: true }] });
     let posted = false;
     try {
       if (state.features.requestRecovery) await recovery.put(state.scopeKey, pending);
-      if (!current(ticket, action)) return false;
+      if (!current(ticket, action) || !stillCurrent()) return false;
       posted = true;
       const reply = await request((options) => api.askAi(siteId, question, pending.conversationId,
-        { ...options, headers: state.features.idempotency ? { 'Idempotency-Key': key } : {} }));
+        { ...options, headers: state.features.idempotency ? { 'Idempotency-Key': key } : {},
+          ...(deviceDiagnosis ? { deviceDiagnosis } : {}) }));
       if (!current(ticket, action)) return false;
       if (reply?.state === 'PROCESSING') {
         emit({ busy: false, pending: { ...pending, ...reply }, conversationId: reply.conversationId });
@@ -329,10 +339,16 @@ export function createAiController({
   return {
     getState: () => structuredClone(state), syncContext, reset, setScreen, send, recover, cancelWait, newConversation,
     loadHistory, loadMessages, selectConversation, deleteConversation, loadPersona, savePersona, activatePersona,
-    setDraft: (draft) => emit({ draft }),
+    setDraft: (draft) => emit({ draft }, { kind: 'draft' }),
     setPersonaDraft: (field, value) => emit({ personaDraft: { ...state.personaDraft, [field]: value } }),
     async retry() {
       if (!['FAILED', 'UNKNOWN'].includes(state.pending?.state)) return;
+      if (state.pending?.kind === 'DEVICE_DIAGNOSIS') {
+        const scope = state.scopeKey;
+        emit({ pending: null, status: 'ready', error: null, notice: '没有重发。请重新排查以取得新的设备证据。' });
+        await recovery.remove(scope).catch(() => {});
+        return;
+      }
       const question = state.pending.question ?? '';
       emit({ pending: null, draft: question, error: null }); await send();
     },

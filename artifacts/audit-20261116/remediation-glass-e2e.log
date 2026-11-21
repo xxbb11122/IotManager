@@ -1,0 +1,37 @@
+
+> iot-client-glass-next@1.1.4-glass.7 test:e2e
+> playwright test e2e/glass-client.spec.js e2e/mobile-client.spec.js e2e/refresh-stability.spec.js e2e/mobile-offline-recovery.spec.js
+
+[WebServer] (node:24196) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 19 tests using 2 workers
+
+(node:4552) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:26400) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok  2 e2e\glass-client.spec.js:80:1 › production entry keeps AI draft controls responsive and sends once with the docked composer (4.5s)
+  ok  1 e2e\mobile-client.spec.js:3:1 › mobile client exposes devices, activity, add, and connection settings without overflow (8.1s)
+  ok  3 e2e\glass-client.spec.js:108:1 › new App uses the real API adapter and confirms a native range command exactly once (3.7s)
+[WebServer] 00:08:54 [vite] http proxy error: /api/v1/me
+[WebServer] Error: connect ECONNREFUSED 127.0.0.1:9
+[WebServer]     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1638:16)
+  ok  4 e2e\mobile-offline-recovery.spec.js:12:1 › mobile offline refresh keeps cached data, recovers, and suppresses rapid duplicate refreshes (3.0s)
+  ok  5 e2e\glass-client.spec.js:127:1 › real connection and OIDC fields coexist with independent material and motion choices (3.6s)
+  ok  7 e2e\glass-client.spec.js:153:1 › weather saves through the production API and keeps manual settings expanded (2.7s)
+  ok  6 e2e\refresh-stability.spec.js:54:1 › twenty identical pushes produce no publications, DOM mutations or region replacements (5.5s)
+  ok  9 e2e\refresh-stability.spec.js:84:5 › mouse: same-value update preserves a legal click (1.5s)
+  ok 10 e2e\refresh-stability.spec.js:84:5 › mouse: changed press intent cancels without an opposite command (1.5s)
+  ok 11 e2e\refresh-stability.spec.js:84:5 › touch: same-value update preserves a legal click (1.5s)
+  ok 12 e2e\refresh-stability.spec.js:84:5 › touch: changed press intent cancels without an opposite command (1.5s)
+  ok  8 e2e\glass-client.spec.js:168:1 › latest App pages fit phone and desktop widths with the new glass styles (8.8s)
+  ok 13 e2e\refresh-stability.spec.js:118:1 › switch transitions use the original node; reduced motion retains the same final state (1.6s)
+  ok 14 e2e\refresh-stability.spec.js:140:1 › one weather change gives one local cue; forecast, duplicates and countdown retain nodes (1.5s)
+  ok 15 e2e\refresh-stability.spec.js:170:1 › duplicate receipts are suppressed and mixed domains patch controls only once (1.9s)
+  ok 16 e2e\refresh-stability.spec.js:193:1 › temporary read-only and pointer cancellation cannot revive an old command intent (1.3s)
+  ok 17 e2e\refresh-stability.spec.js:216:1 › actual runtime: failed startup plus three WS reconnects performs one list read and exposes build identity (4.9s)
+  ok 18 e2e\refresh-stability.spec.js:259:1 › continuous measurement pushes retain controls and present only the latest sample at 1Hz (5.8s)
+  ok 19 e2e\refresh-stability.spec.js:280:1 › account partition changes cancel an old press even if both accounts are authenticated (1.0s)
+
+  19 passed (49.4s)

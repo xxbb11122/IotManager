@@ -93,6 +93,49 @@ test('a prior device disconnect callback cannot disconnect the newer BLE link', 
   assert.equal(adapter.connection.deviceId, 'new-device');
 });
 
+test('switching closes the original native GATT handle before making a new connection', async () => {
+  const events = [], callbacks = new Map();
+  const adapter = new NativeBleAdapter({ bleClient: {
+    async connect(id, onDisconnect) { events.push('connect:' + id); callbacks.set(id, onDisconnect); },
+    async getServices() { return []; }, async disconnect(id) { events.push('disconnect:' + id); },
+    async getConnectedDevices() { return [{ deviceId: 'old' }, { deviceId: 'new' }]; }
+  } });
+  await adapter.connect({ deviceId: 'old' });
+  await adapter.connect({ deviceId: 'new' });
+  callbacks.get('old')();
+  assert.deepEqual(events, ['connect:old', 'disconnect:old', 'connect:new']);
+  assert.equal(adapter.assessmentConnection().deviceId, 'new');
+  assert.equal(await adapter.verifyConnection(), true);
+});
+
+test('failed old-link release blocks a switch while keeping its original identity', async () => {
+  const connected = [];
+  const adapter = new NativeBleAdapter({ bleClient: {
+    async connect(id) { connected.push(id); }, async getServices() { return []; },
+    async disconnect() { throw new Error('could not confirm disconnect'); }
+  } });
+  await adapter.connect({ deviceId: 'old' });
+  await assert.rejects(adapter.connect({ deviceId: 'new' }), /could not confirm disconnect/);
+  assert.deepEqual(connected, ['old']);
+  assert.equal(adapter.assessmentConnection().deviceId, 'old');
+});
+
+test('assessment reads only the discovered standard read-only battery characteristic', async () => {
+  const reads = [];
+  const uuid = (hex) => '0000' + hex + '-0000-1000-8000-00805f9b34fb';
+  const adapter = new NativeBleAdapter({ bleClient: {
+    async connect() {}, async getServices() {
+      return [{ uuid: uuid('180f'), characteristics: [{ uuid: uuid('2a19'), properties: { read: true } }] }];
+    },
+    async read(...args) { reads.push(args); return new DataView(Uint8Array.of(0).buffer); },
+    async write() { assert.fail('An assessment must not write GATT'); }
+  } });
+  await adapter.connect({ deviceId: 'battery-fixture' });
+  assert.equal(await adapter.readAssessmentField('temperature'), null);
+  assert.equal((await adapter.readAssessmentField('battery')).value, 0);
+  assert.deepEqual(reads, [['battery-fixture', uuid('180f'), uuid('2a19')]]);
+});
+
 test('profile read-back is the only source of acknowledged reported state', async () => {
   const registry = {
     matchDiscoveredServices: () => ({ id: 'confirmed' }),

@@ -63,7 +63,8 @@ export function createAiRecoveryStore(storage, now = () => Date.now()) {
     get: (scope) => serial(async () => (await read())[scope] ?? null),
     put: (scope, value) => serial(async () => {
       const rows = await read();
-      rows[scope] = { clientRequestId: value.clientRequestId, conversationId: value.conversationId ?? null, submittedAt: value.submittedAt };
+      rows[scope] = { clientRequestId: value.clientRequestId, conversationId: value.conversationId ?? null, submittedAt: value.submittedAt,
+        ...(value.kind === 'DEVICE_DIAGNOSIS' ? { kind: value.kind } : {}) };
       const bounded = Object.fromEntries(Object.entries(rows).sort((a, b) => b[1].submittedAt - a[1].submittedAt).slice(0, 20));
       await storage.set({ key, value: JSON.stringify(bounded) });
     }),

@@ -1,6 +1,9 @@
 import { CHANGE_DOMAIN } from './store.js';
 
-const DEFAULT_BATCH_WINDOW_MS = 150;
+// Authoritative changes should become usable within roughly one frame.
+// Measurement-only telemetry retains its established burst/1Hz policy.
+const DEFAULT_BATCH_WINDOW_MS = 16;
+const TELEMETRY_BATCH_WINDOW_MS = 150;
 
 function arrayOf(value) {
   return Array.isArray(value) ? value : [];
@@ -95,7 +98,7 @@ export function createRenderCoordinator({
     }
     telemetryOnly = telemetryOnly && metadata.presentation === 'telemetry';
     scheduleFlush(fullRenderRequired ? 0 : telemetryOnly
-      ? Math.max(batchWindowMs, lastTelemetryFlushAt + telemetryIntervalMs - now())
+      ? Math.max(TELEMETRY_BATCH_WINDOW_MS, batchWindowMs, lastTelemetryFlushAt + telemetryIntervalMs - now())
       : batchWindowMs);
   }
 

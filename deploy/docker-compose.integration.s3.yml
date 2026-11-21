@@ -1,0 +1,15 @@
+# Explicit laboratory S3 overlay. The ordinary integration profile keeps its
+# filesystem backend. Apply this file after docker-compose.integration.yml.
+services:
+  postgres:
+    environment:
+      WALG_STORAGE_MODE: s3
+      WALG_FILE_PREFIX: ""
+  wal-g-archive:
+    environment:
+      WALG_STORAGE_MODE: s3
+      WALG_FILE_PREFIX: ""
+  wal-g-backup:
+    environment:
+      WALG_STORAGE_MODE: s3
+      WALG_FILE_PREFIX: ""

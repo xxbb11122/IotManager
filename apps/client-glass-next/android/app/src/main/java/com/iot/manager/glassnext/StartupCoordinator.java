@@ -3,7 +3,9 @@ package com.iot.manager.glassnext;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ObjectAnimator;
+import android.animation.PropertyValuesHolder;
 import android.animation.ValueAnimator;
+import android.content.pm.ApplicationInfo;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
@@ -15,280 +17,236 @@ import android.view.ViewGroup;
 import android.view.animation.PathInterpolator;
 import android.webkit.WebView;
 import android.widget.FrameLayout;
-
 import androidx.core.splashscreen.SplashScreenViewProvider;
-
 import com.getcapacitor.JSObject;
+import java.util.UUID;
 
-/** Owns the one visible Android startup cover and its bounded failure paths. */
+/** Exactly one visible cover; all delayed work belongs to one Activity/attempt. */
 final class StartupCoordinator {
-    private static final String TAG = "StartupVisual";
-    private static final long MIN_HOLD_MS = 800;
-    private static final long EXIT_MS = 360;
-    // The WebView can need several seconds to load its first module on a cold
-    // renderer. Keep a single native cover through that normal startup work.
-    private static final long STARTUP_TIMEOUT_MS = 8000;
-    private static final long WEB_RESCUE_MS = 9500;
-    private static final long PROBE_INTERVAL_MS = 120;
-
     private final MainActivity activity;
+    private final String instanceId = UUID.randomUUID().toString();
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private final Runnable timeout = this::onTimeout;
-    private final Runnable tryExit = this::maybeStartExit;
-    private final Runnable animationDeadline = this::finishExit;
-
+    private final Runnable timeout = this::onTimeout, tryExit = this::maybeStartExit;
+    private final Runnable animationDeadline = this::finishExit, probe = this::probeWebFallback;
     private long startedAt = SystemClock.elapsedRealtime();
-    private int launchId = 1;
+    private int launchId = 1, probeAttempt = 0;
     private WebView webView;
     private SplashScreenViewProvider splashView;
-    private View recoveryView;
+    private View recoveryView, iconView;
     private StartupVisualPlugin plugin;
-    private ObjectAnimator animator;
-    private boolean webFallbackReady;
-    private boolean handoffRequested;
-    private boolean prepared;
-    private boolean frameReady;
-    private boolean reducedMotion;
-    private boolean timedOut;
-    private boolean exiting;
-    private boolean completed;
-    private boolean webFallback;
-    private boolean nativeFallback;
-    private boolean destroyed;
+    private ObjectAnimator animator, pulse;
+    private boolean webFallbackReady, prepared, frameReady, reducedMotion, timedOut;
+    private boolean exiting, completed, webFallback, nativeFallback, destroyed, probeInFlight;
+    private boolean foreground = true;
 
     StartupCoordinator(MainActivity activity) {
         this.activity = activity;
-        handler.postDelayed(timeout, STARTUP_TIMEOUT_MS);
+        handler.postDelayed(timeout, StartupPolicy.TIMEOUT_MS);
+        trace("activity_create");
     }
-
-    void bindPlugin(StartupVisualPlugin plugin) {
-        this.plugin = plugin;
-    }
-
-    void onWebViewAvailable(WebView webView) {
-        this.webView = webView;
+    void bindPlugin(StartupVisualPlugin plugin) { this.plugin = plugin; }
+    void onWebViewAvailable(WebView view) {
+        webView = view;
         trace("webview_available");
-        probeWebFallback();
+        scheduleProbe();
     }
-
-    void onSplashReady(SplashScreenViewProvider splashView) {
-        if (destroyed) {
-            splashView.remove();
-            return;
-        }
-        if (this.splashView != null) {
-            splashView.remove();
-            return;
-        }
-        this.splashView = splashView;
-        splashView.getView().setAlpha(1f);
-        trace("splash_ready");
-        if (timedOut) onTimeout();
-        else maybeStartExit();
+    void onSplashReady(SplashScreenViewProvider view) {
+        if (destroyed || completed || splashView != null || nativeFallback || webFallback) { view.remove(); return; }
+        splashView = view;
+        view.getView().setAlpha(1f);
+        iconView = view.getIconView();
+        startPulse();
+        trace("native_cover_ready");
+        if (timedOut) onTimeout(); else maybeStartExit();
     }
-
     JSObject launchState() {
-        if (!timedOut && !completed) handoffRequested = true;
         JSObject state = new JSObject();
+        state.put("protocolVersion", 2);
+        state.put("activityInstanceId", instanceId);
         state.put("launchId", launchId);
-        state.put("remainingWebRescueMs", Math.max(0, WEB_RESCUE_MS - elapsed()));
-        String phase = completed ? "COMPLETE" : exiting ? "EXITING" : nativeFallback ? "NATIVE_FALLBACK"
-                : webFallback ? "WEB_FALLBACK" : "COVERING";
-        state.put("phase", phase);
-        trace("launch_state=" + phase);
+        state.put("elapsedMs", elapsed());
+        state.put("remainingWebRescueMs", Math.max(0, StartupPolicy.RESCUE_MS - elapsed()));
+        state.put("phase", completed ? "COMPLETE" : exiting ? "EXITING" : nativeFallback ? "NATIVE_FALLBACK" : webFallback ? "WEB_FALLBACK" : "COVERING");
+        state.put("coverOwner", completed ? "none" : webFallback ? "web" : "native");
+        state.put("coverRemoved", currentCover() == null && (completed || webFallback));
+        state.put("probeCount", probeAttempt);
         return state;
     }
-
-    boolean prepareReveal(int requestedLaunchId, boolean reducedMotion) {
-        if (destroyed || requestedLaunchId != launchId || prepared || timedOut || exiting || completed
-                || nativeFallback || webFallback || elapsed() >= STARTUP_TIMEOUT_MS || !webViewReady()) return false;
+    private boolean matches(int launch, String instance) {
+        return !destroyed && StartupPolicy.matches(instance, launch, instanceId, launchId);
+    }
+    boolean prepareReveal(int launch, String instance, boolean reduced) {
+        if (!matches(launch, instance) || prepared || timedOut || exiting || completed || nativeFallback || webFallback
+            || elapsed() >= StartupPolicy.TIMEOUT_MS || !webViewReady()) return false;
         prepared = true;
-        this.reducedMotion = reducedMotion;
+        reducedMotion = reduced;
+        stopPulse();
+        handler.removeCallbacks(probe);
         trace("prepare_reveal");
-        final int requestLaunchId = launchId;
-        webView.postVisualStateCallback(requestLaunchId, new WebView.VisualStateCallback() {
-            @Override
-            public void onComplete(long requestId) {
-                if (destroyed || requestLaunchId != launchId || timedOut || completed || !prepared) return;
-                frameReady = true;
-                trace("frame_ready");
-                maybeStartExit();
-            }
-        });
+        requestFrame();
         return true;
     }
-
-    private long elapsed() {
-        return SystemClock.elapsedRealtime() - startedAt;
+    boolean reportWebCoverReady(int launch, String instance, boolean reduced) {
+        if (!matches(launch, instance) || prepared || timedOut || completed || !webViewReady()) return false;
+        reducedMotion = reduced;
+        if (reduced) stopPulse();
+        confirmWebCover(launchId);
+        return true;
     }
-
-    private boolean webViewReady() {
-        return webView != null && webView.isAttachedToWindow() && webView.getVisibility() == View.VISIBLE;
+    boolean setMotionPolicy(int launch, String instance, boolean reduced) {
+        if (!matches(launch, instance) || completed || nativeFallback || webFallback) return false;
+        reducedMotion = reduced;
+        if (reduced) { stopPulse(); if (exiting && foreground) finishExit(); else maybeStartExit(); }
+        else startPulse();
+        return true;
     }
-
-    private void probeWebFallback() {
-        if (destroyed || webFallbackReady || prepared || timedOut || completed || elapsed() >= STARTUP_TIMEOUT_MS) return;
-        if (!webViewReady()) {
-            handler.postDelayed(this::probeWebFallback, PROBE_INTERVAL_MS);
-            return;
-        }
-        final int requestLaunchId = launchId;
-        webView.evaluateJavascript("(function(){var e=document.getElementById('startup-overlay');var i=e&&e.querySelector('img');return !!(e&&!e.hidden&&i&&i.complete&&i.naturalWidth>0);})()", result -> {
-            if (destroyed || requestLaunchId != launchId || prepared || timedOut) return;
-            if (!"true".equals(result)) {
-                handler.postDelayed(this::probeWebFallback, PROBE_INTERVAL_MS);
-                return;
+    boolean failStartup(int launch, String instance) {
+        if (!matches(launch, instance) || completed || webFallback || nativeFallback) return false;
+        stopExit();
+        timedOut = nativeFallback = true;
+        handler.removeCallbacks(timeout);
+        handler.removeCallbacks(probe);
+        stopPulse(); showRecovery(); removeSplash();
+        trace("explicit_recovery");
+        return true;
+    }
+    private void requestFrame() {
+        if (!webViewReady() || !foreground || destroyed || timedOut || completed || !prepared) return;
+        final int ticket = launchId;
+        webView.postVisualStateCallback(ticket, new WebView.VisualStateCallback() {
+            @Override public void onComplete(long id) {
+                if (destroyed || ticket != launchId || timedOut || completed || !prepared || !foreground) return;
+                frameReady = true; trace("frame_ready"); maybeStartExit();
             }
-            webView.postVisualStateCallback(requestLaunchId, new WebView.VisualStateCallback() {
-                @Override
-                public void onComplete(long requestId) {
-                    if (!destroyed && requestLaunchId == launchId && !prepared && !timedOut) {
-                        webFallbackReady = true;
-                        trace("web_fallback_ready");
-                    }
-                }
-            });
         });
     }
-
+    private long elapsed() { return SystemClock.elapsedRealtime() - startedAt; }
+    private boolean webViewReady() { return webView != null && webView.isAttachedToWindow() && webView.getVisibility() == View.VISIBLE; }
+    private void scheduleProbe() {
+        if (destroyed || prepared || timedOut || completed || webFallbackReady || probeInFlight) return;
+        long delay = StartupPolicy.probeDelay(probeAttempt);
+        if (delay < 0) return;
+        handler.removeCallbacks(probe);
+        handler.postDelayed(probe, delay);
+    }
+    private void probeWebFallback() {
+        if (destroyed || webFallbackReady || prepared || timedOut || completed || probeInFlight) return;
+        if (StartupPolicy.probeDelay(probeAttempt) < 0) return;
+        probeAttempt++;
+        if (!webViewReady()) { scheduleProbe(); return; }
+        final int ticket = launchId;
+        probeInFlight = true;
+        webView.evaluateJavascript("(function(){var w=window.__iotStartupWatchdog;var e=document.getElementById('startup-overlay');var i=e&&e.querySelector('img');return !!(w&&w.setOwner&&e&&!e.hidden&&((i&&i.complete&&i.naturalWidth>0)||e.dataset.coverReady==='true'));})()", result -> {
+            if (destroyed || ticket != launchId) return;
+            probeInFlight = false;
+            if (prepared || timedOut || completed) return;
+            if ("true".equals(result)) confirmWebCover(ticket); else scheduleProbe();
+        });
+    }
+    private void confirmWebCover(int ticket) {
+        webView.postVisualStateCallback(ticket, new WebView.VisualStateCallback() {
+            @Override public void onComplete(long id) {
+                if (destroyed || ticket != launchId || prepared || timedOut || completed) return;
+                webFallbackReady = true; handler.removeCallbacks(probe); trace("web_cover_ready");
+            }
+        });
+    }
     private void maybeStartExit() {
-        if (destroyed || timedOut || exiting || completed || !frameReady) return;
+        if (destroyed || timedOut || exiting || completed || !frameReady || !foreground || !webViewReady()) return;
         View cover = currentCover();
         if (cover == null) return;
-        long remaining = MIN_HOLD_MS - elapsed();
-        if (!reducedMotion && remaining > 0) {
-            handler.removeCallbacks(tryExit);
-            handler.postDelayed(tryExit, remaining);
-            return;
-        }
-        exiting = true;
-        trace("exit_started");
-        handler.removeCallbacks(timeout);
-        if (reducedMotion || nativeAnimationsDisabled()) {
-            finishExit();
-            return;
-        }
-        animator = ObjectAnimator.ofFloat(cover, View.ALPHA, 1f, 0f);
-        animator.setDuration(EXIT_MS);
+        boolean reduced = reducedMotion || nativeAnimationsDisabled();
+        long remaining = StartupPolicy.remainingHold(elapsed(), reduced);
+        if (remaining > 0) { handler.removeCallbacks(tryExit); handler.postDelayed(tryExit, remaining); return; }
+        exiting = true; stopPulse(); handler.removeCallbacks(timeout); trace("exit_started");
+        if (reduced) { finishExit(); return; }
+        final int ticket = launchId;
+        animator = ObjectAnimator.ofFloat(cover, View.ALPHA, cover.getAlpha(), 0f);
+        animator.setDuration(StartupPolicy.EXIT_MS);
         animator.setInterpolator(new PathInterpolator(.22f, 1f, .36f, 1f));
         animator.addListener(new AnimatorListenerAdapter() {
-            @Override
-            public void onAnimationEnd(Animator animation) {
-                finishExit();
-            }
-
-            @Override
-            public void onAnimationCancel(Animator animation) {
-                finishExit();
-            }
+            @Override public void onAnimationEnd(Animator animation) { if (ticket == launchId) finishExit(); }
         });
         animator.start();
-        handler.postDelayed(animationDeadline, EXIT_MS + 180);
+        handler.postDelayed(animationDeadline, StartupPolicy.EXIT_DEADLINE_MS);
     }
-
     private boolean nativeAnimationsDisabled() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) return !ValueAnimator.areAnimatorsEnabled();
         return Settings.Global.getFloat(activity.getContentResolver(), "animator_duration_scale", 1f) == 0f;
     }
-
-    private View currentCover() {
-        if (splashView != null) return splashView.getView();
-        return recoveryView;
+    private void startPulse() {
+        if (iconView == null || pulse != null || destroyed || prepared || exiting || completed || timedOut
+            || !foreground || reducedMotion || nativeAnimationsDisabled()) return;
+        pulse = ObjectAnimator.ofPropertyValuesHolder(iconView,
+            PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 1.015f), PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 1.015f));
+        pulse.setDuration(1000); pulse.setRepeatCount(ValueAnimator.INFINITE); pulse.setRepeatMode(ValueAnimator.REVERSE); pulse.start();
     }
-
+    private void stopPulse() {
+        if (pulse != null) { pulse.cancel(); pulse = null; }
+        if (iconView != null) { iconView.setScaleX(1f); iconView.setScaleY(1f); }
+    }
+    private View currentCover() { return splashView != null ? splashView.getView() : recoveryView; }
+    private void stopExit() {
+        handler.removeCallbacks(animationDeadline); handler.removeCallbacks(tryExit);
+        if (animator != null) { animator.removeAllListeners(); animator.cancel(); animator = null; }
+        exiting = false;
+    }
     private void finishExit() {
-        if (destroyed || completed || !exiting) return;
-        completed = true;
-        trace("exit_completed");
-        handler.removeCallbacks(animationDeadline);
-        if (animator != null) {
-            ObjectAnimator finishedAnimator = animator;
-            animator = null;
-            finishedAnimator.removeAllListeners();
-            finishedAnimator.cancel();
-        }
-        removeSplash();
-        removeRecovery();
-        if (plugin != null) plugin.emitExitComplete(launchId);
+        if (destroyed || completed || !exiting || !foreground) return;
+        completed = true; stopExit(); stopPulse();
+        handler.removeCallbacks(timeout); handler.removeCallbacks(probe);
+        removeSplash(); removeRecovery(); trace("exit_completed");
+        if (plugin != null) plugin.emitExitComplete(launchId, instanceId);
     }
-
     private void onTimeout() {
         if (destroyed || exiting || completed || webFallback || nativeFallback) return;
-        timedOut = true;
-        handler.removeCallbacks(tryExit);
-        if (currentCover() == null) return;
-        if (!handoffRequested && !prepared && webFallbackReady) {
-            webFallback = true;
-            trace("timeout_web_fallback");
-            removeSplash();
-            removeRecovery();
-            return;
-        }
-        nativeFallback = true;
-        trace("timeout_native_fallback");
-        showRecovery();
-        removeSplash();
+        timedOut = true; handler.removeCallbacks(tryExit); handler.removeCallbacks(probe); stopPulse();
+        if (StartupPolicy.canReleaseToWeb(prepared, webFallbackReady)) {
+            webFallback = true; removeSplash(); removeRecovery(); trace("timeout_web_fallback");
+            // One ownership notification, including when the main module never loaded.
+            if (webViewReady()) webView.evaluateJavascript("if(window.__iotStartupWatchdog){window.__iotStartupWatchdog.setOwner('web');}", null);
+        } else { nativeFallback = true; showRecovery(); removeSplash(); trace("timeout_native_recovery"); }
     }
-
     private void showRecovery() {
-        if (recoveryView != null) return;
-        recoveryView = activity.getLayoutInflater().inflate(R.layout.startup_recovery, null);
-        recoveryView.findViewById(R.id.startup_retry).setOnClickListener(view -> retry());
-        activity.addContentView(recoveryView, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        if (recoveryView == null) {
+            recoveryView = activity.getLayoutInflater().inflate(R.layout.startup_recovery, null);
+            activity.addContentView(recoveryView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+        View retry = recoveryView.findViewById(R.id.startup_retry);
+        retry.setVisibility(View.VISIBLE); retry.setEnabled(true); retry.setOnClickListener(view -> retry());
+        recoveryView.setAlpha(1f);
+        ((android.widget.TextView) recoveryView.findViewById(R.id.startup_message)).setText(R.string.startup_recovery_message);
     }
-
     private void retry() {
         if (destroyed || !nativeFallback) return;
-        launchId += 1;
-        startedAt = SystemClock.elapsedRealtime();
-        trace("retry");
-        webFallbackReady = handoffRequested = prepared = frameReady = reducedMotion = timedOut = exiting = completed = webFallback = nativeFallback = false;
-        handler.removeCallbacks(timeout);
-        handler.removeCallbacks(tryExit);
-        handler.removeCallbacks(animationDeadline);
-        if (recoveryView != null) recoveryView.setAlpha(1f);
-        handler.postDelayed(timeout, STARTUP_TIMEOUT_MS);
-        if (webView == null) {
-            activity.recreate();
-            return;
-        }
-        try {
-            webView.reload();
-            handler.postDelayed(this::probeWebFallback, PROBE_INTERVAL_MS);
-        } catch (Exception exception) {
-            activity.recreate();
-        }
+        stopExit(); stopPulse(); handler.removeCallbacksAndMessages(null);
+        launchId++; startedAt = SystemClock.elapsedRealtime(); probeAttempt = 0;
+        webFallbackReady = prepared = frameReady = reducedMotion = timedOut = completed = webFallback = nativeFallback = probeInFlight = false;
+        recoveryView.findViewById(R.id.startup_retry).setEnabled(false);
+        recoveryView.findViewById(R.id.startup_retry).setVisibility(View.INVISIBLE);
+        ((android.widget.TextView) recoveryView.findViewById(R.id.startup_message)).setText(R.string.startup_waiting_message);
+        handler.postDelayed(timeout, StartupPolicy.TIMEOUT_MS); trace("retry");
+        if (webView == null) { activity.recreate(); return; }
+        try { webView.reload(); scheduleProbe(); } catch (Exception ignored) { activity.recreate(); }
     }
-
+    void onVisibilityChanged(boolean visible) {
+        foreground = visible;
+        if (destroyed || completed) return;
+        if (!visible) {
+            stopPulse();
+            if (prepared) frameReady = false;
+            if (exiting) { stopExit(); frameReady = false; View cover = currentCover(); if (cover != null) cover.setAlpha(1f);
+                handler.postDelayed(timeout, Math.max(0, StartupPolicy.TIMEOUT_MS - elapsed())); }
+        } else if (prepared && !timedOut) requestFrame(); else startPulse();
+    }
     private void removeSplash() {
-        if (splashView == null) return;
-        SplashScreenViewProvider view = splashView;
-        splashView = null;
-        view.remove();
+        stopPulse(); iconView = null;
+        if (splashView != null) { SplashScreenViewProvider old = splashView; splashView = null; old.remove(); }
     }
-
     private void removeRecovery() {
-        if (recoveryView == null) return;
-        View view = recoveryView;
+        if (recoveryView != null && recoveryView.getParent() instanceof ViewGroup) ((ViewGroup) recoveryView.getParent()).removeView(recoveryView);
         recoveryView = null;
-        if (view.getParent() instanceof ViewGroup) ((ViewGroup) view.getParent()).removeView(view);
     }
-
-    void destroy() {
-        destroyed = true;
-        handler.removeCallbacksAndMessages(null);
-        if (animator != null) {
-            animator.removeAllListeners();
-            animator.cancel();
-            animator = null;
-        }
-        removeSplash();
-        removeRecovery();
-        plugin = null;
-    }
-
-    private void trace(String event) {
-        Log.i(TAG, "launchId=" + launchId + " elapsedMs=" + elapsed() + " " + event);
-    }
+    void destroy() { destroyed = true; handler.removeCallbacksAndMessages(null); stopExit(); stopPulse(); removeSplash(); removeRecovery(); plugin = null; }
+    private void trace(String event) { if ((activity.getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0) Log.i("StartupVisual", "instance=" + instanceId + " launchId=" + launchId + " elapsedMs=" + elapsed() + " " + event); }
 }

@@ -33,7 +33,7 @@
       ],
       "properties": {
         "artifacts": { "const": 8 },
-        "buildableArtifacts": { "const": 6 },
+        "buildableArtifacts": { "const": 7 },
         "normalRuntimeServices": { "const": 12 },
         "recoveryAddedServices": { "const": 1 },
         "releaseCandidateServices": { "const": 13 }

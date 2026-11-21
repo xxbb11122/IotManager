@@ -33,7 +33,7 @@ public class AiAvailabilityController {
         siteAccess.requireSiteAccess(siteId);
         boolean enabled = properties.isEnabled();
         return new Capabilities(1, java.util.Map.of("history", enabled, "pagedMessages", enabled,
-                "requestRecovery", enabled, "idempotency", enabled, "personaActivationGuard", enabled),
+                "requestRecovery", enabled, "idempotency", enabled, "personaActivationGuard", enabled, "deviceDiagnosis", enabled),
                 java.util.Map.of("maxQuestionChars", properties.getMaxQuestionChars(),
                         "maxAnswerChars", properties.getMaxAnswerChars(), "maxInputChars", properties.getMaxInputChars(),
                         "maxPersonaChars", 4000, "maxPersonaNameChars", 80, "maxPageSize", 100,

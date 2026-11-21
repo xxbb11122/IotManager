@@ -1,0 +1,21 @@
+
+> iot-client@1.1.4 build
+> vite build && node src/dev/motion-preview/check-production.mjs
+
+vite v7.3.7 building client environment for production...
+transforming...
+✓ 1833 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/build-info.json                               0.14 kB │ gzip:  0.14 kB
+dist/index.html                                    2.37 kB │ gzip:  1.16 kB
+dist/assets/ic_launcher_foreground-DHVAt4wu.png   15.53 kB
+dist/assets/index-Cpfs9TSP.css                    32.27 kB │ gzip:  6.62 kB
+dist/assets/web-DdM2NblQ.js                        0.38 kB │ gzip:  0.25 kB
+dist/assets/web-CHFWQRvS.js                        0.84 kB │ gzip:  0.40 kB
+dist/assets/web-zCFuWK4Y.js                        1.25 kB │ gzip:  0.58 kB
+dist/assets/web-D_3x0VKi.js                        2.37 kB │ gzip:  0.93 kB
+dist/assets/web-DC8YM9oQ.js                        8.62 kB │ gzip:  2.42 kB
+dist/assets/index-DvQnktCB.js                    309.51 kB │ gzip: 94.87 kB
+✓ built in 3.31s
+Production isolation verified: 12 output files; no preview entry, fixture host or preview runtime markers.

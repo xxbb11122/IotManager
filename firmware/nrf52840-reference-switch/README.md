@@ -18,6 +18,13 @@ The firmware notifies NUS TX (`6e400003-b5a3-f393-e0a9-e50e24dcca9e`):
 
 `opcode=1` is `set_power`; `value` and `state` are `0` or `1`; result `0` means acknowledged. The CRC-8 polynomial is `0x07`, initialized to zero, over the first nine bytes. The token is copied into the response, allowing the Android client to ignore stale or unrelated notifications.
 
+Result `2` means unsupported opcode, `3` invalid value, and `4` GPIO unavailable,
+configuration failed, or write failed. The reported state changes only after a
+successful GPIO write; a failed command retains the last successful state.
+Acknowledgement confirms the GPIO driver's write, not electrical load readback.
+The [host regression](tests/host/README.md) covers these failure paths without
+claiming board or BLE acceptance.
+
 ## Build
 
 Install Zephyr 3.7.x and run from its initialized environment. The reference

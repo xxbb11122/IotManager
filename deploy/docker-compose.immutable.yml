@@ -25,6 +25,7 @@ services:
     pull_policy: never
   backup:
     image: ${IOT_LOGICAL_BACKUP_IMAGE:?set IOT_LOGICAL_BACKUP_IMAGE from image-digests.env}
+    build: !reset null
     pull_policy: never
   wal-g-archive:
     image: ${IOT_POSTGRES_IMAGE:?set IOT_POSTGRES_IMAGE from image-digests.env}

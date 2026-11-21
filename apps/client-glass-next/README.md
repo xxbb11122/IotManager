@@ -1,8 +1,18 @@
 # IoT Manager Glass Next
 
-基于 IoT Manager 客户端 **1.1.3** 的独立新版 App，已同步 **1.1.4** 的 AI 登录引导、连接检查与断网恢复。使用轻毛玻璃与液态玻璃界面，保留启动动画、局部状态更新、设备能力控制、命令回执、天气位置与预报、AI 会话/历史/性格、OIDC 登录、LAN/Edge 和 Android 原生 BLE 链路。
+基于 IoT Manager 客户端 **1.1.3** 的独立新版 App，已同步 **1.1.4** 的 AI 登录引导、连接检查与断网恢复。全应用共享「混合玻璃／轻毛玻璃／实色」材质，连续列表和表单保持清晰，动态光学效果限于导航；保留启动动画、局部状态更新、设备能力控制、命令回执、天气位置与预报、AI 会话/历史/性格、OIDC 登录、LAN/Edge 和 Android 原生 BLE 链路。
 
 运行入口使用真实客户端的 API、WebSocket、鉴权、缓存和原生适配器。模拟数据仅用于开发预览和自动测试；生产构建会检查并排除开发预览。
+
+`1.1.4-glass.5` 完成材质与可访问性整改，保留真实后端接入及连续面板设计。[开发与验收记录](docs/GLASS-5-IMPLEMENTATION-2026-10-18.md)列出改动、测试范围、安装包身份及未执行的真实环境项目。
+
+`1.1.4-glass.6` 实现启动链路优化：本地读取并行且有截止、BLE 历史按需分页、Native/Web 单层退出、按启动身份校验回调，以及分级等待和故障恢复。详见[启动实施与测试记录](docs/GLASS-STARTUP-ANIMATION-IMPLEMENTATION-2026-10-18.md)。
+
+本轮工作区实施全应用视觉与性能整改：设备首页统一为连续单列，AI 输入固定在对话底部，普通内容不再创建光学层；设备局部更新保留焦点、顺序与异常标识保护。非遥测更新约 16ms 合批，纯遥测继续使用原有初始窗口与 1Hz 策略。[实施、测试与复审记录](../../docs/GLASS-APP-COMPREHENSIVE-IMPLEMENTATION-REVIEW-2026-11-10.md)列出同机生产构建前后数据及模拟范围。
+
+`1.1.4-glass.8` 补齐登录准备的阶段提示、8 秒服务发现超时、3 秒安全存储/浏览器阶段截止、15 秒准备总截止与取消入口；已清空的 OIDC 设置不再回填旧默认值。连接设置新增“填入安装包默认配置”，需用户测试并保存后才生效。天气过期/停用统一中性化，温度来源到期或离线局部失效；详情与测试边界见[定向修复记录](../../docs/APP-LOGIN-WEATHER-TARGETED-FIX-2026-11-17.md)。
+
+`1.1.4-glass.9` 统一各页面、输入区和提示的材质；显示偏好本机保存，系统高对比度自动降级为实色。调整窄屏头部三项天气读数、长站点名、连接设置表单和底栏安全区。切换不刷新整页，不修改数据轮询、登录或设备控制。[浏览器回归](e2e/glass-layout-coverage.spec.js)覆盖 12 个页面与三档材质，不替代 Android 实机验收。
 
 ## 🤖 App AI 助手
 
@@ -14,12 +24,22 @@ AI 是本 App 的主导航功能之一：登录并选择获授权站点后即可
 - **明确的知识库边界：** Chat 可单独启用；知识库与 Embedding 当前默认关闭，不能将回答描述为基于站点知识库检索。
 - **试点状态：** `IOT_AI_ENABLED=false` 为默认值。生产环境启用前仍需完成模型隐私、成本、权限及真实部署验收。
 
+### 设备状态与修复
+
+进入「AI → 查看全部设备状态」。平台列表按授权站点分页，手机 BLE 单独列出；历史绑定、离线缓存和演示记录均不算实时连接。内置演示站点中，没有注册边缘路由的设备单列、不计入实物清单；实际注册的 Edge Agent 设备仍按自身通信证据判定。手机端原生 BLE 一次管理一条 GATT 连接。读数仅来自可验证的采样或回执，不用设备表初始值，也不根据 Profile 推断已安装元器件。
+
+选中设备或异常字段后，「排查与解决」给出证据、操作步骤、恢复判据及失败后的处理；不依赖模型或知识库。用户手动操作后可点「重新验证」，只查目标设备。这不会重复发送控制命令、重启设备或后台扫描；平台遥测恢复要求设备近期有通信、字段时效可核验，并有两个不同时间桶的新可信样本。BLE 样本只允许读取实际发现的受支持特征（首版为 Battery Level），开关回执不代表传感器读数或负载侧测量。
+
+启用并授权 Chat 后可选「用 AI 细化方案」。型号和状态由后端重新按站点读取；本机 BLE 经本次确认后仅发送连接、错误类别和读数可用性，不包含名称、地址、凭据或原始日志。普通问答保持原有协议。
+
+平台需升级到支持 `GET /api/v1/sites/{siteId}/device-status-overview` 的后端。设备通信超期默认 180 秒，可通过 `iot.device-assessment.link-max-age-seconds` 调整。连续上报字段应按部署确认 `iot.device-assessment.reporting-interval-seconds.<Profile>.<field>`（秒）：例如确认某 Profile 的温度每 20 秒上报，可配置该字段为 20，超过三次周期才标过期。不配置时显示已接收的时间，但不宣称读数实时。每次投影最多检查设备最近 12 个遥测桶；旧存档不作为实时证据。
+
 详见[Glass Next 验证记录](VERIFICATION.md)。
 
 | 项目 | Glass Next |
 | --- | --- |
 | 源码基线 | 客户端 1.1.3；来源提交和文件摘要见 [source-provenance.json](source-provenance.json) |
-| 当前版本 | 1.1.4-glass.4 / Android code 8 |
+| 当前版本 | 1.1.4-glass.9 / Android code 14 |
 | 开发/预览端口 | 5190 |
 | Android 包名 | `com.iot.manager.glassnext` |
 | Android 显示名称 | IoT Manager Glass |
@@ -56,6 +76,8 @@ npm run dev
 
 `.env.example`只包含公开端点元数据。浏览器开发设置放在 `.env.development.local`；Android 构建可使用 `.env.production.local` 中的 `VITE_NATIVE_API_BASE_URL`、`VITE_NATIVE_WS_URL`、OIDC Issuer、Client ID 和新回调。不得把浏览器回调配置成 Android 回调。账号和令牌通过运行时登录及安全存储获取，供应商密钥只保存在服务器。
 
+启动默认使用透明度退场。`VITE_STARTUP_MOTION=false` 可关闭装饰动画；景深、模糊和站点预取分别由 `VITE_STARTUP_DEPTH`、`VITE_STARTUP_BLUR`、`VITE_STARTUP_PREFETCH` 控制，默认均为 `false`。实验开关须在目标设备验证后开启，参数变化需要重新构建。
+
 ## Android
 
 保留最新版的原生启动协调器、SecureSession、BLE、定位、网络及 Browser 插件。需要 JDK 23 和可访问的 Android SDK 36。
@@ -79,6 +101,15 @@ npm run build
 ```
 
 测试运行最新版的真实模块；浏览器测试通过网络与硬件边界的测试替身验证客户端行为。需要真实 Keycloak、Docker、AI 供应商或发布环境的用例保留原有的显式启用条件。
+
+需要重新比较界面性能时，先将改前、改后的生产构建分别保存到独立目录，再运行以下本地合成测量。路径由调用者指定；不得把正在使用的生产服务当作测试后端。
+
+```powershell
+node scripts/measure-glass-ui.mjs --baseline=<改前构建绝对路径> --candidate=<改后构建绝对路径> --out=<新输出目录> --samples=30 --rounds=3 --rates=1,4
+node scripts/measure-glass-workflows.mjs --baseline=<改前构建绝对路径> --candidate=<改后构建绝对路径> --out=<另一新输出目录> --samples=30 --rounds=3 --rates=1,4
+```
+
+两个脚本应依次运行，使用一个浏览器进程，分别测量设备首页、命令回执与 AI 长对话。输出保留原始样本、构建入口哈希、脚本哈希与失败记录；绘制机会代理时间不能视为真实屏幕显示时间。
 
 真实 AI 验收需要额外指定 `IOT_E2E_OWNER_PASSWORD_FILE`，使用你自己的私密凭据文件。本工程不会读取原工程部署目录中的凭据。模拟器测试日志、截图、APK 与端点配置均为本地生成文件，不纳入 Git。
 

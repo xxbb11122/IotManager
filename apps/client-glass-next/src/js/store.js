@@ -1,5 +1,6 @@
 import { transitionCommand } from './command-state.js';
 import { valueEqual } from './value-equality.js';
+import { stampWeatherReceipt, maskUnavailableWeather } from './weather-freshness.js';
 
 export const REALTIME_EVENT_VERSION = 1;
 
@@ -450,7 +451,8 @@ export function createClientStore(initialState = {}) {
   }
 
   function setWeather(weather) {
-    return publish({ ...currentState, weather: isRecord(weather) ? copyValue(weather) : null }, {
+    const assessed = isRecord(weather) ? maskUnavailableWeather(stampWeatherReceipt(weather, currentState.weather)) : null;
+    return publish({ ...currentState, weather: assessed ? copyValue(assessed) : null }, {
       domains: [CHANGE_DOMAIN.WEATHER],
       structural: false,
       reason: 'set_weather'

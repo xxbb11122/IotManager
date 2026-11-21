@@ -3,8 +3,9 @@ package com.iot.manager.ai;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.context.annotation.Bean;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Import;
@@ -26,6 +27,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.when;
 
+@AutoConfigureTestRestTemplate
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "iot.security.enabled=true",
         "iot.web.allowed-origins[0]=https://iot.example.test",
@@ -36,14 +38,14 @@ import static org.mockito.Mockito.when;
         "spring.ai.openai.embedding.base-url=https://example.test",
         "spring.ai.openai.chat.api-key=test-only-chat-key",
         "spring.ai.openai.embedding.api-key=test-only-embedding-key",
-        "spring.ai.openai.embedding.options.model=test-embedding"
+        "spring.ai.openai.embedding.model=test-embedding"
 })
 @ActiveProfiles("test")
 @Import(AiSecurityIntegrationTest.DecoderConfig.class)
 class AiSecurityIntegrationTest {
-    @MockBean org.springframework.ai.chat.model.ChatModel chatModel;
-    @MockBean org.springframework.ai.embedding.EmbeddingModel embeddingModel;
-    @MockBean AiChatService chatService;
+    @MockitoBean org.springframework.ai.chat.model.ChatModel chatModel;
+    @MockitoBean org.springframework.ai.embedding.EmbeddingModel embeddingModel;
+    @MockitoBean AiChatService chatService;
     @Autowired TestRestTemplate rest;
     @Autowired JdbcTemplate jdbc;
 
@@ -89,6 +91,22 @@ class AiSecurityIntegrationTest {
         assertThat(memberStatus.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(draftList.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(adminWrite.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+
+        jdbc.update("""
+                INSERT INTO devices (name, device_id, public_id, organization_id, site_id, status, profile_id, profile_version)
+                VALUES ('Private fixture', 'foreign-assessment-device', 'foreign-assessment-public', ?, ?, 'ONLINE', 'legacy-generic-v1', 1)
+                """, organization, foreign);
+        var withinSite = "/api/v1/sites/" + member + "/device-status-overview";
+        var foreignSite = "/api/v1/sites/" + foreign + "/device-status-overview";
+        var viewer = new HttpEntity<>(bearer("viewer-token"));
+        assertThat(rest.exchange(withinSite, HttpMethod.GET, viewer, Map.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(rest.exchange(foreignSite, HttpMethod.GET, viewer, Map.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(rest.exchange(withinSite + "/foreign-assessment-public", HttpMethod.GET, viewer, Map.class).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(rest.postForEntity(memberRoot + "/chat", new HttpEntity<>(Map.of("question", "diagnose",
+                "deviceDiagnosis", Map.of("version", 1, "source", "PLATFORM", "issue", "PLATFORM_LINK",
+                        "publicId", "foreign-assessment-public")), bearer("viewer-token")), Map.class).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
     private static HttpHeaders bearer(String token) {

@@ -1,8 +1,8 @@
 package com.iot.manager.weather;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 import com.iot.manager.dto.CurrentWeatherView;
 import com.iot.manager.dto.EnvironmentIndicatorsView;
 import com.iot.manager.dto.SiteWeatherForecastView;
@@ -11,14 +11,18 @@ import com.iot.manager.dto.SiteWeatherSettingsRequest;
 import com.iot.manager.dto.SiteWeatherSettingsView;
 import com.iot.manager.dto.SiteWeatherView;
 import com.iot.manager.dto.WeatherForecastPointView;
+import com.iot.manager.dto.WeatherAssessmentView;
 import com.iot.manager.entity.Device;
+import com.iot.manager.entity.DeviceProfile;
 import com.iot.manager.entity.DeviceTelemetrySample;
+import com.iot.manager.entity.ObservedTimeTrust;
 import com.iot.manager.entity.Site;
 import com.iot.manager.entity.SiteWeatherForecastPoint;
 import com.iot.manager.entity.SiteWeatherSettings;
 import com.iot.manager.entity.SiteWeatherSnapshot;
 import com.iot.manager.entity.WeatherProviderAccessEvent;
 import com.iot.manager.repository.DeviceRepository;
+import com.iot.manager.repository.DeviceProfileRepository;
 import com.iot.manager.repository.DeviceTelemetrySampleRepository;
 import com.iot.manager.repository.SiteRepository;
 import com.iot.manager.repository.SiteWeatherForecastPointRepository;
@@ -57,10 +61,12 @@ public class SiteWeatherService {
     private static final Duration STALE_FOR = Duration.ofHours(6);
     private static final Duration MANUAL_REFRESH_COOLDOWN = Duration.ofSeconds(60);
     private static final Duration RETRY_DELAY = Duration.ofSeconds(30);
+    private static final Duration SURFACE_TEMPERATURE_MAX_AGE = Duration.ofMinutes(5);
     private static final double LOCATION_CHANGE_THRESHOLD_METERS = 500D;
 
     private final SiteRepository siteRepository;
     private final DeviceRepository deviceRepository;
+    private final DeviceProfileRepository deviceProfileRepository;
     private final DeviceTelemetrySampleRepository telemetrySampleRepository;
     private final SiteWeatherSettingsRepository settingsRepository;
     private final SiteWeatherSnapshotRepository snapshotRepository;
@@ -139,6 +145,21 @@ public class SiteWeatherService {
         if (providerCode != null && provider(providerCode) == null) {
             throw new IllegalArgumentException("Unsupported weather provider");
         }
+        // Resolve and authorize before mutating managed settings. Never bind a
+        // globally addressable device ID from another site to this site's weather.
+        Device temperatureDevice = null;
+        String temperatureField = blankToNull(request.condensationTemperatureField());
+        if (request.condensationTemperatureDeviceId() != null) {
+            temperatureDevice = deviceRepository.findById(request.condensationTemperatureDeviceId())
+                    .filter(device -> belongsToSite(device, site))
+                    .orElseThrow(() -> new NoSuchElementException("Condensation temperature device not found"));
+            temperatureField = temperatureField == null ? "temperature" : temperatureField;
+            if (!supportsTemperatureField(temperatureDevice, temperatureField)) {
+                throw new IllegalArgumentException("Condensation source must be a Celsius temperature telemetry field");
+            }
+        } else {
+            temperatureField = null;
+        }
         SiteWeatherSettings setting = settingsRepository.findBySiteId(site.getId())
                 .orElseGet(() -> SiteWeatherSettings.builder().site(site).enabled(true).providerCode("OPEN_METEO").build());
         String previousConfigurationFingerprint = configurationFingerprint(setting);
@@ -155,13 +176,8 @@ public class SiteWeatherService {
             setting.setLocationAccuracyM(null);
             setting.setLocationUpdatedAt(timeProvider.now());
         }
-        setting.setCondensationTemperatureField(blankToNull(request.condensationTemperatureField()));
-        if (request.condensationTemperatureDeviceId() == null) {
-            setting.setCondensationTemperatureDevice(null);
-        } else {
-            setting.setCondensationTemperatureDevice(deviceRepository.findById(request.condensationTemperatureDeviceId())
-                    .orElseThrow(() -> new NoSuchElementException("Condensation temperature device not found")));
-        }
+        setting.setCondensationTemperatureField(temperatureField);
+        setting.setCondensationTemperatureDevice(temperatureDevice);
         SiteWeatherSettings saved = settingsRepository.save(setting);
         if (!Objects.equals(previousConfigurationFingerprint, configurationFingerprint(saved))) {
             // Forecast points have no diagnostic value after their location/provider changes.
@@ -441,12 +457,19 @@ public class SiteWeatherService {
                     unavailableIndicators(weatherStatus));
         }
         WeatherCondition condition = weatherCodeMapper.map(snapshot.getWeatherCode());
-        Double surfaceTemperature = surfaceTemperature(setting);
+        SurfaceReading surface = surfaceTemperature(site, setting);
         boolean condensationConfigured = setting != null && setting.getCondensationTemperatureDevice() != null;
         EnvironmentIndicatorsView indicators = environmentStatusEvaluator.evaluate(
                 snapshot.getTemperatureC(), snapshot.getRelativeHumidityPct(), snapshot.getSurfacePressureHpa(),
-                surfaceTemperature, condensationConfigured
+                surface.value(), condensationConfigured
         );
+        if ("EXPIRED".equals(weatherStatus) || "UNAVAILABLE".equals(weatherStatus)) {
+            indicators = unavailableIndicators(weatherStatus);
+        } else if (condensationConfigured && surface.unavailableReason() != null) {
+            indicators = new EnvironmentIndicatorsView(indicators.temperature(), indicators.humidity(),
+                    indicators.pressure(), indicators.esdRisk(), EnvironmentIndicator.unavailable("不可用",
+                    surface.unavailableReason() == null ? "天气数据已过期或停用" : surface.unavailableReason()));
+        }
         return new SiteWeatherView(
                 site.getCode(), site.getId(), weatherStatus, snapshot.getProviderCode(), snapshot.getObservedAt(), snapshot.getFetchedAt(),
                 setting == null ? null : setting.getLastRefreshError(), setting == null ? null : setting.getRetryAfter(),
@@ -457,7 +480,9 @@ public class SiteWeatherService {
                         setting != null && setting.getManualElevationM() != null ? "MANUAL"
                                 : snapshot.getElevationM() == null ? "UNKNOWN" : "PROVIDER"
                 ),
-                indicators
+                indicators,
+                new WeatherAssessmentView(timeProvider.now(), snapshot.getFetchedAt() == null ? null
+                        : snapshot.getFetchedAt().plus(STALE_FOR), surface.source())
         );
     }
 
@@ -470,7 +495,7 @@ public class SiteWeatherService {
         return new EnvironmentIndicatorsView(
                 EnvironmentIndicator.unavailable("不可用", reason), EnvironmentIndicator.unavailable("不可用", reason),
                 EnvironmentIndicator.unavailable("不可用", reason), EnvironmentIndicator.unavailable("不可用", reason),
-                EnvironmentIndicator.notConfigured("未配置站点温度遥测来源")
+                EnvironmentIndicator.unavailable("不可用", reason)
         );
     }
 
@@ -484,8 +509,11 @@ public class SiteWeatherService {
                 site.getCode(), setting.isEnabled(), setting.getProviderCode(), setting.getLatitude(), setting.getLongitude(),
                 setting.getTimezone(), setting.getManualElevationM(), setting.getLocationSource(), setting.getLocationAccuracyM(),
                 setting.getLocationUpdatedAt(),
-                setting.getCondensationTemperatureDevice() == null ? null : setting.getCondensationTemperatureDevice().getId(),
-                setting.getCondensationTemperatureField(), snapshot == null ? null : snapshot.getFetchedAt(),
+                belongsToSite(setting.getCondensationTemperatureDevice(), site)
+                        ? setting.getCondensationTemperatureDevice().getId() : null,
+                belongsToSite(setting.getCondensationTemperatureDevice(), site)
+                        ? setting.getCondensationTemperatureField() : null,
+                snapshot == null ? null : snapshot.getFetchedAt(),
                 setting.getLastRefreshAttemptAt(), setting.getLastRefreshError(), setting.getLastRefreshOutcome(),
                 setting.getLastRefreshDurationMs(), setting.getRetryAfter(),
                 setting.getLastManualRefreshAt()
@@ -504,19 +532,72 @@ public class SiteWeatherService {
                 null, point.getTemperatureMaxC(), point.getTemperatureMinC(), point.getPrecipitationProbabilityPct(), point.getWindSpeedKmh());
     }
 
-    private Double surfaceTemperature(SiteWeatherSettings setting) {
-        if (setting == null || setting.getCondensationTemperatureDevice() == null) return null;
+    private boolean belongsToSite(Device device, Site site) {
+        return device != null && device.getArchivedAt() == null && device.getSite() != null
+                && site.getId() != null && site.getId().equals(device.getSite().getId());
+    }
+
+    private boolean supportsTemperatureField(Device device, String field) {
+        String profileId = blankToNull(device.getProfileId());
+        Integer version = device.getProfileVersion();
+        DeviceProfile profile = deviceProfileRepository.findByProfileIdAndProfileVersion(
+                profileId == null ? "legacy-generic-v1" : profileId,
+                version == null || version < 1 ? 1 : version).filter(DeviceProfile::isEnabled).orElse(null);
+        if (profile == null) return false;
+        try {
+            for (JsonNode telemetry : objectMapper.readTree(profile.getDefinitionJson()).path("telemetry")) {
+                String unit = telemetry.path("unit").asText();
+                if (field.equals(telemetry.path("id").asText())
+                        && "number".equals(telemetry.path("type").asText())
+                        && ("C".equals(unit) || "°C".equals(unit))) return true;
+            }
+        } catch (tools.jackson.core.JacksonException ignored) {
+            // An invalid/retired profile is not a usable temperature source.
+        }
+        return false;
+    }
+
+    private SurfaceReading surfaceTemperature(Site site, SiteWeatherSettings setting) {
+        if (setting == null || setting.getCondensationTemperatureDevice() == null) return new SurfaceReading(null, null);
         Device device = setting.getCondensationTemperatureDevice();
+        // Recheck persisted associations too: devices may have moved or been archived.
+        if (!belongsToSite(device, site)) return new SurfaceReading(null, "温度来源不属于当前站点或已归档");
         String field = blankToNull(setting.getCondensationTemperatureField());
-        if (field == null || "temperature".equals(field)) return device.getTemperature();
-        return telemetrySampleRepository.findTopByDeviceIdOrderBySampledAtDesc(device.getId())
-                .map(sample -> fieldValue(sample, field)).orElse(null);
+        field = field == null ? "temperature" : field;
+        if (!supportsTemperatureField(device, field)) return new SurfaceReading(null, "温度来源不再支持摄氏温度遥测");
+        if (!"ONLINE".equals(device.getStatus()) && !"WARNING".equals(device.getStatus())) {
+            return new SurfaceReading(null, "温度来源设备不在线");
+        }
+        DeviceTelemetrySample sample = telemetrySampleRepository
+                .findTopByDeviceIdAndReceivedAtIsNotNullOrderByReceivedAtDesc(device.getId()).orElse(null);
+        if (sample == null || sample.getReceivedAt() == null) return new SurfaceReading(null, "缺少带接收时间的温度遥测");
+        Duration age = Duration.between(sample.getReceivedAt(), timeProvider.now());
+        if (age.isNegative() || age.compareTo(SURFACE_TEMPERATURE_MAX_AGE) > 0) {
+            return new SurfaceReading(null, "温度遥测已过期（超过 5 分钟）或接收时间异常");
+        }
+        ObservedTimeTrust trust = sample.getObservedTimeTrust();
+        // UNKNOWN is legitimate only when the source omitted its clock; the
+        // server's received_at remains authoritative. Never revive legacy time.
+        if (trust == null || trust == ObservedTimeTrust.SKEWED || trust == ObservedTimeTrust.LEGACY_UNKNOWN
+                || (trust == ObservedTimeTrust.UNKNOWN && sample.getObservedAt() != null)
+                || (sample.getObservedAt() != null && sample.getObservedAt().isAfter(timeProvider.now()))) {
+            return new SurfaceReading(null, "温度遥测来源时间不可信");
+        }
+        Double value = fieldValue(sample, field);
+        return value == null ? new SurfaceReading(null, "温度遥测字段缺失或不是有效数值")
+                : new SurfaceReading(value, null, new WeatherAssessmentView.TemperatureSource(
+                        device.getId(), device.getDeviceId(), field, sample.getReceivedAt(),
+                        sample.getReceivedAt().plus(SURFACE_TEMPERATURE_MAX_AGE)));
+    }
+
+    private record SurfaceReading(Double value, String unavailableReason, WeatherAssessmentView.TemperatureSource source) {
+        private SurfaceReading(Double value, String unavailableReason) { this(value, unavailableReason, null); }
     }
 
     private Double fieldValue(DeviceTelemetrySample sample, String field) {
         try {
             JsonNode node = objectMapper.readTree(sample.getStateJson()).path(field);
-            return node.isNumber() ? node.asDouble() : null;
+            return node.isNumber() && Double.isFinite(node.asDouble()) ? node.asDouble() : null;
         } catch (Exception ignored) {
             return null;
         }

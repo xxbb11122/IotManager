@@ -5,6 +5,7 @@ import './css/glass-layout.css';
 import './css/liquid.css';
 import './css/device-detail.css';
 import './css/weather.css';
+import './css/ai-docked.css';
 import { resolveAiQuickPrompt } from './js/ai/ai-quick-prompts.js';
 
 import { Capacitor } from '@capacitor/core';
@@ -14,7 +15,9 @@ import { Preferences } from '@capacitor/preferences';
 import { resolveClientConfig } from './js/api.js';
 import { createAiController } from './js/ai/ai-controller.js';
 import { createAiRecoveryStore } from './js/ai/ai-state.js';
-import { OidcSessionManager, normalizeOidcConfig } from './js/auth/oidc-session.js';
+import { createDeviceAssessmentController } from './js/assessment/assessment-controller.js';
+import { readBleEvidence } from './js/assessment/ble-evidence.js';
+import { OidcSessionManager, normalizeOidcConfig, oidcErrorMessage } from './js/auth/oidc-session.js';
 import { createLocalBleDevice, decorateLanDevice, mergePlatformAndLocalDevices } from './js/client-flow.js';
 import { isTerminalCommandStatus } from './js/command-state.js';
 import { BleAdapter } from './js/adapters/ble-adapter.js';
@@ -25,15 +28,18 @@ import { createCommandDispatcher } from './js/platform/command-dispatcher.js';
 import { deviceLocationErrorMessage, getCurrentDeviceLocation } from './js/platform/device-location.js';
 import { friendlyEndpointError, probeEndpoint } from './js/platform/endpoint-probe.js';
 import { createPlatformAdapter } from './js/platform/platform-adapter-factory.js';
-import { ACCESS_ROUTES, normalizeEndpointProfile, repairLegacyNativeEndpoint, RuntimeConfigRepository } from './js/platform/runtime-config.js';
+import { ACCESS_ROUTES, normalizeEndpointProfile, repairLegacyNativeEndpoint, RuntimeConfigRepository, withDefaultOidcFields } from './js/platform/runtime-config.js';
 import { browserWeatherTimezone } from './js/platform/weather-timezone.js';
 import { CHANGE_DOMAIN, store } from './js/store.js';
 import { createRenderCoordinator } from './js/render-coordinator.js';
 import { createRenderMetrics } from './js/render-metrics.js';
 import { valueEqual } from './js/value-equality.js';
+import { createWeatherFreshnessGuard, stampWeatherReceipt } from './js/weather-freshness.js';
 import { createSnapshotRefreshGate } from './js/snapshot-refresh-gate.js';
 import { createStartupTransition } from './js/platform/startup-transition.js';
 import { createNativeStartupVisual } from './js/platform/native-startup-visual.js';
+import { createStartupTrace, startupFeatures } from './js/platform/startup-policy.js';
+import { boundedStartupRead, readStartupSnapshot, createStartupPrefetch } from './js/platform/startup-bootstrap.js';
 import { createClientUi } from './js/ui.js';
 import { createWeatherRefreshCooldown } from './js/weather-refresh-cooldown.js';
 import { resourceState, beginResource, resolveResource, rejectResource, createRuntimeTaskRegistry, parseWeatherCoordinates, refreshPresentation } from './js/runtime-resource-state.js';
@@ -104,6 +110,10 @@ let ble = nativeRuntime ? new NativeBleAdapter() : new BleAdapter();
 let platformUnsubscribers = [];
 let lifecycleHandle = null;
 let appInstallId = null;
+let installIdentityVerified = false;
+let startupDisposed = false;
+const startupAbort = new AbortController();
+const localHistoryCursors = new Map();
 let weatherRefreshPromise = null;
 let lastWeatherReadAt = 0;
 let lastForecastReadAt = 0;
@@ -124,6 +134,8 @@ const runtimeTasks = createRuntimeTaskRegistry(() => JSON.stringify([
 let clientState = {
   context: DEMO_CONTEXT,
   endpointProfile: null,
+  defaultEndpointProfile: nativeRuntime ? DEFAULT_NATIVE_ENDPOINT
+    : { ...resolveClientConfig(), ...defaultOidcFields() },
   sites: [],
   lanCandidates: [],
   ble: {
@@ -149,7 +161,10 @@ let clientState = {
   error: null
 };
 
-const startupTransition = createStartupTransition({ nativeVisual: createNativeStartupVisual() });
+const startupOptions = startupFeatures(nativeBuildEnv);
+const startupTrace = createStartupTrace();
+const startupPrefetch = createStartupPrefetch({ trace: startupTrace });
+const startupTransition = createStartupTransition({ nativeVisual: createNativeStartupVisual(), trace: startupTrace, features: startupOptions });
 const renderMetrics = createRenderMetrics();
 const deviceSnapshotGate = createSnapshotRefreshGate({ cooldownMs: REALTIME_RESYNC_COOLDOWN_MS, metrics: renderMetrics });
 const ui = createClientUi(document.getElementById('app'), {
@@ -179,11 +194,14 @@ const ui = createClientUi(document.getElementById('app'), {
   selectLanCandidate: () => {},
   claimLan,
   openDevice,
+  loadLocalHistory: ({ deviceId }) => loadLocalActivityPage(store.selectDevice(deviceId), { next: true }),
   sendCommand,
   retryCommand,
   reconnectRealtime,
   switchSite,
   switchEndpoint,
+  cancelSignIn: () => authSession?.cancelLoginPreparation(),
+  retryEndpointConfiguration,
   signIn,
   signOut,
   testEndpoint: (draft) => probeEndpoint({
@@ -208,11 +226,19 @@ const ai = createAiController({
     auth: clientState.auth, endpoint: endpointProfile, organization: clientState.context.organizationCode
   }),
   recovery: createAiRecoveryStore(Preferences),
-  onChange: (state) => {
+  onChange: (state, change) => {
     clientState = { ...clientState, ai: state };
-    ui.patchAi(viewModel());
+    ui.patchAi(viewModel(), change);
   }
 });
+const assessment = createDeviceAssessmentController({
+  contextProvider: deviceAssessmentContext,
+  observeBle: (options) => readBleEvidence({
+    adapter: ble, getStore: () => store.getState(), errorCode: clientState.ble.errorCode, ...options
+  }),
+  onChange: () => ui.patchDeviceAssessment(viewModel())
+});
+const stopStartupMotion = ui.motionPolicy?.subscribe?.(policy => startupTransition.setMotionPolicy?.(policy), { immediate: true });
 const renderCoordinator = createRenderCoordinator({
   fullRender: (snapshot) => ui.renderFull(snapshot),
   patchDevices: (references, snapshot) => ui.patchDevices(references, snapshot),
@@ -225,8 +251,7 @@ const renderCoordinator = createRenderCoordinator({
   patchActivity: (references, snapshot) => ui.patchActivity(references, snapshot),
   patchAlerts: (references, snapshot) => ui.patchAlerts(references, snapshot),
   scheduler: window,
-  metrics: renderMetrics,
-  batchWindowMs: 150
+  metrics: renderMetrics
 });
 
 const weatherRefreshCooldown = createWeatherRefreshCooldown({
@@ -252,6 +277,7 @@ const weatherRefreshCooldown = createWeatherRefreshCooldown({
   }
 });
 
+const weatherFreshnessGuard = createWeatherFreshnessGuard(store);
 store.subscribe((_state, metadata) => {
   if (!PARTIAL_RENDER_ENABLED) {
     renderCoordinator.forceFull('partial_render_disabled', viewModel());
@@ -331,17 +357,52 @@ function createScopedCommandDispatch(device) {
 
 function viewModel() {
   const state = store.getState();
-  return { ...state, ...clientState, runtime: { ...state.runtime, sessionRevision }, endpointProfile };
+  return { ...state, ...clientState, runtime: { ...state.runtime, sessionRevision }, endpointProfile,
+    deviceAssessment: assessment.getState() };
 }
 
-async function aiAction({ action, id }) {
+function deviceAssessmentContext() {
+  const context = clientState.context;
+  const auth = clientState.auth;
+  const allowed = !auth.configured || auth.authenticated;
+  return {
+    api: allowed ? platform?.api ?? null : null,
+    siteId: allowed ? context.siteId : null,
+    scopeKey: JSON.stringify([platformCacheScope(), sessionRevision, context.siteId, Boolean(auth.authenticated)]),
+    cachedPlatform: () => {
+      const snapshot = store.getState();
+      const asOf = snapshot.runtime.lastSyncedAt;
+      if (!allowed || !asOf || String(snapshot.runtime.siteCode) !== String(context.siteCode)) return null;
+      const demo = context.organizationCode === 'demo-org' && context.siteCode === 'demo-site';
+      return { asOf, demo, items: snapshot.devices.filter((device) => !device.localOnly && device.publicId && !device.archivedAt)
+        .map((device) => ({ key: 'site:' + device.publicId, name: device.name, demo, asOf,
+          source: device.connections?.some((row) => row.transport === 'LAN_AGENT') ? 'EDGE_AGENT' : 'PLATFORM',
+          profileId: device.profileId, linkState: 'UNKNOWN', fields: [] })) };
+    }
+  };
+}
+
+async function aiAction({ action, id, field }) {
   switch (action) {
+    case 'ai-assessment-overview': return assessment.load();
+    case 'ai-assessment-more': return assessment.load(true);
+    case 'ai-assessment-diagnose': return assessment.diagnose(id, field);
+    case 'ai-assessment-verify': return assessment.verify();
+    case 'ai-assessment-explain': {
+      const context = assessment.explanation();
+      if (!context) return false;
+      const scope = deviceAssessmentContext().scopeKey;
+      if (context.source === 'MOBILE_BLE'
+        && !window.confirm('本次向当前站点 AI 发送蓝牙连接、错误类别、是否有读数及观测时间。不发送设备名、蓝牙地址、令牌或原始日志。AI 回答会保留在会话中。继续吗？')) return false;
+      return ai.send(context, { stillCurrent: () => deviceAssessmentContext().scopeKey === scope });
+    }
     case 'ai-send': return ai.send();
     case 'ai-new': return ai.newConversation();
     case 'ai-recover': return ai.recover();
     case 'ai-cancel': return ai.cancelWait();
     case 'ai-retry':
-      if (ai.getState().pending?.state === 'UNKNOWN' && !window.confirm('原请求结果及费用无法确认，再次生成可能重复计费。确定重新提问？')) return;
+      if (ai.getState().pending?.state === 'UNKNOWN' && ai.getState().pending?.kind !== 'DEVICE_DIAGNOSIS'
+        && !window.confirm('原请求结果及费用无法确认，再次生成可能重复计费。确定重新提问？')) return;
       return ai.retry();
     case 'ai-reload': return ai.reload();
     case 'ai-history-more': return ai.loadHistory(true);
@@ -421,6 +482,10 @@ function normalizeClientStateMetadata(patch = {}, metadata = {}) {
 }
 
 function setClientState(patch = {}, metadata = {}) {
+  const sameAuthIdentity = patch.auth && Object.keys(patch).length === 1
+    && Boolean(patch.auth.configured) === Boolean(clientState.auth.configured)
+    && Boolean(patch.auth.authenticated) === Boolean(clientState.auth.authenticated)
+    && patch.auth.cachePartition === clientState.auth.cachePartition;
   const next = {
     ...clientState,
     ...patch,
@@ -435,7 +500,9 @@ function setClientState(patch = {}, metadata = {}) {
     return;
   }
   clientState = next;
-  const change = normalizeClientStateMetadata(patch, metadata);
+  const change = sameAuthIdentity
+    ? { origin: 'local', domains: [CHANGE_DOMAIN.RUNTIME], structural: false, reason: 'auth_progress' }
+    : normalizeClientStateMetadata(patch, metadata);
   if (!PARTIAL_RENDER_ENABLED) {
     render('partial_render_disabled');
     return;
@@ -456,8 +523,10 @@ function storageNotice(message, id = 'storage') {
 }
 
 function invalidateRuntimeContext({ preserveSites = false } = {}) {
-  ai.reset();
+  startupPrefetch.cancel();
   sessionRevision += 1;
+  assessment.reset({ notify: false });
+  ai.reset();
   runtimeTasks.invalidate();
   lastWeatherReadAt = 0;
   lastForecastReadAt = 0;
@@ -468,7 +537,7 @@ function invalidateRuntimeContext({ preserveSites = false } = {}) {
   clientState = {
     ...clientState,
     resources: Object.fromEntries(Object.keys(clientState.resources).map((key) => [key, resourceState()])),
-    loading: { ...clientState.loading, lanDiscovery: false, lanClaim: false, weatherForecast: false, weatherLocationPhase: null },
+    loading: { ...clientState.loading, endpointRecovery: false, lanDiscovery: false, lanClaim: false, weatherForecast: false, weatherLocationPhase: null },
     sites: preserveSites ? clientState.sites : [],
     weatherSettings: null, pendingWeatherLocation: null, error: null,
     lanCandidates: [], notices: clientState.notices.filter((notice) => notice.id === 'startup-storage'), commandObservation: {}
@@ -519,9 +588,10 @@ function bindPlatformEvents(adapter) {
     adapter.subscribe((event) => {
       if (adapter !== platform || revision !== sessionRevision) return;
       if (event?.payload?.siteCode && String(event.payload.siteCode) !== String(clientState.context.siteCode)) return;
+      weatherFreshnessGuard.handleDeviceEvent(event);
       const applied = store.applyRealtimeEvent(event);
       if (applied && event?.type === 'weather_update') {
-        void cacheRepository.putPlatformWeather(platformCacheScope(), event.payload).catch(() => {
+        void cacheRepository.putPlatformWeather(platformCacheScope(), store.getState().weather).catch(() => {
           if (revision === sessionRevision) storageNotice('实时天气已收到，但本机缓存保存失败。', 'weather-cache');
         });
         lastWeatherReadAt = Date.now();
@@ -558,8 +628,16 @@ function tokenProvider() {
   return authSession?.getAccessToken() ?? endpointProfile?.accessToken ?? null;
 }
 
-async function configureAuthSession(profile, { deferRefresh = false } = {}) {
+async function configureAuthSession(profile, { deferRefresh = false, configurationVerified = true } = {}) {
   authSession?.invalidatePendingOperations();
+  if (!configurationVerified) {
+    // A failed read does not establish a new identity. Suspend access without
+    // letting restore() compare a saved session against fallback metadata.
+    authSession = null;
+    setClientState({ auth: { configured: false, authenticated: false, status: 'configuration_pending',
+      cachePartition: null, expiresAt: null, error: null } });
+    return null;
+  }
   const config = normalizeOidcConfig(profile);
   if (!config) {
     authSession = null;
@@ -570,11 +648,15 @@ async function configureAuthSession(profile, { deferRefresh = false } = {}) {
   manager = new OidcSessionManager({
     config,
     navigate: (url) => nativeRuntime ? Browser.open({ url }) : globalThis.location.assign(url),
+    onProgress: (stage) => {
+      if (authSession === manager) setClientState({ auth: { ...clientState.auth,
+        status: stage === 'awaiting_callback' ? 'awaiting_callback' : 'redirecting', loginStage: stage, error: null } });
+    },
     onStateChange: (auth) => {
       if (authSession !== manager) return;
       if (Boolean(auth.authenticated) !== Boolean(clientState.auth.authenticated)
         || auth.cachePartition !== clientState.auth.cachePartition) invalidateRuntimeContext();
-      setClientState({ auth });
+      setClientState({ auth: { ...auth, error: auth.error ? oidcErrorMessage({ code: auth.errorCode }) : null } });
       void ai.syncContext();
       if (!auth.authenticated) {
         platform?.disconnect();
@@ -602,7 +684,11 @@ async function completeOidcRedirect(url = currentUrl()) {
   }
 }
 
-async function synchronizePlatformEndpoint() {
+function startupContextKey() {
+  return JSON.stringify([endpointActivationRevision, sessionRevision, platformCacheScope()]);
+}
+
+async function synchronizePlatformEndpoint({ prefetchKey = null } = {}) {
   if (!platform) return null;
   if (authSession?.isConfigured() && !authSession.getAccessToken()) return null;
   const adapter = platform;
@@ -610,7 +696,7 @@ async function synchronizePlatformEndpoint() {
   bindPlatformEvents(adapter);
   await hydrateCachedWeather();
   if (platform !== adapter || activation !== endpointActivationRevision) return null;
-  await loadSites();
+  await loadSites({ prefetchKey });
   if (platform !== adapter || activation !== endpointActivationRevision) return null;
   await refreshDevices();
   if (platform !== adapter || activation !== endpointActivationRevision) return null;
@@ -620,8 +706,8 @@ async function synchronizePlatformEndpoint() {
   return endpointProfile;
 }
 
-async function activateEndpoint(profile, { startupReady = null, launchUrl = null } = {}) {
-  const normalizedProfile = normalizeEndpointProfile(profile);
+async function activateEndpoint(profile, { startupReady = null, launchUrl = null, persistProfile = true, configurationVerified = true } = {}) {
+  const normalizedProfile = normalizeEndpointProfile(configurationVerified ? profile : { ...profile, accessToken: null });
   const activation = ++endpointActivationRevision;
   setClientState({ loading: { endpointPhase: 'saving' } });
   try {
@@ -631,7 +717,9 @@ async function activateEndpoint(profile, { startupReady = null, launchUrl = null
     platform?.disconnect();
     let savedProfile = normalizedProfile;
     try {
-      savedProfile = await runtimeConfigRepository.save(normalizedProfile);
+      // Startup already read this profile. Do not put a repeated Preferences
+      // write on the first-frame path; serialize persistence after reveal.
+      if (!startupReady && persistProfile && configurationVerified) savedProfile = await runtimeConfigRepository.save(normalizedProfile);
     } catch {
       if (activation === endpointActivationRevision) storageNotice('连接设置已在本次会话生效，但本机保存失败；重启后需要重新填写。', 'endpoint-preference');
     }
@@ -644,20 +732,20 @@ async function activateEndpoint(profile, { startupReady = null, launchUrl = null
     setClientState({ sites: [], weatherSettings: null, pendingWeatherLocation: null });
     setWeatherRefreshCooldown(0);
     setClientState({ loading: { endpointPhase: 'restoring_auth' } });
-    await configureAuthSession(endpointProfile, { deferRefresh: Boolean(startupReady) });
+    await configureAuthSession(endpointProfile, { deferRefresh: Boolean(startupReady), configurationVerified });
     if (activation !== endpointActivationRevision) return null;
     const endpointAuth = authSession;
     const activatedProfile = endpointProfile;
-    platformSession = createPlatformAdapter({
+    platformSession = configurationVerified ? createPlatformAdapter({
       endpointProfile,
       siteCodeProvider: () => clientState.context.siteCode,
       accessTokenProvider: () => endpointAuth?.getAccessToken() ?? activatedProfile.accessToken ?? null,
       onUnauthorized: () => endpointAuth?.tryRefresh() ?? Promise.resolve(false)
-    });
-    platform = platformSession.adapter;
+    }) : null;
+    platform = platformSession?.adapter ?? null;
     realtimeState = 'idle';
     clientState = { ...clientState, endpointProfile, lanCandidates: [] };
-    bindPlatformEvents(platform);
+    if (platform) bindPlatformEvents(platform);
     store.setRuntimeContext({
       accessRoute: endpointProfile.accessRoute,
       endpointId: endpointProfile.id,
@@ -672,15 +760,45 @@ async function activateEndpoint(profile, { startupReady = null, launchUrl = null
     }
     if (activation !== endpointActivationRevision) return null;
     if (startupReady) {
-      await startupReady();
+      const reveal = startupReady();
+      const prefetchKey = startupContextKey();
+      const prefetchAdapter = platform;
+      const canPrefetch = startupOptions.prefetch && endpointAuth?.getAccessToken()
+        && !endpointAuth.needsRefresh() && clientState.auth.status !== 'processing_callback';
+      if (canPrefetch) startupPrefetch.start(prefetchKey, signal => prefetchAdapter.listSites({ signal }));
+      const visible = await reveal;
+      if (visible !== true || activation !== endpointActivationRevision || startupDisposed || prefetchKey !== startupContextKey()) {
+        startupPrefetch.cancel();
+        if (!startupDisposed && visible !== true) setClientState({ startup: { phase: 'error', error: '启动显示未完成，请使用恢复入口重新加载。' } });
+        return null;
+      }
+      if (!configurationVerified) {
+        setClientState({ startup: { phase: 'configuration_pending', error: null } });
+        return endpointProfile;
+      }
+      if (persistProfile) void runtimeConfigRepository.save(normalizedProfile).catch(() => {
+        if (activation === endpointActivationRevision && !startupDisposed) storageNotice('连接设置已在本次会话生效，但本机保存失败。', 'endpoint-preference');
+      });
+      setClientState({ startup: { phase: 'interactive', error: null } });
       // Restoring a near-expiry session may require a network request. Keep it
       // out of the local first-frame gate, then refresh before remote sync.
-      if (authSession?.session?.accessToken && authSession.needsRefresh()) {
-        await authSession.tryRefresh();
+      if (endpointAuth?.session?.accessToken && endpointAuth.needsRefresh()) {
+        await endpointAuth.tryRefresh();
       }
+      if (activation !== endpointActivationRevision || authSession !== endpointAuth || startupDisposed) return null;
+      setClientState({ loading: { endpointPhase: 'synchronizing' } });
+      await synchronizePlatformEndpoint({ prefetchKey: canPrefetch ? prefetchKey : null });
+      if (activation !== endpointActivationRevision || startupDisposed) return null;
+      startupTrace.record('initial_data_settled', { result: clientState.resources.devices.phase });
+      render();
+      return endpointProfile;
     }
     setClientState({ loading: { endpointPhase: 'synchronizing' } });
     await synchronizePlatformEndpoint();
+    if (activation !== endpointActivationRevision || startupDisposed) return null;
+    if (configurationVerified && clientState.startup.phase === 'configuration_pending') {
+      setClientState({ startup: { phase: 'data_settled', error: null } });
+    }
     render();
     return endpointProfile;
   } finally {
@@ -688,13 +806,18 @@ async function activateEndpoint(profile, { startupReady = null, launchUrl = null
   }
 }
 
-async function loadSites() {
+async function loadSites({ prefetchKey = null } = {}) {
   if (!platform) return [];
   const adapter = platform;
   const task = runtimeTasks.begin('sites');
   setResource('sites', beginResource(clientState.resources.sites, clientState.sites.length > 0));
   try {
-    const response = await adapter.listSites();
+    const speculative = prefetchKey && startupPrefetch.take(prefetchKey);
+    const result = speculative ? await speculative : null;
+    if (result?.status === 'cancelled') return [];
+    if (result && result.status !== 'fulfilled') throw result.error ?? new Error('站点预取未完成，请重新同步。');
+    const response = result ? result.value : await adapter.listSites();
+    if (result) startupTrace.record('prefetch_applied');
     if (!runtimeTasks.current(task)) return [];
     const sites = Array.isArray(response) ? response.filter((site) => site?.siteCode) : [];
     setClientState({ sites, resources: { sites: resolveResource({ hasData: sites.length > 0 }) } });
@@ -812,6 +935,9 @@ async function switchEndpoint(profile) {
 }
 
 async function signIn() {
+  if (clientState.auth.status === 'configuration_pending') {
+    throw new Error('请先重新读取已保存设置，或在连接设置中确认服务器地址；已有登录信息已保留。');
+  }
   if (!authSession?.isConfigured()) {
     throw new Error('当前端点尚未配置登录服务。请在连接设置中填写 Keycloak 地址、客户端 ID 和回调地址。');
   }
@@ -819,7 +945,7 @@ async function signIn() {
   setClientState({ auth: { ...clientState.auth, status: 'redirecting', error: null } });
   try { await manager.beginLogin(); }
   catch (error) {
-    if (manager === authSession) setClientState({ auth: { ...manager.getState(), error: `登录准备失败：${error.message}` } });
+    if (manager === authSession) setClientState({ auth: { ...manager.getState(), error: oidcErrorMessage(error) } });
     throw error;
   }
 }
@@ -907,7 +1033,8 @@ async function readDeviceSnapshot({ refreshActiveActivity = true } = {}) {
 }
 
 async function loadActivity(device) {
-  if (!device || device.localOnly || device.id === null || device.id === undefined || !platform) return [];
+  if (device?.localOnly) return loadLocalActivityPage(device);
+  if (!device || device.id === null || device.id === undefined || !platform) return [];
   const adapter = platform;
   const task = runtimeTasks.begin('activity');
   const existing = store.getState().activitiesByDeviceId[device.id] ?? [];
@@ -944,7 +1071,7 @@ async function hydrateCachedWeather() {
   const weather = age > WEATHER_READ_CACHE_MS
     ? { ...cached.weather, status: cached.weather.status === 'EXPIRED' ? 'EXPIRED' : 'STALE' }
     : cached.weather;
-  store.setWeather(weather);
+  store.setWeather(stampWeatherReceipt(weather, null, Number(cached.cachedAt) || Date.now()));
   setResource('weather', resolveResource({ hasData: true, source: 'cache', updatedAt: cached.cachedAt }));
   lastWeatherReadAt = Number(cached.cachedAt) || 0;
   return weather;
@@ -979,7 +1106,7 @@ async function refreshWeather({ forceRead = false, includeSettings = false } = {
       ? rejectResource(clientState.resources.weather, '后台暂无可用天气数据。', false)
       : resolveResource({ hasData: Boolean(weather?.current), source: ['STALE', 'EXPIRED'].includes(weather?.status) ? 'cache' : 'network' }));
     try {
-      await cacheRepository.putPlatformWeather(scope, weather);
+      await cacheRepository.putPlatformWeather(scope, store.getState().weather);
     } catch {
       if (runtimeTasks.current(task)) storageNotice('天气已读取，但本机缓存保存失败。', 'weather-cache');
     }
@@ -1082,7 +1209,7 @@ async function applyWeatherLocation(location, { retainOnFailure = false, task = 
   lastWeatherReadAt = Date.now();
   let partial = false;
   try {
-    await cacheRepository.putPlatformWeather(scope, weather);
+    await cacheRepository.putPlatformWeather(scope, store.getState().weather);
   } catch {
     partial = true;
     if (runtimeTasks.current(task)) storageNotice('位置已保存到后台，但本机天气缓存保存失败；不需要重复提交位置。', 'weather-cache');
@@ -1187,7 +1314,7 @@ async function performWeatherRefresh() {
     ? rejectResource(clientState.resources.weather, '后台暂无可用天气数据。', false)
     : resolveResource({ hasData: Boolean(weather?.current), source: ['STALE', 'EXPIRED'].includes(weather?.status) ? 'cache' : 'network' }));
   const auxiliary = await Promise.allSettled([
-    cacheRepository.putPlatformWeather(scope, weather), refreshWeatherSettings(), loadWeatherForecast({ forceRead: true })
+    cacheRepository.putPlatformWeather(scope, store.getState().weather), refreshWeatherSettings(), loadWeatherForecast({ forceRead: true })
   ]);
   if (!runtimeTasks.current(task)) return { status: 'superseded' };
   const partial = auxiliary.some((item) => item.status === 'rejected') || Boolean(clientState.resources.weatherForecast.error);
@@ -1257,8 +1384,9 @@ async function loadAppInstallId(preferences = Preferences) {
   return value;
 }
 
-async function restoreLocalBindings() {
-  for (const binding of await cacheRepository.listLocalBindings()) {
+function restoreLocalBindings(bindings = []) {
+  for (const binding of bindings) {
+    if (!installIdentityVerified || binding.appInstallId !== appInstallId) continue;
     const device = {
       id: `ble:${binding.pluginDeviceId}`,
       deviceId: binding.pluginDeviceId,
@@ -1276,13 +1404,36 @@ async function restoreLocalBindings() {
       }]
     };
     store.upsertDevice(device);
-    for (const activity of await cacheRepository.listLocalActivity(binding.key)) {
-      store.addActivity(device.id, activity);
-    }
+  }
+}
+
+async function loadLocalActivityPage(device, { next = false } = {}) {
+  if (!device?.localOnly) return [];
+  const bindingKey = `${appInstallId}:${device.deviceId}`;
+  if (!installIdentityVerified || !store.selectDevice(device.id)) return [];
+  const task = runtimeTasks.begin('activity');
+  const existing = store.getState().activitiesByDeviceId[device.id] ?? [];
+  const previous = localHistoryCursors.get(bindingKey);
+  if (next && previous === null) return existing;
+  setResource('activity', { ...beginResource(clientState.resources.activity, existing.length > 0), entityId: device.id });
+  try {
+    const page = await cacheRepository.listLocalActivityPage(bindingKey, { before: next ? previous : null, limit: 50 });
+    const bindings = await cacheRepository.listLocalBindings();
+    if (!runtimeTasks.current(task) || startupDisposed || !store.selectDevice(device.id)
+      || !bindings.some(binding => binding.key === bindingKey)) return [];
+    for (const entry of page.items) store.addActivity(device.id, entry);
+    localHistoryCursors.set(bindingKey, page.nextCursor);
+    setResource('activity', { ...resolveResource({ hasData: existing.length > 0 || page.items.length > 0 }),
+      entityId: device.id, local: true, hasMore: Boolean(page.nextCursor) });
+    return page.items;
+  } catch (error) {
+    if (runtimeTasks.current(task)) setResource('activity', { ...rejectResource(clientState.resources.activity, describeError(error), existing.length > 0), entityId: device.id });
+    return existing;
   }
 }
 
 async function persistBleBinding(device, connection) {
+  if (!installIdentityVerified) throw new Error('安装身份尚未恢复，不能保存蓝牙绑定。');
   if (!appInstallId || !connection.deviceId) return null;
   return cacheRepository.putLocalBinding({
     appInstallId,
@@ -1308,16 +1459,6 @@ async function persistLocalCommandActivity(bindingKey, command) {
   return stored;
 }
 
-function withDefaultOidcFields(profile, defaults = defaultOidcFields({ native: nativeRuntime })) {
-  return {
-    ...profile,
-    oidcIssuerUrl: profile?.oidcIssuerUrl ?? defaults.oidcIssuerUrl ?? null,
-    oidcClientId: profile?.oidcClientId ?? defaults.oidcClientId ?? null,
-    oidcRedirectUri: profile?.oidcRedirectUri ?? defaults.oidcRedirectUri ?? null,
-    oidcScope: profile?.oidcScope ?? defaults.oidcScope ?? null
-  };
-}
-
 async function handleNativeOidcRedirect(url) {
   if (authSession?.isRedirect(url) && browserCloseTimer !== null) { clearTimeout(browserCloseTimer); browserCloseTimer = null; }
   try {
@@ -1331,20 +1472,57 @@ async function handleNativeOidcRedirect(url) {
   }
 }
 
-async function bootstrapRuntime() {
+function resolveSavedEndpoint(savedProfile) {
+  const defaults = nativeRuntime ? DEFAULT_NATIVE_ENDPOINT : resolveClientConfig();
+  const saved = nativeRuntime ? repairLegacyNativeEndpoint(savedProfile, DEFAULT_NATIVE_ENDPOINT) : savedProfile;
+  return withDefaultOidcFields(saved ?? {
+    id: 'local-site', accessRoute: ACCESS_ROUTES.SITE_API,
+    apiBaseUrl: defaults.apiBaseUrl, wsUrl: defaults.wsUrl,
+    organizationCode: clientState.context.organizationCode,
+    accessToken: defaults.accessToken ?? null,
+    ...defaultOidcFields({ native: nativeRuntime })
+  });
+}
+
+async function retryEndpointConfiguration() {
+  if (clientState.auth.status !== 'configuration_pending' || clientState.loading.endpointRecovery) return null;
+  const task = runtimeTasks.begin('endpointRecovery');
+  setLoading('endpointRecovery', true);
   try {
-    appInstallId = await loadAppInstallId();
-    await restoreLocalBindings();
-  } catch {
-    // Storage is auxiliary to an online session; do not strand the whole app
-    // at a startup spinner when IndexedDB or preferences are unavailable.
-    appInstallId ??= globalThis.crypto?.randomUUID?.() ?? `temporary-${Date.now()}`;
+    const result = await boundedStartupRead(() => runtimeConfigRepository.load({ migrate: false }), { signal: startupAbort.signal });
+    if (!runtimeTasks.current(task) || startupDisposed) return null;
+    if (result.status !== 'fulfilled') {
+      storageNotice('仍无法读取已保存设置，登录信息已保留。请重试，或在连接设置中确认地址。', 'endpoint-recovery');
+      return null;
+    }
+    return await activateEndpoint(resolveSavedEndpoint(result.value));
+  } finally {
+    if (runtimeTasks.current(task)) setLoading('endpointRecovery', false);
+  }
+}
+
+async function bootstrapRuntime() {
+  startupTrace.record('web_bootstrap_start');
+  const snapshot = await readStartupSnapshot({
+    // Installation generation remains single-flight; a timeout never retries its write.
+    installId: () => loadAppInstallId(),
+    bindings: () => cacheRepository.listLocalBindings(),
+    pendingLocation: () => loadPendingWeatherLocation(),
+    selectedSite: () => Preferences.get({ key: SELECTED_SITE_KEY }),
+    endpoint: () => runtimeConfigRepository.load({ migrate: false }),
+    launch: () => nativeRuntime ? App.getLaunchUrl?.() : null
+  }, { trace: startupTrace, signal: startupAbort.signal });
+  if (startupDisposed) return;
+  installIdentityVerified = snapshot.installId?.status === 'fulfilled' && Boolean(snapshot.installId.value);
+  appInstallId = installIdentityVerified ? snapshot.installId.value : `temporary-${Date.now()}`;
+  if (snapshot.bindings?.status === 'fulfilled') restoreLocalBindings(snapshot.bindings.value);
+  if (!installIdentityVerified || snapshot.bindings?.status !== 'fulfilled') {
     storageNotice('本机存储暂不可用：蓝牙绑定或离线数据可能无法恢复；在线功能仍可使用。', 'startup-storage');
   }
-  const pendingWeatherLocation = await loadPendingWeatherLocation();
+  const pendingWeatherLocation = snapshot.pendingLocation?.value ?? null;
   try {
-    const savedSite = await Preferences.get({ key: SELECTED_SITE_KEY });
-    if (savedSite.value) {
+    const savedSite = snapshot.selectedSite?.value;
+    if (savedSite?.value) {
       const parsed = JSON.parse(savedSite.value);
       if (parsed?.siteCode) {
         clientState = {
@@ -1356,37 +1534,28 @@ async function bootstrapRuntime() {
   } catch {
     // The built-in demo context remains the safe fallback.
   }
-  const savedProfile = await runtimeConfigRepository.load().catch(() => {
-    storageNotice('本机连接设置读取失败，已使用默认连接；可在连接设置中重新配置。', 'startup-storage');
-    return null;
-  });
-  const defaults = nativeRuntime
-    ? DEFAULT_NATIVE_ENDPOINT
-    : resolveClientConfig();
-  const saved = nativeRuntime ? repairLegacyNativeEndpoint(savedProfile, DEFAULT_NATIVE_ENDPOINT) : savedProfile;
-  const profile = withDefaultOidcFields(saved ?? {
-    id: 'local-site',
-    accessRoute: ACCESS_ROUTES.SITE_API,
-    apiBaseUrl: defaults.apiBaseUrl,
-    wsUrl: defaults.wsUrl,
-    organizationCode: clientState.context.organizationCode,
-    accessToken: defaults.accessToken ?? null,
-    ...defaultOidcFields({ native: nativeRuntime })
-  });
-  const launch = nativeRuntime ? await App.getLaunchUrl?.().catch(() => null) : null;
-  await activateEndpoint(profile, {
+  const savedProfile = snapshot.endpoint?.value ?? null;
+  const configurationVerified = snapshot.endpoint?.status === 'fulfilled';
+  const profile = resolveSavedEndpoint(savedProfile);
+  const launch = snapshot.launch?.value;
+  const activated = await activateEndpoint(profile, {
     launchUrl: launch?.url ?? null,
+    // A failed or timed-out read does not prove storage is empty. Keep the
+    // default in memory and preserve the operator's existing saved profile.
+    persistProfile: configurationVerified,
+    configurationVerified,
     startupReady: async () => {
       // Pending locations are only restored for their original endpoint/site.
       if (pendingWeatherLocation?.scopeKey === JSON.stringify(platformCacheScope())) {
         setClientState({ pendingWeatherLocation });
       }
-      setClientState({ startup: { phase: 'syncing', error: null } });
+      setClientState({ startup: { phase: 'local_ui_ready', error: null } });
       render('startup_local_ready');
-      await startupTransition.markUiReady();
+      return startupTransition.markUiReady();
     }
   });
-  setClientState({ startup: { phase: 'ready', error: null } });
+  if (!activated || startupDisposed) return;
+  setClientState({ startup: { phase: configurationVerified ? 'data_settled' : 'configuration_pending', error: null } });
   if (nativeRuntime && !authUrlListener) {
     authUrlListener = await App.addListener('appUrlOpen', ({ url }) => handleNativeOidcRedirect(url));
   }
@@ -1717,7 +1886,7 @@ async function openDevice({ deviceId }) {
   const device = store.selectDevice(deviceId);
   if (!device) throw new Error('未找到设备，请先刷新列表。');
   store.setActiveDevice(device.id);
-  if (!device.localOnly) {
+  if (device) {
     try {
       await loadActivity(device);
     } catch (error) {
@@ -1799,10 +1968,16 @@ window.addEventListener('online', handleAiNetworkChange);
 window.addEventListener('offline', handleAiNetworkChange);
 if (import.meta.env.DEV) {
   globalThis.__iotUiMetrics = () => ({ ...renderMetrics.snapshot(), store: store.diagnostics() });
+  globalThis.__iotStartupTrace = () => startupTrace.snapshot();
 }
 
 window.addEventListener('beforeunload', () => {
+  startupDisposed = true;
+  startupAbort.abort();
+  startupPrefetch.cancel();
+  stopStartupMotion?.();
   ai.destroy();
+  assessment.reset({ notify: false });
   if (browserCloseTimer !== null) clearTimeout(browserCloseTimer);
   startupTransition.dispose();
   document.removeEventListener('visibilitychange', handleDocumentVisibility);
@@ -1814,6 +1989,7 @@ window.addEventListener('beforeunload', () => {
   unsubscribeBle();
   void lifecycleHandle?.remove?.();
   void authUrlListener?.remove?.();
+  weatherFreshnessGuard.destroy();
   void browserFinishedListener?.remove?.();
   void nativeBackListener?.remove?.();
   authSession?.stopAutoRefresh();
@@ -1823,4 +1999,5 @@ window.addEventListener('beforeunload', () => {
 
 void bootstrapRuntime().catch((error) => {
   setClientState({ startup: { phase: 'error', error: describeError(error) }, error: describeError(error) });
+  startupTransition.notifyStartupFailure();
 });

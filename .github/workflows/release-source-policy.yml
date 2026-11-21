@@ -1,0 +1,29 @@
+name: Reviewed Release Source Policy
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: false
+        type: string
+      allow_release_tag:
+        required: false
+        default: false
+        type: boolean
+permissions:
+  contents: read
+jobs:
+  reviewed-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Reject unreviewed source or workflow before using protected hosts
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+          ALLOW_RELEASE_TAG: ${{ inputs.allow_release_tag }}
+        run: bash scripts/ci/assert-reviewed-source.sh

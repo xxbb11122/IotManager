@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import 'fake-indexeddb/auto';
+import { openDB } from 'idb';
 
 import { CacheRepository } from '../src/js/platform/cache-repository.js';
 
@@ -82,4 +83,29 @@ test('forgetting a local BLE binding removes its local activity trail', async ()
   assert.equal(await cache.removeLocalBinding('install-1', 'ble-1'), true);
   assert.equal((await cache.listLocalBindings()).length, 0);
   assert.deepEqual(await cache.listLocalActivity(binding.key), []);
+});
+
+test('local activity cursor pagination is newest first, scoped, and has no duplicate boundary', async () => {
+  const cache = new CacheRepository({ databaseName: `iot-page-${Date.now()}` });
+  for (let i = 0; i < 7; i++) await cache.addLocalActivity({ id: `event-${i}`, bindingKey: 'install:a', occurredAt: `2026-10-18T00:00:0${Math.floor(i/2)}.000Z` });
+  await cache.addLocalActivity({ id: 'other', bindingKey: 'install:b' });
+  const first = await cache.listLocalActivityPage('install:a', { limit: 3 });
+  const second = await cache.listLocalActivityPage('install:a', { limit: 3, before: first.nextCursor });
+  const last = await cache.listLocalActivityPage('install:a', { limit: 3, before: second.nextCursor });
+  assert.deepEqual([...first.items,...second.items,...last.items].map(row=>row.id), ['event-6','event-5','event-4','event-3','event-2','event-1','event-0']);
+  assert.equal(last.nextCursor, null);
+  await assert.rejects(cache.listLocalActivityPage('install:a', { limit: 0 }), /limit/);
+});
+
+test('version 2 local history migrates into the paged index without dropping untimed events', async () => {
+  const name = `iot-migration-${Date.now()}`;
+  const old = await openDB(name, 2, { upgrade(db) {
+    const devices=db.createObjectStore('platformDevices',{keyPath:'key'});devices.createIndex('scopeKey','scopeKey');
+    db.createObjectStore('localBindings',{keyPath:'key'});db.createObjectStore('platformWeather',{keyPath:'key'});
+    const events=db.createObjectStore('localActivity',{keyPath:'id'});events.createIndex('bindingKey','bindingKey');
+  } });
+  await old.put('localActivity', { id: 'legacy', bindingKey: 'a' }); old.close();
+  const cache = new CacheRepository({ databaseName: name });
+  const page = await cache.listLocalActivityPage('a');
+  assert.equal(page.items[0].id, 'legacy'); assert.equal(page.items[0].occurredAt, '1970-01-01T00:00:00.000Z');
 });

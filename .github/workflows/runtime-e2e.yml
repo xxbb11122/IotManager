@@ -3,6 +3,9 @@ name: P0 Docker Runtime
 on:
   workflow_call:
     inputs:
+      release_mode:
+        required: true
+        type: boolean
       source_sha:
         required: true
         type: string
@@ -69,7 +72,7 @@ on:
 
 concurrency:
   group: p0-runtime-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'workflow_call' }}
+  cancel-in-progress: ${{ inputs.release_mode != true }}
 
 permissions:
   contents: read
@@ -77,7 +80,7 @@ permissions:
 
 jobs:
   full-stack:
-    if: ${{ github.event_name != 'workflow_call' }}
+    if: ${{ inputs.release_mode != true }}
     name: Compose, Keycloak, PostgreSQL, Caddy, Backend
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -355,7 +358,7 @@ jobs:
           exit "$cleanup_status"
 
   immutable-release-runtime:
-    if: ${{ github.event_name == 'workflow_call' }}
+    if: ${{ inputs.release_mode == true }}
     name: Immutable 12-service runtime evidence
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -414,7 +417,7 @@ jobs:
             --approved-repository "$GITHUB_REPOSITORY" \
             --approved-producer-path .github/workflows/image-security.yml \
             --approved-caller-path .github/workflows/release-gate.yml \
-            --allowed-event workflow_call \
+            --allowed-event push --allowed-event workflow_dispatch \
             --allowed-invocation-mode orchestrated-reusable
           bash scripts/ci/validate-digest-manifest.sh \
             --candidate artifacts/release/release-candidate.json \
@@ -507,8 +510,8 @@ jobs:
             --caller-workflow-identity "$GITHUB_REPOSITORY/$caller_path@$CALLER_WORKFLOW_SHA" \
             --producer-run-id "$GITHUB_RUN_ID" \
             --producer-run-attempt "$GITHUB_RUN_ATTEMPT" \
-            --producer-workflow-ref-raw "${{ job.workflow_ref || github.workflow_ref }}" \
-            --producer-workflow-sha "${{ job.workflow_sha || github.workflow_sha }}" \
+            --producer-workflow-ref-raw "${{ github.repository }}/.github/workflows/runtime-e2e.yml@${{ github.workflow_sha }}" \
+            --producer-workflow-sha "${{ github.workflow_sha }}" \
             --producer-job immutable-release-runtime \
             --artifact-name "immutable-runtime-${{ inputs.release_candidate_id }}" \
             --orchestrator-run-id "${{ inputs.orchestrator_run_id }}" \

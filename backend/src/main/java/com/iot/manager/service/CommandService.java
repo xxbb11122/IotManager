@@ -1,8 +1,8 @@
 package com.iot.manager.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import com.iot.manager.dto.DeviceCommandRequest;
 import com.iot.manager.dto.DeviceCommandView;
 import com.iot.manager.entity.ActivityEvent;
@@ -315,15 +315,16 @@ public class CommandService {
         });
     }
 
-    public DeviceCommandView markSentForEdgeAgent(String commandId) {
+    /** Only the transaction that claims PENDING may send the command. */
+    public boolean claimPendingForEdgeAgent(String commandId) {
         return requiresNewTransaction().execute(status -> {
             DeviceCommand command = commandRepository.findByCommandIdForUpdate(commandId)
                     .orElseThrow(() -> new NoSuchElementException("Command not found"));
             Device device = deviceRepository.findByIdForUpdate(command.getDevice().getId())
                     .orElseThrow(() -> new NoSuchElementException("Device not found"));
-            if (!PENDING.equals(command.getStatus())) return toView(command, device);
+            if (!EDGE_AGENT.equals(command.getSource()) || !PENDING.equals(command.getStatus())) return false;
             transition(command, device, SENT, "command_sent", "Command sent to edge agent");
-            return toView(command, device);
+            return true;
         });
     }
 
@@ -560,7 +561,7 @@ public class CommandService {
         try {
             return objectMapper.readValue(json, new TypeReference<LinkedHashMap<String, Object>>() {
             });
-        } catch (JsonProcessingException exception) {
+        } catch (JacksonException exception) {
             throw new IllegalStateException("Unable to read command JSON", exception);
         }
     }
@@ -568,7 +569,7 @@ public class CommandService {
     private String writeJson(Map<String, Object> value) {
         try {
             return objectMapper.writeValueAsString(value == null ? Map.of() : value);
-        } catch (JsonProcessingException exception) {
+        } catch (JacksonException exception) {
             throw new IllegalStateException("Unable to write command JSON", exception);
         }
     }

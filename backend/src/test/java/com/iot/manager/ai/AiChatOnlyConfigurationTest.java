@@ -5,7 +5,8 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -15,6 +16,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@AutoConfigureTestRestTemplate
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "iot.ai.enabled=true",
         "iot.ai.knowledge-enabled=false",
@@ -23,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.ai.model.embedding=none",
         "spring.ai.openai.chat.base-url=https://api.deepseek.com",
         "spring.ai.openai.chat.api-key=test-only-chat-key",
-        "spring.ai.openai.chat.options.model=deepseek-flash"
+        "spring.ai.openai.chat.model=deepseek-flash"
 })
 @ActiveProfiles("test")
 class AiChatOnlyConfigurationTest {

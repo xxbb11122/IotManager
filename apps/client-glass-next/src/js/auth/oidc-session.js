@@ -13,6 +13,26 @@ export class OidcError extends Error {
   }
 }
 
+export function oidcErrorMessage(error) {
+  const messages = {
+    DISCOVERY_TIMEOUT: '登录服务连接超时，请检查服务器是否启动、手机网络和 Issuer 地址。',
+    DISCOVERY_UNAVAILABLE: '无法连接登录服务，请检查服务器、网络和证书信任。',
+    DISCOVERY_FAILED: '登录服务响应异常，请检查 Issuer 地址和服务器状态。',
+    INVALID_DISCOVERY: '登录服务身份与配置不一致，请在连接设置中重新确认地址。',
+    STORAGE_TIMEOUT: '安全存储无响应，请稍后重试；持续失败时请重启 App。',
+    STORAGE_BUSY: '上一次安全存储操作尚未结束，请稍后重试或重启 App。',
+    BROWSER_TIMEOUT: '浏览器未及时响应，请确认手机已启用可用浏览器后重试。',
+    BROWSER_OPEN_FAILED: '无法打开系统浏览器，请启用默认浏览器后重试。',
+    LOGIN_TIMEOUT: '登录准备超时，已停止本次等待，可以重新登录。',
+    LOGIN_CANCELLED: '登录已取消，可以重新登录。',
+    TOKEN_TIMEOUT: '登录回调验证超时，请检查网络后重新登录。',
+    INCOMPLETE_CONFIGURATION: '请完整填写登录服务、客户端 ID 和回调地址。',
+    NOT_CONFIGURED: '尚未配置登录服务，请打开连接设置。',
+    LOGIN_IN_PROGRESS: '登录正在进行，请完成或取消当前登录。'
+  };
+  return messages[error?.code] || '登录未完成，请检查连接配置、证书和系统浏览器后重试。';
+}
+
 function text(value) {
   return String(value ?? '').trim();
 }
@@ -192,7 +212,11 @@ export class OidcSessionManager {
     navigate = (url) => globalThis.location.assign(url),
     now = () => Date.now(),
     cryptoRef = globalThis.crypto,
-    onStateChange = () => {}
+    onStateChange = () => {},
+    onProgress = () => {},
+    requestTimeoutMs = 8000,
+    bridgeTimeoutMs = 3000,
+    loginTimeoutMs = 15000
   } = {}) {
     this.config = normalizeOidcConfig(config ?? {});
     this.tokenStore = tokenStore;
@@ -201,6 +225,14 @@ export class OidcSessionManager {
     this.now = now;
     this.cryptoRef = cryptoRef;
     this.onStateChange = onStateChange;
+    this.onProgress = onProgress;
+    this.requestTimeoutMs = requestTimeoutMs;
+    this.bridgeTimeoutMs = bridgeTimeoutMs;
+    this.loginTimeoutMs = loginTimeoutMs;
+    this.activeOperations = new Set();
+    this.loginAttempt = 0;
+    this.transactionWritePending = false;
+    this.cancelledLoginStates = new Set();
     this.discovery = null;
     this.session = null;
     this.refreshPromise = null;
@@ -225,13 +257,30 @@ export class OidcSessionManager {
   }
 
   emit(error = null) {
-    this.onStateChange(authState(this.isConfigured(), this.session, error, this.now()));
+    this.onStateChange({ ...authState(this.isConfigured(), this.session, error, this.now()),
+      errorCode: error?.code ?? null });
+  }
+
+  async bounded(operation, timeoutMs, code, message) {
+    const controller = new AbortController();
+    this.activeOperations.add(controller);
+    let timer;
+    const stopped = new Promise((_, reject) => {
+      controller.signal.addEventListener('abort', () => reject(new OidcError('登录操作已结束', { code: 'LOGIN_CANCELLED' })), { once: true });
+      timer = setTimeout(() => {
+        reject(new OidcError(message, { code }));
+        controller.abort();
+      }, timeoutMs);
+    });
+    try { return await Promise.race([Promise.resolve().then(() => operation(controller.signal)), stopped]); }
+    finally { clearTimeout(timer); this.activeOperations.delete(controller); }
   }
 
   async restore({ deferRefresh = false } = {}) {
     if (!this.config) return this.getState();
     const generation = this.sessionGeneration;
-    const stored = await this.tokenStore.getJson(SESSION_KEY);
+    const stored = await this.bounded(() => this.tokenStore.getJson(SESSION_KEY), this.bridgeTimeoutMs,
+      'STORAGE_TIMEOUT', '安全存储读取超时');
     if (generation !== this.sessionGeneration) return this.getState();
     this.session = stored;
     if (this.session && (this.session.issuerUrl !== this.config.issuerUrl || this.session.clientId !== this.config.clientId
@@ -275,34 +324,60 @@ export class OidcSessionManager {
 
   async beginLogin({ prompt = null } = {}) {
     if (!this.config) throw new OidcError('OIDC is not configured for this endpoint', { code: 'NOT_CONFIGURED' });
+    if (this.transactionWritePending) throw new OidcError('Secure transaction storage is still busy', { code: 'STORAGE_BUSY' });
     if (this.loginInProgress || this.callbackInProgress)
       throw new OidcError('Sign-in is already in progress', { code: 'LOGIN_IN_PROGRESS' });
     this.loginInProgress = true;
     const generation = this.sessionGeneration;
+    const attempt = ++this.loginAttempt;
     let transaction = null;
+    const check = () => {
+      if (generation !== this.sessionGeneration || attempt !== this.loginAttempt)
+        throw new OidcError('Sign-in context changed', { code: 'SESSION_CONTEXT_CHANGED' });
+    };
     try {
+      return await this.bounded(async () => {
+      this.onProgress('discovering');
       const [discovery, pkce] = await Promise.all([this.loadDiscovery(), createPkcePair({ cryptoRef: this.cryptoRef })]);
-      if (generation !== this.sessionGeneration) throw new OidcError('Sign-in context changed', { code: 'SESSION_CONTEXT_CHANGED' });
+      check();
       transaction = {
         state: secureRandom(32, this.cryptoRef), nonce: secureRandom(32, this.cryptoRef),
         codeVerifier: pkce.codeVerifier, redirectUri: this.config.redirectUri,
         issuerUrl: this.config.issuerUrl, clientId: this.config.clientId, createdAt: this.now()
       };
       this.pendingLoginState = transaction.state;
-      await this.tokenStore.setJson(TRANSACTION_KEY, transaction);
-      if (generation !== this.sessionGeneration) throw new OidcError('Sign-in context changed', { code: 'SESSION_CONTEXT_CHANGED' });
+      this.onProgress('saving_transaction');
+      this.transactionWritePending = true;
+      const saving = Promise.resolve().then(() => this.tokenStore.setJson(TRANSACTION_KEY, transaction));
+      // An uncancellable native write must settle before a new write is allowed.
+      // Late completion cleans only the old transaction, never a newer attempt.
+      void saving.then(async () => {
+        if (attempt !== this.loginAttempt) await this.removeLoginTransaction(transaction.state).catch(() => {});
+      }, () => {}).finally(() => { this.transactionWritePending = false; });
+      await this.bounded(() => saving, this.bridgeTimeoutMs, 'STORAGE_TIMEOUT', '安全存储写入超时');
+      check();
       const authorizationUrl = new URL(endpointFromDiscovery(discovery, 'authorization_endpoint'));
       authorizationUrl.search = formBody({
         response_type: 'code', client_id: this.config.clientId, redirect_uri: this.config.redirectUri,
         scope: this.config.scope, state: transaction.state, nonce: transaction.nonce,
         code_challenge: pkce.codeChallenge, code_challenge_method: 'S256', prompt
       });
-      await this.navigate(authorizationUrl.toString());
+      this.onProgress('opening_browser');
+      await this.bounded(async () => {
+        check();
+        try { await this.navigate(authorizationUrl.toString()); }
+        catch (cause) { throw new OidcError('System browser could not be opened', { code: 'BROWSER_OPEN_FAILED', cause }); }
+      }, this.bridgeTimeoutMs, 'BROWSER_TIMEOUT', '系统浏览器启动超时');
+      check();
+      this.onProgress('awaiting_callback');
       return authorizationUrl.toString();
+      }, this.loginTimeoutMs, 'LOGIN_TIMEOUT', '登录准备超时');
     } catch (error) {
-      if (generation === this.sessionGeneration) {
-        await this.removeLoginTransaction(transaction?.state);
+      if (generation === this.sessionGeneration && attempt === this.loginAttempt) {
+        this.loginAttempt++;
+        if (transaction?.state) this.rememberCancelledState(transaction.state);
         this.pendingLoginState = null; this.loginInProgress = false; this.emit(error);
+        void this.removeLoginTransaction(transaction?.state).catch(() => {});
       }
       throw error;
     }
@@ -310,8 +385,27 @@ export class OidcSessionManager {
 
   async removeLoginTransaction(expectedState) {
     if (!expectedState) return;
-    const transaction = await this.tokenStore.getJson(TRANSACTION_KEY);
-    if (transaction?.state === expectedState) await this.tokenStore.remove(TRANSACTION_KEY);
+    await this.bounded(async () => {
+      const transaction = await this.tokenStore.getJson(TRANSACTION_KEY);
+      if (transaction?.state === expectedState) await this.tokenStore.remove(TRANSACTION_KEY);
+    }, this.bridgeTimeoutMs, 'STORAGE_TIMEOUT', '登录事务清理超时');
+  }
+
+  rememberCancelledState(state) {
+    if (this.cancelledLoginStates.size >= 32) this.cancelledLoginStates.delete(this.cancelledLoginStates.values().next().value);
+    this.cancelledLoginStates.add(state);
+  }
+
+  async cancelLoginPreparation() {
+    if (!this.loginInProgress || this.callbackInProgress) return false;
+    const state = this.pendingLoginState;
+    this.loginAttempt++;
+    if (state) this.rememberCancelledState(state);
+    this.pendingLoginState = null; this.loginInProgress = false;
+    for (const controller of this.activeOperations) controller.abort();
+    this.emit(new OidcError('登录已取消', { code: 'LOGIN_CANCELLED' }));
+    void this.removeLoginTransaction(state).catch(() => {});
+    return true;
   }
 
   async cancelPendingLogin(expectedState = this.pendingLoginState) {
@@ -320,6 +414,8 @@ export class OidcSessionManager {
     if (expectedState !== this.pendingLoginState || this.callbackInProgress) return false;
     if (transaction?.state === expectedState) await this.tokenStore.remove(TRANSACTION_KEY);
     if (expectedState !== this.pendingLoginState || this.callbackInProgress) return false;
+    this.loginAttempt++;
+    this.rememberCancelledState(expectedState);
     this.pendingLoginState = null; this.loginInProgress = false;
     this.emit(new OidcError('登录已取消，可重新登录。', { code: 'LOGIN_CANCELLED' }));
     return true;
@@ -350,7 +446,7 @@ export class OidcSessionManager {
       const state = text(callback.searchParams.get('state'));
       transaction = await this.tokenStore.getJson(TRANSACTION_KEY);
       if (generation !== this.sessionGeneration) return false;
-      if (!transaction || state !== transaction.state || transaction.redirectUri !== this.config.redirectUri
+      if (!transaction || this.cancelledLoginStates.has(state) || state !== transaction.state || transaction.redirectUri !== this.config.redirectUri
         || transaction.issuerUrl !== this.config.issuerUrl || transaction.clientId !== this.config.clientId
         || this.now() - transaction.createdAt < 0 || this.now() - transaction.createdAt > 600_000)
         throw new OidcError('Sign-in callback could not be validated', { code: 'INVALID_CALLBACK' });
@@ -468,6 +564,8 @@ export class OidcSessionManager {
 
   invalidatePendingOperations() {
     this.sessionGeneration += 1;
+    this.loginAttempt++;
+    for (const controller of this.activeOperations) controller.abort();
     this.pendingLoginState = null; this.loginInProgress = false; this.callbackInProgress = false;
     this.refreshPromise = null;
     this.stopAutoRefresh();
@@ -498,12 +596,16 @@ export class OidcSessionManager {
     const url = `${this.config.issuerUrl}/.well-known/openid-configuration`;
     let response;
     try {
-      response = await this.fetchImpl(url, { headers: { accept: 'application/json' } });
+      response = await this.bounded(async signal => {
+        const result = await this.fetchImpl(url, { signal, headers: { accept: 'application/json' } });
+        if (!result?.ok) throw new OidcError('Identity-provider discovery failed', { code: 'DISCOVERY_FAILED' });
+        return result.json();
+      }, this.requestTimeoutMs, 'DISCOVERY_TIMEOUT', '登录服务发现请求超时');
     } catch (error) {
+      if (error instanceof OidcError) throw error;
       throw new OidcError('Unable to reach the identity provider', { code: 'DISCOVERY_UNAVAILABLE', cause: error });
     }
-    if (!response?.ok) throw new OidcError('Identity-provider discovery failed', { code: 'DISCOVERY_FAILED' });
-    const discovery = await response.json();
+    const discovery = response;
     const issuer = text(discovery?.issuer).replace(/\/$/, '');
     if (issuer !== this.config.issuerUrl) {
       throw new OidcError('Identity-provider issuer does not match the configured issuer URL', { code: 'INVALID_DISCOVERY' });
@@ -514,9 +616,11 @@ export class OidcSessionManager {
 
   async requestToken(values) {
     const discovery = await this.loadDiscovery();
-    let response;
+    let response, payload;
     try {
+      await this.bounded(async signal => {
       response = await this.fetchImpl(endpointFromDiscovery(discovery, 'token_endpoint'), {
+        signal,
         method: 'POST',
         headers: {
           accept: 'application/json',
@@ -524,11 +628,12 @@ export class OidcSessionManager {
         },
         body: formBody(values)
       });
+      try { payload = await response.json(); } catch { payload = null; }
+      }, this.requestTimeoutMs, 'TOKEN_TIMEOUT', '登录令牌验证超时');
     } catch (error) {
+      if (error instanceof OidcError) throw error;
       throw new OidcError('Unable to reach the identity provider', { code: 'TOKEN_NETWORK_ERROR', cause: error });
     }
-    let payload = null;
-    try { payload = await response.json(); } catch { /* handled below */ }
     if (!response.ok) {
       throw new OidcError(text(payload?.error_description) || 'The identity provider rejected the token request', {
         code: text(payload?.error) || 'TOKEN_REQUEST_FAILED'

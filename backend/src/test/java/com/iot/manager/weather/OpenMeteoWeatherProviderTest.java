@@ -1,6 +1,6 @@
 package com.iot.manager.weather;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.iot.manager.entity.SiteWeatherSettings;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;

@@ -1,0 +1,243 @@
+/* The chat occupies the available app viewport; only the conversation scrolls.
+   History and persona screens keep their normal document layout. */
+#app[data-active-screen='ai'] .app-shell {
+  height: 100vh;
+  height: var(--ai-viewport-height, 100dvh);
+  min-height: 0;
+  overflow: hidden;
+}
+#app[data-active-screen='ai'] .app-header,
+#app[data-active-screen='ai'] .bottom-nav { flex: 0 0 auto; }
+#app[data-active-screen='ai'] .workspace {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent;
+}
+#app[data-active-screen='ai'] .screen-region {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: 12px;
+  padding-bottom: 8px;
+}
+#app[data-active-screen='ai'] .screen[data-screen='ai'] {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow: hidden;
+}
+#app[data-active-screen='ai'] .global-feedback {
+  flex: 0 0 auto;
+  max-height: min(25vh, 12rem);
+  overflow-y: auto;
+}
+#app[data-active-screen='ai'] .ai-workspace {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+#app[data-active-screen='ai'] .ai-workspace--chat {
+  overflow: hidden;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.ai-scroll-area {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 48px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.ai-scroll-area > * { flex-shrink: 0; }
+.ai-scroll-area .ai-messages {
+  max-height: none;
+  min-height: 0;
+  overflow: visible;
+  padding: 2px 0;
+}
+#app[data-active-screen='ai'] .ai-workspace--chat .ai-header {
+  flex: 0 0 auto;
+  gap: 4px 12px;
+  padding: 2px 0 8px;
+  border-bottom: 1px solid var(--material-edge, var(--line));
+}
+#app[data-active-screen='ai'] .ai-workspace--chat .ai-title {
+  font-size: 1.25rem;
+  letter-spacing: -.02em;
+}
+#app[data-active-screen='ai'] .ai-workspace--chat .ai-actions { gap: 2px; }
+#app[data-active-screen='ai'] .ai-workspace--chat .ai-header .button,
+#app[data-active-screen='ai'] .ai-workspace--chat .ai-message .button {
+  padding: 8px 10px;
+  border-color: transparent;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+#app[data-active-screen='ai'] .ai-workspace--chat .ai-header .button:hover:not(:disabled),
+#app[data-active-screen='ai'] .ai-workspace--chat .ai-message .button:hover:not(:disabled) {
+  background: var(--material-inset, var(--surface-muted));
+}
+#app[data-active-screen='ai'] .ai-workspace--chat .ai-quick-chips {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding: 0 0 4px;
+}
+#app[data-active-screen='ai'] .ai-workspace--chat .ai-chip {
+  padding: 8px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--material-entry, var(--surface));
+  color: var(--teal-strong);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+#app[data-active-screen='ai'] .ai-workspace--chat .ai-empty {
+  min-height: 112px;
+  padding: 16px 8px;
+  line-height: 1.6;
+}
+#app[data-active-screen='ai'] .ai-workspace--chat .ai-message {
+  max-width: min(90%, 46rem);
+  padding: 12px 14px;
+  border: 1px solid var(--material-edge, var(--line));
+  border-radius: 12px;
+  background: var(--material-panel, var(--surface));
+}
+#app[data-active-screen='ai'] .ai-workspace--chat .ai-message--user {
+  background: var(--material-user-bubble, #e5f1ef);
+}
+#app[data-active-screen='ai'] .ai-workspace--chat .ai-message-text {
+  line-height: 1.6;
+}
+#app[data-active-screen='ai'] .ai-workspace--chat .ai-composer {
+  display: grid;
+  flex: 0 1 auto;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  min-height: 0;
+  max-height: 65%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--material-panel, var(--surface));
+  box-shadow: var(--material-sheen, none);
+}
+#app[data-active-screen='ai'] .ai-workspace--chat .ai-composer:focus-within {
+  border-color: #327781;
+  outline: 2px solid #327781;
+  outline-offset: 1px;
+}
+#app[data-active-screen='ai'] .ai-workspace--chat .ai-composer--crystal .ai-field,
+#app[data-active-screen='ai'] .ai-workspace--chat .ai-composer--crystal .ai-field:focus-within {
+  grid-column: 1;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+#app[data-active-screen='ai'] .ai-workspace--chat .ai-composer .ai-field-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+#app[data-active-screen='ai'] .ai-workspace--chat .ai-composer textarea.ai-input {
+  min-height: 48px;
+  max-height: min(120px, 18dvh);
+  padding: 8px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  resize: none;
+}
+#app[data-active-screen='ai'] .ai-workspace--chat .ai-composer textarea.ai-input:focus-visible {
+  outline: none;
+}
+#app[data-active-screen='ai'] .ai-workspace--chat .ai-composer .ai-count {
+  padding: 0 4px 2px;
+  font-size: .875rem;
+}
+#app[data-active-screen='ai'] .ai-workspace--chat .ai-composer > .button--primary {
+  grid-column: 2;
+  min-width: 68px;
+  align-self: end;
+  border: 1px solid #1f6f78;
+  border-radius: 9px;
+  background: #1f6f78;
+  color: #fff;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+#app[data-active-screen='ai'] .ai-workspace--chat .ai-composer > .button--primary:disabled {
+  border-color: #d7e1e1;
+  background: #e8eeee;
+  color: #596f72;
+}
+@media (prefers-contrast: more), (forced-colors: active) {
+  #app[data-active-screen='ai'] .workspace,
+  #app[data-active-screen='ai'] .ai-workspace--chat,
+  #app[data-active-screen='ai'] .ai-workspace--chat .ai-composer,
+  #app[data-active-screen='ai'] .ai-workspace--chat .ai-composer .ai-field,
+  #app[data-active-screen='ai'] .ai-workspace--chat .ai-composer textarea.ai-input,
+  #app[data-active-screen='ai'] .ai-workspace--chat .ai-message,
+  #app[data-active-screen='ai'] .ai-workspace--chat .ai-chip {
+    background: Canvas;
+    color: CanvasText;
+    border-color: CanvasText;
+    box-shadow: none;
+  }
+  #app[data-active-screen='ai'] .ai-workspace--chat .ai-composer:focus-within {
+    outline: 2px solid Highlight;
+  }
+  #app[data-active-screen='ai'] .ai-workspace--chat .ai-composer > .button--primary {
+    background: ButtonFace;
+    color: ButtonText;
+    border-color: ButtonText;
+  }
+  #app[data-active-screen='ai'] .ai-workspace--chat .ai-composer > .button--primary:disabled {
+    color: GrayText;
+    border-color: GrayText;
+  }
+}
+/* Preserve access to every action when a keyboard or landscape window leaves
+   little height. Only the optional header region becomes scrollable. */
+#app[data-ai-keyboard-overlay='true'] .app-header {
+  max-height: 104px;
+  overflow-y: auto;
+}
+#app[data-ai-keyboard-overlay='true'] .ai-header {
+  max-height: 64px;
+  overflow-y: auto;
+}
+#app[data-ai-keyboard-overlay='true'] .global-feedback { max-height: 80px; }
+/* Android resize-mode keyboards can leave a 520–650px layout viewport.
+   Compact before the header and storage notices squeeze the send control. */
+@media (max-height: 650px) {
+  #app[data-active-screen='ai'] .app-header { max-height: 104px; overflow-y: auto; }
+  #app[data-active-screen='ai'] .ai-header { max-height: 64px; overflow-y: auto; }
+  #app[data-active-screen='ai'] .global-feedback { max-height: 80px; }
+}

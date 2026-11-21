@@ -1,5 +1,8 @@
 package com.iot.manager.ai;
 
+import com.iot.manager.service.DeviceStatusOverviewService;
+import com.iot.manager.service.TimeProvider;
+
 import com.iot.manager.service.SiteAccessService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -35,7 +38,7 @@ import java.util.NoSuchElementException;
 @RequestMapping("/api/v1/sites/{siteId}/ai")
 @ConditionalOnProperty(prefix = "iot.ai", name = "enabled", havingValue = "true")
 public class AiController {
-    public record ChatRequest(@NotBlank String question, String conversationId) { }
+    public record ChatRequest(@NotBlank String question, String conversationId, AiDeviceDiagnosis deviceDiagnosis) { }
     public record KnowledgeBaseRequest(@NotBlank String name) { }
     public record PersonaRequest(@NotBlank String name, @NotBlank String instructions, int expectedVersion) { }
     public record ActivationRequest(Integer expectedActiveVersion) { }
@@ -47,10 +50,12 @@ public class AiController {
     private final AiChatService chat;
     private final AiProperties properties;
     private final AiConversationStore conversations;
+    private final DeviceStatusOverviewService deviceOverview;
+    private final TimeProvider timeProvider;
 
     public AiController(SiteAccessService siteAccess, AiRepository repository, AiManagementService management,
                         AiIngestService ingestion, AiChatService chat, AiProperties properties,
-                        AiConversationStore conversations) {
+                        AiConversationStore conversations, DeviceStatusOverviewService deviceOverview, TimeProvider timeProvider) {
         this.siteAccess = siteAccess;
         this.repository = repository;
         this.management = management;
@@ -58,14 +63,20 @@ public class AiController {
         this.chat = chat;
         this.properties = properties;
         this.conversations = conversations;
+        this.deviceOverview = deviceOverview;
+        this.timeProvider = timeProvider;
     }
 
     @PostMapping("/chat")
     public ResponseEntity<?> chat(@PathVariable long siteId, @Valid @RequestBody ChatRequest request,
                                  @RequestHeader(name="Idempotency-Key", required=false) String key) {
         siteAccess.requireSiteAccess(siteId);
+        var diagnosis = request.deviceDiagnosis();
+        if (diagnosis != null && key == null) throw new IllegalArgumentException("Device diagnosis requires an idempotency key");
         if (key == null) return ResponseEntity.ok(chat.chat(siteId, actor(), request.question(), request.conversationId()));
-        var result = chat.submit(siteId, actor(), request.question(), request.conversationId(), key);
+        var result = diagnosis == null ? chat.submit(siteId, actor(), request.question(), request.conversationId(), key)
+                : chat.submit(siteId, actor(), request.question(), request.conversationId(), key,
+                    diagnosis.fingerprint(), () -> diagnosis.evidence(siteId, deviceOverview, timeProvider));
         return result.pending() == null ? ResponseEntity.ok(result.reply())
                 : ResponseEntity.accepted().header("Retry-After", "3").body(result.pending());
     }

@@ -1,7 +1,7 @@
 package com.iot.manager.service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import com.iot.manager.dto.RealtimeEvent;
 import com.iot.manager.entity.ActivityEvent;
 import com.iot.manager.entity.Alert;

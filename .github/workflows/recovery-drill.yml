@@ -3,6 +3,9 @@ name: Protected WAL-G Recovery Drill
 on:
   workflow_call:
     inputs:
+      release_mode:
+        required: true
+        type: boolean
       source_sha:
         required: true
         type: string
@@ -63,8 +66,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  source-policy:
+    uses: ./.github/workflows/release-source-policy.yml
+    with:
+      source_sha: ${{ inputs.source_sha || github.sha }}
+      allow_release_tag: ${{ inputs.release_mode == true }}
+
   physical-recovery:
-    if: ${{ github.event_name != 'workflow_call' }}
+    if: ${{ inputs.release_mode != true }}
+    needs: [source-policy]
     # This runner must be a protected, network-restricted host that can reach
     # both the running source Compose project and the approved recovery bucket.
     # Do not switch this to GitHub-hosted runners: they cannot validate the
@@ -194,7 +204,8 @@ jobs:
           exit "$cleanup_status"
 
   immutable-physical-recovery:
-    if: ${{ github.event_name == 'workflow_call' }}
+    if: ${{ inputs.release_mode == true }}
+    needs: [source-policy]
     name: Immutable WAL-G Recovery Evidence
     runs-on: [self-hosted, linux, iot-manager-recovery]
     environment: r1-recovery-drill
@@ -255,7 +266,7 @@ jobs:
             --approved-repository "$GITHUB_REPOSITORY" \
             --approved-producer-path .github/workflows/image-security.yml \
             --approved-caller-path .github/workflows/release-gate.yml \
-            --allowed-event workflow_call \
+            --allowed-event push --allowed-event workflow_dispatch \
             --allowed-invocation-mode orchestrated-reusable
           bash scripts/ci/validate-digest-manifest.sh \
             --candidate artifacts/release/release-candidate.json \
@@ -357,8 +368,8 @@ jobs:
             --caller-workflow-identity "$GITHUB_REPOSITORY/$caller_path@$CALLER_WORKFLOW_SHA" \
             --producer-run-id "$GITHUB_RUN_ID" \
             --producer-run-attempt "$GITHUB_RUN_ATTEMPT" \
-            --producer-workflow-ref-raw "${{ job.workflow_ref || github.workflow_ref }}" \
-            --producer-workflow-sha "${{ job.workflow_sha || github.workflow_sha }}" \
+            --producer-workflow-ref-raw "${{ github.repository }}/.github/workflows/recovery-drill.yml@${{ github.workflow_sha }}" \
+            --producer-workflow-sha "${{ github.workflow_sha }}" \
             --producer-job immutable-physical-recovery \
             --artifact-name "immutable-recovery-${{ inputs.release_candidate_id }}" \
             --orchestrator-run-id "${{ inputs.orchestrator_run_id }}" \

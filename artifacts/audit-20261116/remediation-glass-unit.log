@@ -1,0 +1,1562 @@
+
+> iot-client-glass-next@1.1.4-glass.7 test
+> node --test
+
+TAP version 13
+# Subtest: question UTF-16 length, empty input, cooldown and pending state gate sending
+ok 1 - question UTF-16 length, empty input, cooldown and pending state gate sending
+  ---
+  duration_ms: 1.9028
+  type: 'test'
+  ...
+# Subtest: double click submits exactly once with a UUID and creates one message pair
+ok 2 - double click submits exactly once with a UUID and creates one message pair
+  ---
+  duration_ms: 7.8233
+  type: 'test'
+  ...
+# Subtest: an authenticated API without OIDC configuration exposes setup before any site is selected
+ok 3 - an authenticated API without OIDC configuration exposes setup before any site is selected
+  ---
+  duration_ms: 1.3823
+  type: 'test'
+  ...
+# Subtest: connection recheck preserves a verified conversation and draft without another POST
+ok 4 - connection recheck preserves a verified conversation and draft without another POST
+  ---
+  duration_ms: 4.6335
+  type: 'test'
+  ...
+# Subtest: connection recheck keeps the server Retry-After cooldown for the same verified identity
+ok 5 - connection recheck keeps the server Retry-After cooldown for the same verified identity
+  ---
+  duration_ms: 2.0205
+  type: 'test'
+  ...
+# Subtest: an AI page opened offline rechecks when the network returns without submitting a question
+ok 6 - an AI page opened offline rechecks when the network returns without submitting a question
+  ---
+  duration_ms: 1.1718
+  type: 'test'
+  ...
+# Subtest: network restoration obtains a pending result with GET and keeps the original POST count
+ok 7 - network restoration obtains a pending result with GET and keeps the original POST count
+  ---
+  duration_ms: 7.3215
+  type: 'test'
+  ...
+# Subtest: connectivity events do not interrupt or repeat a live Chat submission
+ok 8 - connectivity events do not interrupt or repeat a live Chat submission
+  ---
+  duration_ms: 3.4417
+  type: 'test'
+  ...
+# Subtest: server outage during recheck retains content for recovery and blocks sending
+ok 9 - server outage during recheck retains content for recovery and blocks sending
+  ---
+  duration_ms: 2.4891
+  type: 'test'
+  ...
+# Subtest: rechecking with a different verified subject cannot restore the preceding identity content
+ok 10 - rechecking with a different verified subject cannot restore the preceding identity content
+  ---
+  duration_ms: 3.5207
+  type: 'test'
+  ...
+# Subtest: AI disabled at startup can become enabled on foreground without sending a question
+ok 11 - AI disabled at startup can become enabled on foreground without sending a question
+  ---
+  duration_ms: 1.3476
+  type: 'test'
+  ...
+# Subtest: rechecking after authorization expires clears the old conversation and draft
+ok 12 - rechecking after authorization expires clears the old conversation and draft
+  ---
+  duration_ms: 1.9102
+  type: 'test'
+  ...
+# Subtest: a delayed reply from a previous site never appears in the new site
+ok 13 - a delayed reply from a previous site never appears in the new site
+  ---
+  duration_ms: 2.0449
+  type: 'test'
+  ...
+# Subtest: failure to persist recovery metadata sends no HTTP POST
+ok 14 - failure to persist recovery metadata sends no HTTP POST
+  ---
+  duration_ms: 1.8317
+  type: 'test'
+  ...
+# Subtest: 202 polls with backoff, honors Retry-After and stops in background without repeating POST
+ok 15 - 202 polls with backoff, honors Retry-After and stops in background without repeating POST
+  ---
+  duration_ms: 3.486
+  type: 'test'
+  ...
+# Subtest: local timeout remains recoverable even if native transport ignores AbortSignal
+ok 16 - local timeout remains recoverable even if native transport ignores AbortSignal
+  ---
+  duration_ms: 1.7021
+  type: 'test'
+  ...
+# Subtest: cold restore uses IDs only and obtains the original successful result using GET
+ok 17 - cold restore uses IDs only and obtains the original successful result using GET
+  ---
+  duration_ms: 4.4721
+  type: 'test'
+  ...
+# Subtest: identity and API endpoint partitions are stable across login refresh but isolated from other scopes
+ok 18 - identity and API endpoint partitions are stable across login refresh but isolated from other scopes
+  ---
+  duration_ms: 0.3159
+  type: 'test'
+  ...
+# Subtest: AI entered before site startup automatically restores a saved result when the site arrives
+ok 19 - AI entered before site startup automatically restores a saved result when the site arrives
+  ---
+  duration_ms: 1.5083
+  type: 'test'
+  ...
+# Subtest: context initialization queries a pending request only once and respects background state
+ok 20 - context initialization queries a pending request only once and respects background state
+  ---
+  duration_ms: 2.3738
+  type: 'test'
+  ...
+# Subtest: visible history reloads for the new site after its context finishes initialization
+ok 21 - visible history reloads for the new site after its context finishes initialization
+  ---
+  duration_ms: 1.7317
+  type: 'test'
+  ...
+# Subtest: new conversation during a slow startup preference read never restores the discarded request
+ok 22 - new conversation during a slow startup preference read never restores the discarded request
+  ---
+  duration_ms: 4.9809
+  type: 'test'
+  ...
+# Subtest: 24 hour metadata expires and recovery never reads a foreign scope
+ok 23 - 24 hour metadata expires and recovery never reads a foreign scope
+  ---
+  duration_ms: 0.7141
+  type: 'test'
+  ...
+# Subtest: UNKNOWN requires explicit retry with a new key and never automatically resends
+ok 24 - UNKNOWN requires explicit retry with a new key and never automatically resends
+  ---
+  duration_ms: 1.5183
+  type: 'test'
+  ...
+# Subtest: 403 during history reading clears all AI messages, draft and role information
+ok 25 - 403 during history reading clears all AI messages, draft and role information
+  ---
+  duration_ms: 1.3096
+  type: 'test'
+  ...
+# Subtest: persona save and activation send independent expected versions and preserve the conversation version
+ok 26 - persona save and activation send independent expected versions and preserve the conversation version
+  ---
+  duration_ms: 2.7355
+  type: 'test'
+  ...
+# Subtest: older server capability 404 permits only legacy chat
+ok 27 - older server capability 404 permits only legacy chat
+  ---
+  duration_ms: 2.3463
+  type: 'test'
+  ...
+# Subtest: 403 while saving persona revokes all AI data and management permissions
+ok 28 - 403 while saving persona revokes all AI data and management permissions
+  ---
+  duration_ms: 2.0871
+  type: 'test'
+  ...
+# Subtest: overlapping older-message pages never duplicate stored message IDs
+ok 29 - overlapping older-message pages never duplicate stored message IDs
+  ---
+  duration_ms: 1.4243
+  type: 'test'
+  ...
+# Subtest: 410 on an in-flight follow-up clears the deleted conversation and its local contents
+ok 30 - 410 on an in-flight follow-up clears the deleted conversation and its local contents
+  ---
+  duration_ms: 6.0952
+  type: 'test'
+  ...
+# Subtest: release manifest declares BLE/network access without global cleartext
+ok 31 - release manifest declares BLE/network access without global cleartext
+  ---
+  duration_ms: 10.3738
+  type: 'test'
+  ...
+# Subtest: debug variant alone enables cleartext development endpoints
+ok 32 - debug variant alone enables cleartext development endpoints
+  ---
+  duration_ms: 7.1022
+  type: 'test'
+  ...
+# Subtest: WebView allows mixed local endpoints only in debug builds
+ok 33 - WebView allows mixed local endpoints only in debug builds
+  ---
+  duration_ms: 8.5436
+  type: 'test'
+  ...
+# Subtest: Android release build is signed only from protected runtime inputs
+ok 34 - Android release build is signed only from protected runtime inputs
+  ---
+  duration_ms: 23.0997
+  type: 'test'
+  ...
+# Subtest: Release keeps production transport restrictions while debug owns LAN exceptions
+ok 35 - Release keeps production transport restrictions while debug owns LAN exceptions
+  ---
+  duration_ms: 2.9278
+  type: 'test'
+  ...
+# Subtest: client configuration normalizes API and WebSocket endpoints
+ok 36 - client configuration normalizes API and WebSocket endpoints
+  ---
+  duration_ms: 7.2992
+  type: 'test'
+  ...
+# Subtest: client configuration treats a bare backend origin as the API root
+ok 37 - client configuration treats a bare backend origin as the API root
+  ---
+  duration_ms: 0.4312
+  type: 'test'
+  ...
+# Subtest: LAN API client uses the backend field names and encodes site scope
+ok 38 - LAN API client uses the backend field names and encodes site scope
+  ---
+  duration_ms: 54.531
+  type: 'test'
+  ...
+# Subtest: site context API is versioned and uses the authenticated platform path
+ok 39 - site context API is versioned and uses the authenticated platform path
+  ---
+  duration_ms: 1.3752
+  type: 'test'
+  ...
+# Subtest: default browser fetch keeps the global receiver
+ok 40 - default browser fetch keeps the global receiver
+  ---
+  duration_ms: 1.6233
+  type: 'test'
+  ...
+# Subtest: API client attaches an optional bearer token without changing caller headers
+ok 41 - API client attaches an optional bearer token without changing caller headers
+  ---
+  duration_ms: 1.1789
+  type: 'test'
+  ...
+# Subtest: API client awaits an asynchronous token provider and retries one 401 after refresh
+ok 42 - API client awaits an asynchronous token provider and retries one 401 after refresh
+  ---
+  duration_ms: 4.3367
+  type: 'test'
+  ...
+# Subtest: API client exposes Retry-After on a throttled weather refresh
+ok 43 - API client exposes Retry-After on a throttled weather refresh
+  ---
+  duration_ms: 4.3421
+  type: 'test'
+  ...
+# Subtest: weather API client keeps the site scope and forecast limits explicit
+ok 44 - weather API client keeps the site scope and forecast limits explicit
+  ---
+  duration_ms: 3.1096
+  type: 'test'
+  ...
+# Subtest: AI authentication refresh preserves the original idempotency key and body
+ok 45 - AI authentication refresh preserves the original idempotency key and body
+  ---
+  duration_ms: 1.7759
+  type: 'test'
+  ...
+# Subtest: background stops scanning and foreground resynchronizes before controls resume
+ok 46 - background stops scanning and foreground resynchronizes before controls resume
+  ---
+  duration_ms: 2.7048
+  type: 'test'
+  ...
+# Subtest: BLE adapter opens a real picker shell and keeps unknown profiles read-only
+ok 47 - BLE adapter opens a real picker shell and keeps unknown profiles read-only
+  ---
+  duration_ms: 6.7171
+  type: 'test'
+  ...
+# Subtest: browser BLE confirms a matching reference switch notification
+ok 48 - browser BLE confirms a matching reference switch notification
+  ---
+  duration_ms: 6.1862
+  type: 'test'
+  ...
+# Subtest: browser BLE subscribes before write and treats notification timeout as unconfirmed
+ok 49 - browser BLE subscribes before write and treats notification timeout as unconfirmed
+  ---
+  duration_ms: 11.3306
+  type: 'test'
+  ...
+# Subtest: legacy BLE facade forwards selected and connection lifecycle events from the adapter
+ok 50 - legacy BLE facade forwards selected and connection lifecycle events from the adapter
+  ---
+  duration_ms: 46.9812
+  type: 'test'
+  ...
+# Subtest: unknown BLE profiles expose generic read-only information without controls
+ok 51 - unknown BLE profiles expose generic read-only information without controls
+  ---
+  duration_ms: 4.888
+  type: 'test'
+  ...
+# Subtest: nRF52840 reference profile maps a power command to its declared GATT characteristic
+ok 52 - nRF52840 reference profile maps a power command to its declared GATT characteristic
+  ---
+  duration_ms: 5.3881
+  type: 'test'
+  ...
+# Subtest: registry matches a profile only when its service UUID is discovered
+ok 53 - registry matches a profile only when its service UUID is discovered
+  ---
+  duration_ms: 0.4025
+  type: 'test'
+  ...
+# Subtest: registry rejects an invalid confirmation contract
+ok 54 - registry rejects an invalid confirmation contract
+  ---
+  duration_ms: 1.2385
+  type: 'test'
+  ...
+# Subtest: browser OIDC resolves HTTPS defaults and completes a PKCE callback without a URL token
+ok 55 - browser OIDC resolves HTTPS defaults and completes a PKCE callback without a URL token
+  ---
+  duration_ms: 63.6781
+  type: 'test'
+  ...
+# Subtest: platform snapshots are partitioned by endpoint and organization
+ok 56 - platform snapshots are partitioned by endpoint and organization
+  ---
+  duration_ms: 20.7372
+  type: 'test'
+  ...
+# Subtest: local BLE bindings use install and plugin identities without becoming platform devices
+ok 57 - local BLE bindings use install and plugin identities without becoming platform devices
+  ---
+  duration_ms: 6.2219
+  type: 'test'
+  ...
+# Subtest: same numeric device IDs are isolated by site, server URL and authorization partition
+ok 58 - same numeric device IDs are isolated by site, server URL and authorization partition
+  ---
+  duration_ms: 25.5522
+  type: 'test'
+  ...
+# Subtest: ambiguous delimiter strings cannot collide and unscoped legacy cache is not imported into a site
+ok 59 - ambiguous delimiter strings cannot collide and unscoped legacy cache is not imported into a site
+  ---
+  duration_ms: 3.2299
+  type: 'test'
+  ...
+# Subtest: clearing a platform scope removes server data but preserves other scopes and local bindings
+ok 60 - clearing a platform scope removes server data but preserves other scopes and local bindings
+  ---
+  duration_ms: 3.981
+  type: 'test'
+  ...
+# Subtest: forgetting a local BLE binding removes its local activity trail
+ok 61 - forgetting a local BLE binding removes its local activity trail
+  ---
+  duration_ms: 2.864
+  type: 'test'
+  ...
+# Subtest: local activity cursor pagination is newest first, scoped, and has no duplicate boundary
+ok 62 - local activity cursor pagination is newest first, scoped, and has no duplicate boundary
+  ---
+  duration_ms: 9.2999
+  type: 'test'
+  ...
+# Subtest: version 2 local history migrates into the paged index without dropping untimed events
+ok 63 - version 2 local history migrates into the paged index without dropping untimed events
+  ---
+  duration_ms: 4.4126
+  type: 'test'
+  ...
+# Subtest: real v2 -> v3 -> patched v2 -> v3 preserves bindings, partitions and indexed activity
+ok 64 - real v2 -> v3 -> patched v2 -> v3 preserves bindings, partitions and indexed activity
+  ---
+  duration_ms: 32.9844
+  type: 'test'
+  ...
+# Subtest: unknown schema is refused without changing data or version
+ok 65 - unknown schema is refused without changing data or version
+  ---
+  duration_ms: 3.2963
+  type: 'test'
+  ...
+# Subtest: malformed known schema is rejected and not deleted
+ok 66 - malformed known schema is rejected and not deleted
+  ---
+  duration_ms: 4.8612
+  type: 'test'
+  ...
+# Subtest: versionchange closes the compatible reader instead of blocking a future upgrade
+ok 67 - versionchange closes the compatible reader instead of blocking a future upgrade
+  ---
+  duration_ms: 2.7781
+  type: 'test'
+  ...
+# Subtest: backport refuses unreviewed cache variants and invalid requested versions
+ok 68 - backport refuses unreviewed cache variants and invalid requested versions
+  ---
+  duration_ms: 0.8123
+  type: 'test'
+  ...
+# Subtest: Capacitor packages the existing client build
+ok 69 - Capacitor packages the existing client build
+  ---
+  duration_ms: 1.7256
+  type: 'test'
+  ...
+# Subtest: Capacitor CLI can require the config from an ESM package
+ok 70 - Capacitor CLI can require the config from an ESM package
+  ---
+  duration_ms: 2.7902
+  type: 'test'
+  ...
+# Subtest: unknown BLE connection becomes a browser-local read-only device
+ok 71 - unknown BLE connection becomes a browser-local read-only device
+  ---
+  duration_ms: 2.5624
+  type: 'test'
+  ...
+# Subtest: platform refresh keeps browser-local BLE sessions while replacing platform devices
+ok 72 - platform refresh keeps browser-local BLE sessions while replacing platform devices
+  ---
+  duration_ms: 0.6566
+  type: 'test'
+  ...
+# Subtest: capability controls accept adapter capability envelopes
+ok 73 - capability controls accept adapter capability envelopes
+  ---
+  duration_ms: 0.3326
+  type: 'test'
+  ...
+# Subtest: LAN device snapshots keep adapter controls after a REST resynchronization
+ok 74 - LAN device snapshots keep adapter controls after a REST resynchronization
+  ---
+  duration_ms: 0.749
+  type: 'test'
+  ...
+# Subtest: an in-flight command remains on its original endpoint after a profile switch
+ok 75 - an in-flight command remains on its original endpoint after a profile switch
+  ---
+  duration_ms: 6.1641
+  type: 'test'
+  ...
+# Subtest: profile-driven controls can supply an explicit desired state
+ok 76 - profile-driven controls can supply an explicit desired state
+  ---
+  duration_ms: 2.9406
+  type: 'test'
+  ...
+# Subtest: acknowledgement commits the confirmed reported state
+ok 77 - acknowledgement commits the confirmed reported state
+  ---
+  duration_ms: 5.1944
+  type: 'test'
+  ...
+# Subtest: pending command leaves the reported state untouched while recording the desired target
+ok 78 - pending command leaves the reported state untouched while recording the desired target
+  ---
+  duration_ms: 0.5982
+  type: 'test'
+  ...
+# Subtest: pending backend view prefers its desired state over its stale reported state
+ok 79 - pending backend view prefers its desired state over its stale reported state
+  ---
+  duration_ms: 0.4724
+  type: 'test'
+  ...
+# Subtest: unconfirmed BLE delivery never changes reported state
+ok 80 - unconfirmed BLE delivery never changes reported state
+  ---
+  duration_ms: 2.5513
+  type: 'test'
+  ...
+# Subtest: routes local bindings only through a connected BLE adapter
+ok 81 - routes local bindings only through a connected BLE adapter
+  ---
+  duration_ms: 2.2507
+  type: 'test'
+  ...
+# Subtest: keeps endpoint access route separate from device transport
+ok 82 - keeps endpoint access route separate from device transport
+  ---
+  duration_ms: 1.4219
+  type: 'test'
+  ...
+# Subtest: backend Profile envelopes drive arbitrary client controls without legacy defaults
+ok 83 - backend Profile envelopes drive arbitrary client controls without legacy defaults
+  ---
+  duration_ms: 7.0858
+  type: 'test'
+  ...
+# Subtest: connection Profile capabilities remain usable when a DeviceView has no top-level envelope
+ok 84 - connection Profile capabilities remain usable when a DeviceView has no top-level envelope
+  ---
+  duration_ms: 0.6902
+  type: 'test'
+  ...
+# Subtest: command metadata fills state and parameter mappings omitted by the control
+ok 85 - command metadata fills state and parameter mappings omitted by the control
+  ---
+  duration_ms: 2.5146
+  type: 'test'
+  ...
+# Subtest: native device location requests permission once and normalizes the returned coordinates
+ok 86 - native device location requests permission once and normalizes the returned coordinates
+  ---
+  duration_ms: 3.5756
+  type: 'test'
+  ...
+# Subtest: native device location accepts Android approximate permission and deliberately downgrades accuracy mode
+ok 87 - native device location accepts Android approximate permission and deliberately downgrades accuracy mode
+  ---
+  duration_ms: 19.1709
+  type: 'test'
+  ...
+# Subtest: native device location reports a denied permission without opening a location watch
+ok 88 - native device location reports a denied permission without opening a location watch
+  ---
+  duration_ms: 1.1716
+  type: 'test'
+  ...
+# Subtest: native device location classifies the Capacitor timeout code and keeps the finite request deadline
+ok 89 - native device location classifies the Capacitor timeout code and keeps the finite request deadline
+  ---
+  duration_ms: 0.8393
+  type: 'test'
+  ...
+# Subtest: browser geolocation maps callback timeout failures without starting a location watch
+ok 90 - browser geolocation maps callback timeout failures without starting a location watch
+  ---
+  duration_ms: 0.7599
+  type: 'test'
+  ...
+# Subtest: probe reports success with a device count when the API responds
+ok 91 - probe reports success with a device count when the API responds
+  ---
+  duration_ms: 69.2078
+  type: 'test'
+  ...
+# Subtest: probe verifies the realtime endpoint when requested
+ok 92 - probe verifies the realtime endpoint when requested
+  ---
+  duration_ms: 2.6466
+  type: 'test'
+  ...
+# Subtest: probe forwards a bearer token to REST and the restricted WebSocket handshake
+ok 93 - probe forwards a bearer token to REST and the restricted WebSocket handshake
+  ---
+  duration_ms: 3.6409
+  type: 'test'
+  ...
+# Subtest: probe reports a readable realtime failure when the WebSocket cannot open
+ok 94 - probe reports a readable realtime failure when the WebSocket cannot open
+  ---
+  duration_ms: 2.0898
+  type: 'test'
+  ...
+# Subtest: probe reports success with an empty inventory message
+ok 95 - probe reports success with an empty inventory message
+  ---
+  duration_ms: 1.7878
+  type: 'test'
+  ...
+# Subtest: probe maps fetch failures to an operator-facing message
+ok 96 - probe maps fetch failures to an operator-facing message
+  ---
+  duration_ms: 0.9787
+  type: 'test'
+  ...
+# Subtest: probe rejects invalid WebSocket schemes with a Chinese validation message
+ok 97 - probe rejects invalid WebSocket schemes with a Chinese validation message
+  ---
+  duration_ms: 0.3533
+  type: 'test'
+  ...
+# Subtest: friendlyEndpointError maps known validation messages
+ok 98 - friendlyEndpointError maps known validation messages
+  ---
+  duration_ms: 0.4664
+  type: 'test'
+  ...
+# Subtest: a protected endpoint without identity configuration requests setup instead of reporting a network failure
+ok 99 - a protected endpoint without identity configuration requests setup instead of reporting a network failure
+  ---
+  duration_ms: 2.4878
+  type: 'test'
+  ...
+# Subtest: a protected endpoint with valid discovery is login-ready without claiming REST or realtime success
+ok 100 - a protected endpoint with valid discovery is login-ready without claiming REST or realtime success
+  ---
+  duration_ms: 4.0487
+  type: 'test'
+  ...
+# Subtest: identity discovery with the wrong issuer cannot mark a connection login-ready
+ok 101 - identity discovery with the wrong issuer cannot mark a connection login-ready
+  ---
+  duration_ms: 14.1023
+  type: 'test'
+  ...
+# Subtest: connection probe times out even when the native HTTP transport ignores AbortSignal
+ok 102 - connection probe times out even when the native HTTP transport ignores AbortSignal
+  ---
+  duration_ms: 32.3755
+  type: 'test'
+  ...
+# Subtest: weak-network endpoint probing aborts at its configured deadline
+ok 103 - weak-network endpoint probing aborts at its configured deadline
+  ---
+  duration_ms: 59.3484
+  type: 'test'
+  ...
+# Subtest: 200 offline reconnect cycles stay single-timer, cap jittered backoff, and reset after recovery
+ok 104 - 200 offline reconnect cycles stay single-timer, cap jittered backoff, and reset after recovery
+  ---
+  duration_ms: 4.2646
+  type: 'test'
+  ...
+# Subtest: 10,000 recovery updates share one UI refresh timer and one patch per dirty region
+ok 105 - 10,000 recovery updates share one UI refresh timer and one patch per dirty region
+  ---
+  duration_ms: 38.3167
+  type: 'test'
+  ...
+# Subtest: motion register exactly matches all click branches and input fields, not just a count
+ok 106 - motion register exactly matches all click branches and input fields, not just a count
+  ---
+  duration_ms: 10.583
+  type: 'test'
+  ...
+# Subtest: 42 preview IDs match every acceptance row and retain all 18 cross-case definitions
+ok 107 - 42 preview IDs match every acceptance row and retain all 18 cross-case definitions
+  ---
+  duration_ms: 2.9925
+  type: 'test'
+  ...
+# Subtest: motion implementation documents have no broken relative file links
+ok 108 - motion implementation documents have no broken relative file links
+  ---
+  duration_ms: 20.7842
+  type: 'test'
+  ...
+# Subtest: motion policy responds to live preference and hidden changes, without duplicate notifications
+ok 109 - motion policy responds to live preference and hidden changes, without duplicate notifications
+  ---
+  duration_ms: 2.1206
+  type: 'test'
+  ...
+# Subtest: degradation is reversible and destroy removes all listeners/subscribers
+ok 110 - degradation is reversible and destroy removes all listeners/subscribers
+  ---
+  duration_ms: 0.514
+  type: 'test'
+  ...
+# Subtest: policy supports older MediaQueryList listeners and non-browser unit environments
+ok 111 - policy supports older MediaQueryList listeners and non-browser unit environments
+  ---
+  duration_ms: 0.3567
+  type: 'test'
+  ...
+# Subtest: page motion distinguishes tabs, hierarchy, return, and redraws
+ok 112 - page motion distinguishes tabs, hierarchy, return, and redraws
+  ---
+  duration_ms: 1.4616
+  type: 'test'
+  ...
+# Subtest: only an existing command changing to a terminal result gets outcome motion
+ok 113 - only an existing command changing to a terminal result gets outcome motion
+  ---
+  duration_ms: 0.5535
+  type: 'test'
+  ...
+# Subtest: native BLE scans, connects, and confirms matching reference switch responses
+ok 114 - native BLE scans, connects, and confirms matching reference switch responses
+  ---
+  duration_ms: 10.5037
+  type: 'test'
+  ...
+# Subtest: native BLE exposes permission and disabled-Bluetooth failures
+ok 115 - native BLE exposes permission and disabled-Bluetooth failures
+  ---
+  duration_ms: 1.6309
+  type: 'test'
+  ...
+# Subtest: native scan stop failure remains retryable and late callbacks cannot add candidates
+ok 116 - native scan stop failure remains retryable and late callbacks cannot add candidates
+  ---
+  duration_ms: 0.8218
+  type: 'test'
+  ...
+# Subtest: stopping while permission is pending does not start a later native scan
+ok 117 - stopping while permission is pending does not start a later native scan
+  ---
+  duration_ms: 0.5664
+  type: 'test'
+  ...
+# Subtest: a prior device disconnect callback cannot disconnect the newer BLE link
+ok 118 - a prior device disconnect callback cannot disconnect the newer BLE link
+  ---
+  duration_ms: 0.6016
+  type: 'test'
+  ...
+# Subtest: profile read-back is the only source of acknowledged reported state
+ok 119 - profile read-back is the only source of acknowledged reported state
+  ---
+  duration_ms: 0.6571
+  type: 'test'
+  ...
+# Subtest: notification confirmation subscribes before write and times out as unconfirmed
+ok 120 - notification confirmation subscribes before write and times out as unconfirmed
+  ---
+  duration_ms: 34.8304
+  type: 'test'
+  ...
+# Subtest: native BLE scan keeps a stable de-duplicated candidate list
+ok 121 - native BLE scan keeps a stable de-duplicated candidate list
+  ---
+  duration_ms: 0.6104
+  type: 'test'
+  ...
+# Subtest: native BLE turns an unexpected plugin disconnect into one disconnected connection update
+ok 122 - native BLE turns an unexpected plugin disconnect into one disconnected connection update
+  ---
+  duration_ms: 1.1147
+  type: 'test'
+  ...
+# Subtest: native BLE verifyConnection detects a GATT link that disappeared while the app was backgrounded
+ok 123 - native BLE verifyConnection detects a GATT link that disappeared while the app was backgrounded
+  ---
+  duration_ms: 0.884
+  type: 'test'
+  ...
+# Subtest: nested task pages return to their actual source and restore reading position
+ok 124 - nested task pages return to their actual source and restore reading position
+  ---
+  duration_ms: 2.9992
+  type: 'test'
+  ...
+# Subtest: peer pages retain their own positions without retaining a stale detail stack
+ok 125 - peer pages retain their own positions without retaining a stale detail stack
+  ---
+  duration_ms: 0.5089
+  type: 'test'
+  ...
+# Subtest: same-screen entities are separate routes and repeated same entity is not navigation
+ok 126 - same-screen entities are separate routes and repeated same entity is not navigation
+  ---
+  duration_ms: 5.1
+  type: 'test'
+  ...
+# Subtest: context changes discard incompatible navigation and cannot be revived by browser history
+ok 127 - context changes discard incompatible navigation and cannot be revived by browser history
+  ---
+  duration_ms: 0.6125
+  type: 'test'
+  ...
+# Subtest: history restoration uses live saved positions newer than its snapshot
+ok 128 - history restoration uses live saved positions newer than its snapshot
+  ---
+  duration_ms: 0.7271
+  type: 'test'
+  ...
+# Subtest: snapshot and position mutations cannot corrupt route state
+ok 129 - snapshot and position mutations cannot corrupt route state
+  ---
+  duration_ms: 0.3321
+  type: 'test'
+  ...
+# Subtest: replace preserves the real parent instead of adding a transient page to Back
+ok 130 - replace preserves the real parent instead of adding a transient page to Back
+  ---
+  duration_ms: 0.8374
+  type: 'test'
+  ...
+# Subtest: OIDC configuration requires a complete public-client tuple
+ok 131 - OIDC configuration requires a complete public-client tuple
+  ---
+  duration_ms: 3.2352
+  type: 'test'
+  ...
+# Subtest: PKCE login persists only the transaction and builds an authorization-code request
+ok 132 - PKCE login persists only the transaction and builds an authorization-code request
+  ---
+  duration_ms: 105.4626
+  type: 'test'
+  ...
+# Subtest: OIDC callback exchanges PKCE code, validates identity and nonce, rotates session storage, and refreshes on demand
+ok 133 - OIDC callback exchanges PKCE code, validates identity and nonce, rotates session storage, and refreshes on demand
+  ---
+  duration_ms: 10.527
+  type: 'test'
+  ...
+# Subtest: restoring another issuer or an unbound legacy session requires fresh authentication
+ok 134 - restoring another issuer or an unbound legacy session requires fresh authentication
+  ---
+  duration_ms: 1.2005
+  type: 'test'
+  ...
+# Subtest: startup can restore local session state without starting a network refresh before reveal
+ok 135 - startup can restore local session state without starting a network refresh before reveal
+  ---
+  duration_ms: 2.1588
+  type: 'test'
+  ...
+# Subtest: OIDC callback rejects a state mismatch without leaving a usable session
+ok 136 - OIDC callback rejects a state mismatch without leaving a usable session
+  ---
+  duration_ms: 8.8922
+  type: 'test'
+  ...
+# Subtest: local logout revokes access before a slow identity-provider discovery finishes
+ok 137 - local logout revokes access before a slow identity-provider discovery finishes
+  ---
+  duration_ms: 3.302
+  type: 'test'
+  ...
+# Subtest: a refresh response arriving after logout cannot recreate the old session
+ok 138 - a refresh response arriving after logout cannot recreate the old session
+  ---
+  duration_ms: 3.7016
+  type: 'test'
+  ...
+# Subtest: logout clears local authority before revoking an offline refresh token and then redirects
+ok 139 - logout clears local authority before revoking an offline refresh token and then redirects
+  ---
+  duration_ms: 2.6877
+  type: 'test'
+  ...
+# Subtest: failed provider revocation keeps local tokens cleared and reports incomplete server logout
+ok 140 - failed provider revocation keeps local tokens cleared and reports incomplete server logout
+  ---
+  duration_ms: 1.8298
+  type: 'test'
+  ...
+# Subtest: asynchronous browser open failure rejects login and cleans only its PKCE transaction
+ok 141 - asynchronous browser open failure rejects login and cleans only its PKCE transaction
+  ---
+  duration_ms: 3.0035
+  type: 'test'
+  ...
+# Subtest: login reentry is blocked until cancellation, and stale browser closure cannot cancel the new login
+ok 142 - login reentry is blocked until cancellation, and stale browser closure cannot cancel the new login
+  ---
+  duration_ms: 3.2804
+  type: 'test'
+  ...
+# Subtest: browser closure during token exchange cannot remove the callback transaction
+ok 143 - browser closure during token exchange cannot remove the callback transaction
+  ---
+  duration_ms: 3.2826
+  type: 'test'
+  ...
+# Subtest: a cold started manager restores the pending PKCE transaction and validates the nonce
+ok 144 - a cold started manager restores the pending PKCE transaction and validates the nonce
+  ---
+  duration_ms: 17.165
+  type: 'test'
+  ...
+# Subtest: wrong nonce, issuer or audience rejects the authorization before persisting a session
+ok 145 - wrong nonce, issuer or audience rejects the authorization before persisting a session
+  ---
+  duration_ms: 7.6962
+  type: 'test'
+  ...
+# Subtest: creates one platform session bound to one immutable endpoint
+ok 146 - creates one platform session bound to one immutable endpoint
+  ---
+  duration_ms: 84.8644
+  type: 'test'
+  ...
+# Subtest: only a valid downward armed release starts a request
+ok 147 - only a valid downward armed release starts a request
+  ---
+  duration_ms: 2.3039
+  type: 'test'
+  ...
+# Subtest: pointer cancellation then a tap never inherits the previous armed distance
+ok 148 - pointer cancellation then a tap never inherits the previous armed distance
+  ---
+  duration_ms: 0.569
+  type: 'test'
+  ...
+# Subtest: refresh requests remain mutually exclusive even after a page-leave cancellation
+ok 149 - refresh requests remain mutually exclusive even after a page-leave cancellation
+  ---
+  duration_ms: 5.4805
+  type: 'test'
+  ...
+# Subtest: horizontal or initial upward intent locks the gesture out until a fresh pointerdown
+ok 150 - horizontal or initial upward intent locks the gesture out until a fresh pointerdown
+  ---
+  duration_ms: 0.3507
+  type: 'test'
+  ...
+# Subtest: reversing an armed drag unarms it before release
+ok 151 - reversing an armed drag unarms it before release
+  ---
+  duration_ms: 0.5085
+  type: 'test'
+  ...
+# Subtest: non-owning fingers and ineligible targets cannot trigger a refresh
+ok 152 - non-owning fingers and ineligible targets cannot trigger a refresh
+  ---
+  duration_ms: 0.5107
+  type: 'test'
+  ...
+# Subtest: leaving the page top or cancelling a drag resets pointer and distance
+ok 153 - leaving the page top or cancelling a drag resets pointer and distance
+  ---
+  duration_ms: 0.3926
+  type: 'test'
+  ...
+# Subtest: slop and clamping are deterministic and invalid thresholds are rejected
+ok 154 - slop and clamping are deterministic and invalid thresholds are rejected
+  ---
+  duration_ms: 0.866
+  type: 'test'
+  ...
+# Subtest: event normalizer accepts only the supported backend event envelope
+ok 155 - event normalizer accepts only the supported backend event envelope
+  ---
+  duration_ms: 3.3393
+  type: 'test'
+  ...
+# Subtest: realtime client notifies valid events and reconnects after an unexpected close
+ok 156 - realtime client notifies valid events and reconnects after an unexpected close
+  ---
+  duration_ms: 4.198
+  type: 'test'
+  ...
+# Subtest: realtime client offers a static negotiated protocol and bearer token outside the URL
+ok 157 - realtime client offers a static negotiated protocol and bearer token outside the URL
+  ---
+  duration_ms: 0.7762
+  type: 'test'
+  ...
+# Subtest: realtime client scopes the WebSocket handshake to the active site
+ok 158 - realtime client scopes the WebSocket handshake to the active site
+  ---
+  duration_ms: 0.5203
+  type: 'test'
+  ...
+# Subtest: JSON equality ignores object key order, but not array order, type or absent fields
+ok 159 - JSON equality ignores object key order, but not array order, type or absent fields
+  ---
+  duration_ms: 1.7313
+  type: 'test'
+  ...
+# Subtest: repeated normalized device/weather/forecast/command data does not publish or replace the snapshot
+ok 160 - repeated normalized device/weather/forecast/command data does not publish or replace the snapshot
+  ---
+  duration_ms: 11.3133
+  type: 'test'
+  ...
+# Subtest: only measurement-only telemetry is eligible for the slower presentation budget
+ok 161 - only measurement-only telemetry is eligible for the slower presentation budget
+  ---
+  duration_ms: 3.7524
+  type: 'test'
+  ...
+# Subtest: failed attempts cool down, explicit retry is permitted, and one scope shares its in-flight read
+ok 162 - failed attempts cool down, explicit retry is permitted, and one scope shares its in-flight read
+  ---
+  duration_ms: 33.7075
+  type: 'test'
+  ...
+# Subtest: scope switch and reset do not share cooldown/results with an old in-flight request
+ok 163 - scope switch and reset do not share cooldown/results with an old in-flight request
+  ---
+  duration_ms: 2.7789
+  type: 'test'
+  ...
+# Subtest: sustained telemetry is presented at most once per second, preserving the newest value
+ok 164 - sustained telemetry is presented at most once per second, preserving the newest value
+  ---
+  duration_ms: 1.9425
+  type: 'test'
+  ...
+# Subtest: command and structure preempt delayed telemetry; batch options prevent repeated controls/forecast patches
+ok 165 - command and structure preempt delayed telemetry; batch options prevent repeated controls/forecast patches
+  ---
+  duration_ms: 0.8064
+  type: 'test'
+  ...
+# Subtest: screen-wide patches subsume overlapping regions but still update global headers
+ok 166 - screen-wide patches subsume overlapping regions but still update global headers
+  ---
+  duration_ms: 0.515
+  type: 'test'
+  ...
+# Subtest: coordinator coalesces a telemetry burst into one device patch without a full render
+ok 167 - coordinator coalesces a telemetry burst into one device patch without a full render
+  ---
+  duration_ms: 7.2457
+  type: 'test'
+  ...
+# Subtest: authoritative updates use a frame-sized batch while telemetry keeps its existing burst window
+ok 168 - authoritative updates use a frame-sized batch while telemetry keeps its existing burst window
+  ---
+  duration_ms: 0.6846
+  type: 'test'
+  ...
+# Subtest: structural or unknown metadata uses one safe full-render fallback
+ok 169 - structural or unknown metadata uses one safe full-render fallback
+  ---
+  duration_ms: 0.5143
+  type: 'test'
+  ...
+# Subtest: hidden documents retain dirty changes and flush them once when visible
+ok 170 - hidden documents retain dirty changes and flush them once when visible
+  ---
+  duration_ms: 0.9224
+  type: 'test'
+  ...
+# Subtest: one missing patch target falls back to one full render for the batch
+ok 171 - one missing patch target falls back to one full render for the batch
+  ---
+  duration_ms: 0.552
+  type: 'test'
+  ...
+# Subtest: bootstrap endpoint read is side-effect free and discards persisted legacy tokens
+ok 172 - bootstrap endpoint read is side-effect free and discards persisted legacy tokens
+  ---
+  duration_ms: 2.8561
+  type: 'test'
+  ...
+# Subtest: normalizes a site endpoint into immutable API and WebSocket URLs
+ok 173 - normalizes a site endpoint into immutable API and WebSocket URLs
+  ---
+  duration_ms: 0.4472
+  type: 'test'
+  ...
+# Subtest: endpoint profile accepts an optional in-memory access token for development compatibility
+ok 174 - endpoint profile accepts an optional in-memory access token for development compatibility
+  ---
+  duration_ms: 0.3711
+  type: 'test'
+  ...
+# Subtest: persists and reloads the active endpoint profile
+ok 175 - persists and reloads the active endpoint profile
+  ---
+  duration_ms: 0.7112
+  type: 'test'
+  ...
+# Subtest: endpoint persistence strips legacy bearer tokens while retaining public OIDC settings
+ok 176 - endpoint persistence strips legacy bearer tokens while retaining public OIDC settings
+  ---
+  duration_ms: 0.5945
+  type: 'test'
+  ...
+# Subtest: repairs only legacy native development endpoints after an app upgrade
+ok 177 - repairs only legacy native development endpoints after an app upgrade
+  ---
+  duration_ms: 0.3126
+  type: 'test'
+  ...
+# Subtest: every launched runtime phase loads the real Playwright config with a distinct evidence file
+ok 178 - every launched runtime phase loads the real Playwright config with a distinct evidence file
+  ---
+  duration_ms: 982.5023
+  type: 'test'
+  ...
+# Subtest: runtime devices distinguish first failure/empty/cache and preserve network success when cache write fails
+ok 179 - runtime devices distinguish first failure/empty/cache and preserve network success when cache write fails
+  ---
+  duration_ms: 31.8329
+  type: 'test'
+  ...
+# Subtest: device reads share one request and late results cannot replace switched-context data
+ok 180 - device reads share one request and late results cannot replace switched-context data
+  ---
+  duration_ms: 6.4723
+  type: 'test'
+  ...
+# Subtest: initial REST failure and repeated WS reconnects share the attempt cooldown without marking data fresh
+ok 181 - initial REST failure and repeated WS reconnects share the attempt cooldown without marking data fresh
+  ---
+  duration_ms: 4.7563
+  type: 'test'
+  ...
+# Subtest: identity invalidation removes old site and location presentation, including cooldown
+ok 182 - identity invalidation removes old site and location presentation, including cooldown
+  ---
+  duration_ms: 2.6607
+  type: 'test'
+  ...
+# Subtest: sites preserve true empty and error instead of inventing a successful fallback site
+ok 183 - sites preserve true empty and error instead of inventing a successful fallback site
+  ---
+  duration_ms: 5.8322
+  type: 'test'
+  ...
+# Subtest: LAN discovery keeps existing candidates while waiting and after failure
+ok 184 - LAN discovery keeps existing candidates while waiting and after failure
+  ---
+  duration_ms: 2.8143
+  type: 'test'
+  ...
+# Subtest: LAN claim remains successful when supplementary activity read fails
+ok 185 - LAN claim remains successful when supplementary activity read fails
+  ---
+  duration_ms: 5.0471
+  type: 'test'
+  ...
+# Subtest: weather cooldown never reports updated and never repeats the remote write
+ok 186 - weather cooldown never reports updated and never repeats the remote write
+  ---
+  duration_ms: 32.0365
+  type: 'test'
+  ...
+# Subtest: simultaneous weather refresh entries share one in-flight remote write
+ok 187 - simultaneous weather refresh entries share one in-flight remote write
+  ---
+  duration_ms: 5.9523
+  type: 'test'
+  ...
+# Subtest: weather auxiliary failure is partial and forecast has its own error
+ok 188 - weather auxiliary failure is partial and forecast has its own error
+  ---
+  duration_ms: 4.855
+  type: 'test'
+  ...
+# Subtest: empty coordinates reject before a write, valid zero succeeds even if cache fails
+ok 189 - empty coordinates reject before a write, valid zero succeeds even if cache fails
+  ---
+  duration_ms: 4.012
+  type: 'test'
+  ...
+# Subtest: poll exhaustion stops waiting without inventing FAILED or retrying a command
+ok 190 - poll exhaustion stops waiting without inventing FAILED or retrying a command
+  ---
+  duration_ms: 3.561
+  type: 'test'
+  ...
+# Subtest: late command receipt stays journaled in original context without modifying current device
+ok 191 - late command receipt stays journaled in original context without modifying current device
+  ---
+  duration_ms: 7.1916
+  type: 'test'
+  ...
+# Subtest: old forecast finally cannot clear the new scope loading indicator
+ok 192 - old forecast finally cannot clear the new scope loading indicator
+  ---
+  duration_ms: 3.7387
+  type: 'test'
+  ...
+# Subtest: new BLE advertisements do not change the operator-selected candidate
+ok 193 - new BLE advertisements do not change the operator-selected candidate
+  ---
+  duration_ms: 4.9948
+  type: 'test'
+  ...
+# Subtest: BLE connect captures identity and treats binding-storage failure as partial success
+ok 194 - BLE connect captures identity and treats binding-storage failure as partial success
+  ---
+  duration_ms: 7.6244
+  type: 'test'
+  ...
+# Subtest: runtime scan-stop failure is not shown as a successful stop
+ok 195 - runtime scan-stop failure is not shown as a successful stop
+  ---
+  duration_ms: 2.4165
+  type: 'test'
+  ...
+# Subtest: restored BLE bindings retain data but never pretend a cached GATT link is live
+ok 196 - restored BLE bindings retain data but never pretend a cached GATT link is live
+  ---
+  duration_ms: 3.2721
+  type: 'test'
+  ...
+# Subtest: startup prefetch runs before reveal, buffers sites and applies once after interaction
+ok 197 - startup prefetch runs before reveal, buffers sites and applies once after interaction
+  ---
+  duration_ms: 31.6594
+  type: 'test'
+  ...
+# Subtest: failed visual completion cancels buffered data and never claims startup success
+ok 198 - failed visual completion cancels buffered data and never claims startup success
+  ---
+  duration_ms: 5.6564
+  type: 'test'
+  ...
+# Subtest: unverified installation identity cannot restore other bindings or persist a new binding
+ok 199 - unverified installation identity cannot restore other bindings or persist a new binding
+  ---
+  duration_ms: 3.4688
+  type: 'test'
+  ...
+# Subtest: startup preserves saved endpoints on read failure and persists confirmed snapshots
+ok 200 - startup preserves saved endpoints on read failure and persists confirmed snapshots
+  ---
+  duration_ms: 22.7182
+  type: 'test'
+  ...
+# Subtest: unconfirmed timeout endpoint read retains the encrypted session and creates no platform
+ok 201 - unconfirmed timeout endpoint read retains the encrypted session and creates no platform
+  ---
+  duration_ms: 8.2534
+  type: 'test'
+  ...
+# Subtest: unconfirmed rejected endpoint read retains the encrypted session and creates no platform
+ok 202 - unconfirmed rejected endpoint read retains the encrypted session and creates no platform
+  ---
+  duration_ms: 4.3089
+  type: 'test'
+  ...
+# Subtest: unconfirmed cancelled endpoint read retains the encrypted session and creates no platform
+ok 203 - unconfirmed cancelled endpoint read retains the encrypted session and creates no platform
+  ---
+  duration_ms: 7.0076
+  type: 'test'
+  ...
+# Subtest: successful saved endpoint read still restores its matching OIDC session
+ok 204 - successful saved endpoint read still restores its matching OIDC session
+  ---
+  duration_ms: 6.7269
+  type: 'test'
+  ...
+# Subtest: explicitly choosing another identity still clears the old session
+ok 205 - explicitly choosing another identity still clears the old session
+  ---
+  duration_ms: 4.6715
+  type: 'test'
+  ...
+# Subtest: retrying the saved settings restores the original session without another sign-in
+ok 206 - retrying the saved settings restores the original session without another sign-in
+  ---
+  duration_ms: 4.4679
+  type: 'test'
+  ...
+# Subtest: failed settings retry preserves the session and never creates a platform adapter
+ok 207 - failed settings retry preserves the session and never creates a platform adapter
+  ---
+  duration_ms: 3.7463
+  type: 'test'
+  ...
+# Subtest: late settings retry cannot replace an endpoint explicitly selected while reading
+ok 208 - late settings retry cannot replace an endpoint explicitly selected while reading
+  ---
+  duration_ms: 6.0904
+  type: 'test'
+  ...
+# Subtest: confirmed empty settings still enforce the default identity boundary
+ok 209 - confirmed empty settings still enforce the default identity boundary
+  ---
+  duration_ms: 5.3939
+  type: 'test'
+  ...
+# Subtest: a late credential read cannot authenticate an unconfirmed endpoint
+ok 210 - a late credential read cannot authenticate an unconfirmed endpoint
+  ---
+  duration_ms: 6.3987
+  type: 'test'
+  ...
+# Subtest: resource states separate initial loading, empty, cached refresh, and failure
+ok 211 - resource states separate initial loading, empty, cached refresh, and failure
+  ---
+  duration_ms: 3.4851
+  type: 'test'
+  ...
+# Subtest: newer requests and context changes invalidate results and finally handlers
+ok 212 - newer requests and context changes invalidate results and finally handlers
+  ---
+  duration_ms: 0.7316
+  type: 'test'
+  ...
+# Subtest: coordinates reject empty/null/boolean input without rejecting valid zero
+ok 213 - coordinates reject empty/null/boolean input without rejecting valid zero
+  ---
+  duration_ms: 2.4366
+  type: 'test'
+  ...
+# Subtest: refresh outcome never reports cached or partially failed data as all updated
+ok 214 - refresh outcome never reports cached or partially failed data as all updated
+  ---
+  duration_ms: 0.5266
+  type: 'test'
+  ...
+# Subtest: independent snapshot reads start concurrently and a hanging optional read is bounded
+ok 215 - independent snapshot reads start concurrently and a hanging optional read is bounded
+  ---
+  duration_ms: 4.9484
+  type: 'test'
+  ...
+# Subtest: read rejection and cancellation settle independently without losing failure identity
+ok 216 - read rejection and cancellation settle independently without losing failure identity
+  ---
+  duration_ms: 2.6688
+  type: 'test'
+  ...
+# Subtest: prefetch is single-flight, buffered until taken, and cancellation discards late results
+ok 217 - prefetch is single-flight, buffered until taken, and cancellation discards late results
+  ---
+  duration_ms: 3.2122
+  type: 'test'
+  ...
+# Subtest: a speculative timeout aborts its fetch and cannot be reused as fresh data
+ok 218 - a speculative timeout aborts its fetch and cannot be reused as fresh data
+  ---
+  duration_ms: 0.701
+  type: 'test'
+  ...
+# Subtest: speculative features default off and timing logs have a bounded privacy boundary
+ok 219 - speculative features default off and timing logs have a bounded privacy boundary
+  ---
+  duration_ms: 0.8892
+  type: 'test'
+  ...
+# Subtest: native and Web timing budgets and brand assets stay aligned
+ok 220 - native and Web timing budgets and brand assets stay aligned
+  ---
+  duration_ms: 23.7085
+  type: 'test'
+  ...
+# Subtest: browser pacing supplements only the remaining hold and uses a bounded fade
+ok 221 - browser pacing supplements only the remaining hold and uses a bounded fade
+  ---
+  duration_ms: 1.8343
+  type: 'test'
+  ...
+# Subtest: browser keeps the shell inert until its fade completes
+ok 222 - browser keeps the shell inert until its fade completes
+  ---
+  duration_ms: 4.7904
+  type: 'test'
+  ...
+# Subtest: reduced motion removes the browser cover after the local shell is ready
+ok 223 - reduced motion removes the browser cover after the local shell is ready
+  ---
+  duration_ms: 0.4329
+  type: 'test'
+  ...
+# Subtest: native cover owns the exit and only its matching completion unlocks the shell
+ok 224 - native cover owns the exit and only its matching completion unlocks the shell
+  ---
+  duration_ms: 2.7342
+  type: 'test'
+  ...
+# Subtest: lost native completion restores a visible retry while keeping the home inert
+ok 225 - lost native completion restores a visible retry while keeping the home inert
+  ---
+  duration_ms: 1.2054
+  type: 'test'
+  ...
+# Subtest: a bridge failure after handoff never releases controls without cover removal
+ok 226 - a bridge failure after handoff never releases controls without cover removal
+  ---
+  duration_ms: 1.5612
+  type: 'test'
+  ...
+# Subtest: an unavailable bridge ends in protected recovery rather than blind timer unlock
+ok 227 - an unavailable bridge ends in protected recovery rather than blind timer unlock
+  ---
+  duration_ms: 2.5168
+  type: 'test'
+  ...
+# Subtest: native handoff forwards reduced motion and still waits for completion
+ok 228 - native handoff forwards reduced motion and still waits for completion
+  ---
+  duration_ms: 0.6136
+  type: 'test'
+  ...
+# Subtest: native timeout to an intact Web fallback uses the Web-only exit
+ok 229 - native timeout to an intact Web fallback uses the Web-only exit
+  ---
+  duration_ms: 1.1416
+  type: 'test'
+  ...
+# Subtest: repeated ready calls share the same operation and dispose never unlocks it
+ok 230 - repeated ready calls share the same operation and dispose never unlocks it
+  ---
+  duration_ms: 0.9949
+  type: 'test'
+  ...
+# Subtest: a listener handle acquired after disposal is immediately removed
+ok 231 - a listener handle acquired after disposal is immediately removed
+  ---
+  duration_ms: 0.5263
+  type: 'test'
+  ...
+# Subtest: an Activity identity is required when native supplies one
+ok 232 - an Activity identity is required when native supplies one
+  ---
+  duration_ms: 0.3881
+  type: 'test'
+  ...
+# Subtest: lost completion is recovered only by a matching COMPLETE coverRemoved snapshot
+ok 233 - lost completion is recovered only by a matching COMPLETE coverRemoved snapshot
+  ---
+  duration_ms: 0.4125
+  type: 'test'
+  ...
+# Subtest: an already complete launch may reveal only when coverRemoved is true
+ok 234 - an already complete launch may reveal only when coverRemoved is true
+  ---
+  duration_ms: 0.4912
+  type: 'test'
+  ...
+# Subtest: foreign/child transition events cannot remove the browser cover
+ok 235 - foreign/child transition events cannot remove the browser cover
+  ---
+  duration_ms: 0.4848
+  type: 'test'
+  ...
+# Subtest: background startup waits and resumption revalidates; reduced motion removes decoration
+ok 236 - background startup waits and resumption revalidates; reduced motion removes decoration
+  ---
+  duration_ms: 0.7565
+  type: 'test'
+  ...
+# Subtest: a terminal watchdog error cannot be cleared by late readiness or exit timers
+ok 237 - a terminal watchdog error cannot be cleared by late readiness or exit timers
+  ---
+  duration_ms: 0.5853
+  type: 'test'
+  ...
+# Subtest: context clearing atomically removes platform receipts without dropping local BLE history
+ok 238 - context clearing atomically removes platform receipts without dropping local BLE history
+  ---
+  duration_ms: 4.8631
+  type: 'test'
+  ...
+# Subtest: store publishes a new immutable snapshot without changing the prior snapshot
+ok 239 - store publishes a new immutable snapshot without changing the prior snapshot
+  ---
+  duration_ms: 1.7476
+  type: 'test'
+  ...
+# Subtest: realtime reducer bridges backend device identifiers across connection, command, activity, alert, and telemetry events
+ok 240 - realtime reducer bridges backend device identifiers across connection, command, activity, alert, and telemetry events
+  ---
+  duration_ms: 7.3998
+  type: 'test'
+  ...
+# Subtest: store ignores unsupported realtime protocol versions
+ok 241 - store ignores unsupported realtime protocol versions
+  ---
+  duration_ms: 1.3126
+  type: 'test'
+  ...
+# Subtest: store applies an early command event when its device later arrives from REST
+ok 242 - store applies an early command event when its device later arrives from REST
+  ---
+  duration_ms: 2.6503
+  type: 'test'
+  ...
+# Subtest: store rekeys early activity and alert events when their device later arrives from REST
+ok 243 - store rekeys early activity and alert events when their device later arrives from REST
+  ---
+  duration_ms: 0.6866
+  type: 'test'
+  ...
+# Subtest: stores access route separately from device transport and stale state
+ok 244 - stores access route separately from device transport and stale state
+  ---
+  duration_ms: 0.6128
+  type: 'test'
+  ...
+# Subtest: weather realtime updates are site-scoped and retain the server-computed status level
+ok 245 - weather realtime updates are site-scoped and retain the server-computed status level
+  ---
+  duration_ms: 0.4065
+  type: 'test'
+  ...
+# Subtest: store emits stable change metadata for device, weather, command, runtime, and connection updates
+ok 246 - store emits stable change metadata for device, weather, command, runtime, and connection updates
+  ---
+  duration_ms: 1.4632
+  type: 'test'
+  ...
+# Subtest: task registry deduplicates a business action across view changes without cancelling it
+ok 247 - task registry deduplicates a business action across view changes without cancelling it
+  ---
+  duration_ms: 1.7145
+  type: 'test'
+  ...
+# Subtest: a late finish cannot remove a newer request or a different context
+ok 248 - a late finish cannot remove a newer request or a different context
+  ---
+  duration_ms: 0.3963
+  type: 'test'
+  ...
+# Subtest: task scope and key cannot collide through delimiter text
+ok 249 - task scope and key cannot collide through delimiter text
+  ---
+  duration_ms: 0.3533
+  type: 'test'
+  ...
+# Subtest: BLE selection instructions match the active client runtime
+ok 250 - BLE selection instructions match the active client runtime
+  ---
+  duration_ms: 2.1436
+  type: 'test'
+  ...
+# Subtest: unknown BLE profile has metadata but no command controls
+ok 251 - unknown BLE profile has metadata but no command controls
+  ---
+  duration_ms: 3.2932
+  type: 'test'
+  ...
+# Subtest: stale platform state disables controls without hiding capabilities
+ok 252 - stale platform state disables controls without hiding capabilities
+  ---
+  duration_ms: 1.1939
+  type: 'test'
+  ...
+# Subtest: a disconnected known BLE profile is immediately read-only
+ok 253 - a disconnected known BLE profile is immediately read-only
+  ---
+  duration_ms: 0.6667
+  type: 'test'
+  ...
+# Subtest: DeviceView Profile capabilities can expose controls beyond the legacy demo set
+ok 254 - DeviceView Profile capabilities can expose controls beyond the legacy demo set
+  ---
+  duration_ms: 0.3906
+  type: 'test'
+  ...
+# Subtest: weather cooldown publishes deadline changes once and emits lightweight ticks
+ok 255 - weather cooldown publishes deadline changes once and emits lightweight ticks
+  ---
+  duration_ms: 2.9916
+  type: 'test'
+  ...
+# Subtest: starting a new cooldown cancels the preceding interval
+ok 256 - starting a new cooldown cancels the preceding interval
+  ---
+  duration_ms: 0.4129
+  type: 'test'
+  ...
+# Subtest: normalizes Android zero-offset timezone aliases to the Open-Meteo-safe UTC identifier
+ok 257 - normalizes Android zero-offset timezone aliases to the Open-Meteo-safe UTC identifier
+  ---
+  duration_ms: 1.8601
+  type: 'test'
+  ...
+# Subtest: uses the browser timezone when valid and a safe default when unavailable
+ok 258 - uses the browser timezone when valid and a safe default when unavailable
+  ---
+  duration_ms: 0.4469
+  type: 'test'
+  ...
+1..258
+# tests 258
+# suites 0
+# pass 258
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2770.9705

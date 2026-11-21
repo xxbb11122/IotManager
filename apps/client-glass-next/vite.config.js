@@ -12,7 +12,10 @@ function git(...args) {
   catch { return null; }
 }
 const revision = git('rev-parse', 'HEAD');
-const status = git('status', '--porcelain');
+// Unrelated notes/artifacts elsewhere in the repository do not change this
+// App's source identity. Uncommitted App files still mark its build as dirty.
+const status = git('status', '--porcelain', '--untracked-files=normal', '--', '.',
+  ':(exclude)vite.config.js.timestamp-*.mjs');
 const buildInfo = {
   commit: /^[a-f0-9]{40}$/.test(revision ?? '') ? revision : 'unknown',
   builtAt: new Date().toISOString(),
@@ -54,6 +57,6 @@ export default defineConfig(({ mode }) => {
       '/ws': { ...proxy, ws: true }
     }
   },
-  build: { outDir: 'dist', assetsDir: 'assets', emptyOutDir: true }
+  build: { target: ['es2020', 'edge88', 'firefox78', 'chrome87', 'safari14'], outDir: 'dist', assetsDir: 'assets', emptyOutDir: true }
   };
 });

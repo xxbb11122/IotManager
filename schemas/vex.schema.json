@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Digest-bound vulnerability decision",
+  "type": "object",
+  "required": ["schemaVersion", "artifact", "imageDigest", "cve", "status", "reason", "approvedBy", "approvedAt", "expiresAt", "trackingIssue"],
+  "properties": {
+    "schemaVersion": {"enum": [1, 2]},
+    "artifact": {"type": "string", "pattern": "^IMG-R0[1-8]$"},
+    "imageDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "sourceSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "cve": {"type": "string", "pattern": "^CVE-[0-9]{4}-[0-9]+$"},
+    "status": {"enum": ["affected-but-accepted", "not_affected", "fixed"]},
+    "reason": {"type": "string", "minLength": 1},
+    "preparedBy": {"type": "string", "minLength": 1},
+    "approvedBy": {"type": "string", "minLength": 1},
+    "approvedAt": {"type": "string", "format": "date-time"},
+    "expiresAt": {"type": "string", "format": "date-time"},
+    "trackingIssue": {"type": "string", "minLength": 1},
+    "approvalUrl": {"type": "string", "pattern": "^https://github\\.com/[^/]+/[^/]+/pull/[0-9]+#pullrequestreview-[0-9]+$"},
+    "compensatingControls": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "evidence": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "required": ["path", "sha256"], "additionalProperties": false,
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    }
+  },
+  "allOf": [
+    {"if": {"properties": {"schemaVersion": {"const": 1}}}, "then": {"required": ["compensatingControls"], "properties": {"status": {"const": "affected-but-accepted"}}}},
+    {"if": {"properties": {"schemaVersion": {"const": 2}}}, "then": {"required": ["sourceSha", "preparedBy", "approvalUrl", "evidence"], "properties": {"status": {"enum": ["not_affected", "fixed"]}}}}
+  ]
+}

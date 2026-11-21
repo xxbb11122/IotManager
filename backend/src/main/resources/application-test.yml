@@ -10,6 +10,8 @@ spring:
       enabled: false
 
 iot:
+  discovery:
+    demo-enabled: true
   security:
     enabled: false
   web:

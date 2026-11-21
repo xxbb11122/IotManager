@@ -1,6 +1,6 @@
 package com.iot.manager.ai;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.iot.manager.service.TimeProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
@@ -64,7 +64,12 @@ public class AiConversationStore {
 
     public Claim claim(long siteId, String actor, String key, String question, String conversationId,
                        Runnable acquireCapacity) {
-        String digest = hash(question.trim(), conversationId);
+        return claim(siteId, actor, key, question, conversationId, null, acquireCapacity);
+    }
+
+    public Claim claim(long siteId, String actor, String key, String question, String conversationId,
+                       String diagnosisFingerprint, Runnable acquireCapacity) {
+        String digest = hash(question.trim(), conversationId, diagnosisFingerprint);
         return tx.execute(transaction -> {
             repository.lockSite(siteId);
             expireLocked(siteId);
@@ -318,10 +323,11 @@ public class AiConversationStore {
         try { if (value == null || value.length() != 36) throw new IllegalArgumentException(); return UUID.fromString(value).toString(); }
         catch (IllegalArgumentException error) { throw new IllegalArgumentException("Request key must be a UUID"); }
     }
-    private static String hash(String question, String id) {
+    private static String hash(String question, String id, String diagnosisFingerprint) {
         try {
             // Length prefix and explicit null prevent ambiguous concatenations.
             String input = question.length() + ":" + question + ":" + (id == null ? "null" : id.length() + ":" + id);
+            if (diagnosisFingerprint != null) input += ":device:" + diagnosisFingerprint.length() + ":" + diagnosisFingerprint;
             return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(input.getBytes(StandardCharsets.UTF_8)));
         } catch (java.security.NoSuchAlgorithmException error) { throw new IllegalStateException(error); }
     }

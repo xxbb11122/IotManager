@@ -11,7 +11,7 @@
 
 <p align="center">
   <img alt="Java 17" src="https://img.shields.io/badge/Java-17-blue" />
-  <img alt="Spring Boot" src="https://img.shields.io/badge/Spring%20Boot-3.5.x-brightgreen" />
+  <img alt="Spring Boot" src="https://img.shields.io/badge/Spring%20Boot-4.0.8-brightgreen" />
   <img alt="Node.js 22" src="https://img.shields.io/badge/Node.js-22-green" />
   <img alt="Android API 36" src="https://img.shields.io/badge/Android-API%2036-3DDC84" />
   <img alt="PostgreSQL 16" src="https://img.shields.io/badge/PostgreSQL-16-4169E1" />
@@ -21,18 +21,20 @@
 </p>
 
 > [!TIP]
-> ### 🤖 App AI 助手：服务器托管、权限可控、性格可定制
+> ### 🤖 App 设备盘点、排障与复验 / Device status, troubleshooting and verification
 >
-> 在 Android/PDA 客户端内直接进入 AI 工作区，使用远程 Chat、会话历史和版本化 AI 性格。OWNER / ADMIN 可管理性格版本；模型请求通过 IoT Manager 后端和 Spring AI 发往当前 DeepSeek 兼容服务，供应商密钥只留在服务器，也可在服务器配置中更换兼容供应商。
+> 在 Glass Next 的 AI 工作区可查看授权站点的完整平台设备列表和本机 BLE 状态。修复卡提供操作步骤、恢复判据和失败后的处理；复验只读取目标设备，不自动执行控制。盘点和内置修复卡不需要启用聊天模型。
 >
-> **当前边界：** AI Chat 是可选试点能力，`IOT_AI_ENABLED=false` 时默认关闭；知识库和 Embedding 也保持关闭。当前不宣称 AI 已通过正式生产审批或已能检索站点知识库。查看 [Glass Next App 介绍](apps/client-glass-next/README.md)与[App 验证记录](apps/client-glass-next/VERIFICATION.md)。
+> Glass Next lists authorized site devices and phone-local BLE separately, offers repair steps and escalation guidance, and checks recovery using fresh evidence. The status list and built-in repair cards work without a model, background scans, or automatic commands.
+>
+> **当前边界 / Boundary：** 远程 AI 解读与普通 Chat 均为可选功能，`IOT_AI_ENABLED=false` 时关闭；知识库和 Embedding 默认关闭。Remote AI and site knowledge are optional, not production-approved. 详见 [Glass Next App 介绍](apps/client-glass-next/README.md)与[验证记录](apps/client-glass-next/VERIFICATION.md)。
 
 > [!IMPORTANT]
 > **Current release status / 当前发布状态**
 >
 > IoT Manager 当前是 **R1 受控试点候选项目（Controlled-Pilot Candidate）**，并非已批准的正式生产版本。新增的 App AI 聊天属于独立试验范围，生产默认关闭；站点知识库也默认关闭。
 >
-> 截至 **2026-10-01**，本地验证通过：Backend 189 项、Edge Agent 7 项、Client 194 项、监控端 2 项、控制台 1 项单元/集成测试；Client 关键浏览器场景 11 项、三端生产构建、Android 1.1.1 Debug APK 构建及 Compose 静态配置检查通过。新功能的真机、生产身份链路和发布证据仍需单独验收；推送后以[当前提交的 Quick CI](https://github.com/xxbb11122/IotManager/actions/workflows/ci.yml)及[P0 Docker Runtime](https://github.com/xxbb11122/IotManager/actions/workflows/runtime-e2e.yml)结果为准。
+> **2026-10-29** 的发布门禁离线模拟为 **79/79 通过**；它验证合成配置下的判断和阻断逻辑。正式审核、保护环境、专用 runner、正式签名和已批准的回滚基线仍需接入。提交后的结果以该提交的 [Quick CI](https://github.com/xxbb11122/IotManager/actions/workflows/ci.yml) 和 [P0 Docker Runtime](https://github.com/xxbb11122/IotManager/actions/workflows/runtime-e2e.yml) 为准。
 >
 > **Passing local tests or Quick CI is not production approval.** 受保护的不可变发布门禁、签名版本回滚、远端 WAL-G PITR/RPO/RTO、持续负载、真实设备与新 APK 的完整 HTTPS/OIDC 验收尚未关闭。
 
@@ -49,6 +51,7 @@ The platform provides a unified operational boundary for:
 - acknowledged and idempotent device commands;
 - telemetry, activity history, alerts, and real-time updates;
 - Android/PDA, monitoring-dashboard, and operations-console experiences;
+- site-scoped device inventory, phone-local BLE checks, and read-only repair verification in Glass Next;
 - an optional, server-mediated AI chat workspace with conversation history and versioned personas (disabled by default);
 - Keycloak OIDC / PKCE authentication and site-scoped RBAC;
 - Edge Agent connectivity for LAN devices;
@@ -113,8 +116,11 @@ The platform provides a unified operational boundary for:
 - Capacitor Android/PDA 客户端包含设备、AI、动态、添加四个主入口；局部状态更新、手动下拉刷新、重连与减少动态效果支持旨在降低频繁重绘和闪屏；
 - AI 页面支持问答、会话历史、按角色管理的版本化性格及不重复提交的请求恢复；模型调用、密钥和权限检查均在后端；
 - [独立 Glass Next Android App](apps/client-glass-next/README.md)在保留设备、BLE、天气、登录和启动体验的同时提供 AI 工作区；
+- Glass Next 工作区已实施内容实色化、连续设备列表、AI 底部输入和局部更新优化；同机生产构建对照、模拟范围及未验证项见[综合整改与复审记录](docs/GLASS-APP-COMPREHENSIVE-IMPLEMENTATION-REVIEW-2026-11-10.md)；
+- 2026-11-17 `Glass 1.1.4-glass.8 / Android code 13`：[登录与天气定向修复](docs/APP-LOGIN-WEATHER-TARGETED-FIX-2026-11-17.md)补齐登录阶段提示、超时/取消、显式默认配置恢复，以及再次审核中的 RR-01/RR-02 天气失效链路。后端、两客户端和浏览器定向回归共 157 项通过；另有 TLS/PKCE/WSS/真实 Chat 协议检查通过。此结果不代表手机外部浏览器、真实 GPS/BLE、正式签名或生产发布已经验收。Targeted login-feedback and weather-validity fixes pass 157 scoped regression tests, plus a separate live protocol/Chat check; real-device and production-release acceptance remain open.
+- **2026-11-21：设备状态与排障闭环。** Glass Next 分别展示授权站点设备与本机 BLE 的连接、读数时效和命令回执；离线缓存、历史绑定和演示记录不作为当前实测。内置方案覆盖 BLE 连接、连接后无数据、单字段停更、边缘到平台停更和命令未确认，并支持按需只读复验。**Device assessment** separates link health, measurement freshness, and command receipts; built-in repair plans cover five common failure paths and verify only the selected target on demand. See [usage and backend configuration](apps/client-glass-next/README.md#设备状态与修复).
 - 生产环境默认 `IOT_AI_ENABLED=false`、`IOT_AI_KNOWLEDGE_ENABLED=false`。知识库/向量迁移代码已存在，但 Embedding 供应商与真实索引验收未完成，**不得将其描述为已上线功能**；
-- Android 16 模拟器已完成安装包专项验证；真机 GPS/BLE、完整原生 OIDC 与真实模型调用仍是验收项。
+- 既有安装包曾在 Android 16 模拟器完成专项验证；设备排障的新功能尚未在实体手机与 BLE 外设上验收。真机 GPS/BLE、完整原生 OIDC 与真实模型调用仍是验收项。
 
 ### Operations & recovery
 
@@ -181,22 +187,22 @@ Release and recovery gates are **fail-closed**: a skipped scan, missing evidence
 
 ## Current verification / 当前验证边界
 
-以下是 **2026-10-01 本地工作树复测**，测试针对本次待提交代码；不等同于新 GitHub 提交的 CI、P0 运行态或正式发布 Gate 结果。
+以下记录分别标明测试日期和范围。新的提交需要独立的 CI 与发布验收；本地模拟结果不能外推为云端运行或生产批准。
 
-| 区域 | 本地结果 | 复现入口 / 范围 |
+| 区域 | 结果 | 复现入口 / 范围 |
 | --- | --- | --- |
-| Backend / Edge Agent | 189 / 7 项测试通过，均为 0 失败、0 错误、0 跳过 | JDK 17，分别在 `backend/`、`edge-agent/` 执行 Maven `verify` |
-| Client / Console / Monitoring | 194 / 1 / 2 项测试通过；三个 Vite 生产构建通过 | Node.js 22，各目录 `npm run test && npm run build` |
-| Client 浏览器 | AI、底栏动效、启动动画与移动端主流程共 11 项通过 | `client/e2e/` Playwright；不等同于真机身份验收 |
-| Android | 1.1.1 / `versionCode=3` Debug APK 构建成功 | JDK 23、本机 SDK 36、`client` 的 `npm run android:debug`；非正式签名 |
-| Docker 配置 | Compose 配置展开通过 | 仅静态检查；不是新代码的全链路运行态证明 |
-| Android 模拟器专项 | 同日此前记录的 11 项原生模拟验收通过 | [公开版进度与证据边界](docs/PROJECT-STATUS-2026-10-01.md)；本轮未重跑真机 |
+| 发布门禁 | 2026-10-29：79/79 离线模拟通过，0 外部 I/O 尝试 | [方案和验收](docs/RELEASE-GOVERNANCE-SIMULATION-ACCEPTANCE-2026-10-29.md)；不代表真实 GitHub 审批或部署成功 |
+| 发布工具回归 | 2026-10-29：13 通过、0 失败、1 跳过 | Windows 本地运行；Linux runner 注册协议因平台限制跳过 |
+| 受控运维模拟 | 2026-10-21：Linux 7/7，双库迁移及新备份链恢复通过 | [运行记录](https://github.com/xxbb11122/IotManager/actions/runs/39574579331)；合成数据，非生产恢复 |
+| 应用 CI 与运行态 | 2026-10-21：历史提交 `0cd5b44` 的 [Quick CI](https://github.com/xxbb11122/IotManager/actions/runs/39577950680) 与 [P0 Runtime](https://github.com/xxbb11122/IotManager/actions/runs/39577950722) 成功 | P0 的正式 immutable job 跳过；不代表本提交 CI 或正式 Gate 已通过 |
+| 真实治理配置 | 2026-10-27：4 PASS、2 FAIL、2 UNKNOWN | [复检报告](docs/RELEASE-READINESS-RECHECK-2026-10-27.md)为当时快照，不能替代实时复查 |
+| 设备盘点和排障 / Device assessment | 2026-11-21：后端 237 通过、21 跳过；Glass Next 283 单测、21 浏览器用例通过；Android Debug 构建与签名检查通过 | [本地验证详情](apps/client-glass-next/VERIFICATION.md)；21 项 PostgreSQL 容器用例未执行，浏览器使用测试替身，非真机或发布验收 |
 
-**已发布的上一提交** `83e6bc7` 的 [Quick CI](https://github.com/xxbb11122/IotManager/actions/runs/36424040632) 与 [P0 Docker Runtime](https://github.com/xxbb11122/IotManager/actions/runs/36424040548) 均成功；该结果**不能直接外推**至本次新增 AI/Android 改动。新提交推送后，应以该 SHA 的工作流结果重新判断。受保护发布 Gate 仍未签发。
+更早的 Android 模拟器与应用测试记录见[历史项目状态](docs/PROJECT-STATUS-2026-10-01.md)。正式发布仍需对同一候选 SHA 执行受保护 Gate、签名、恢复与回滚验收。
 
 ### Android debug package / 调试安装包
 
-本地构建产物位于 `client/android/app/build/outputs/apk/debug/app-debug.apk`，不会纳入 Git。成功的 [Quick CI](https://github.com/xxbb11122/IotManager/actions/workflows/ci.yml) 会为**对应提交 SHA** 上传 `iot-manager-debug-apk-<SHA>`，Actions 产物保留 14 天。仅供开发与测试；正式发布必须使用受保护的 Release 签名并核对升级前证书与版本。
+本地 Debug APK 分别位于 `client/android/app/build/outputs/apk/debug/app-debug.apk` 与 `apps/client-glass-next/android/app/build/outputs/apk/debug/app-debug.apk`，不会纳入 Git。相应 [Quick CI](https://github.com/xxbb11122/IotManager/actions/workflows/ci.yml) 构建成功后，会为**对应提交 SHA** 上传 `iot-manager-debug-apk-<SHA>` 或 `iot-manager-glass-debug-apk-<SHA>`，Actions 产物保留 14 天。仅供开发与测试；正式发布必须使用受保护的 Release 签名并核对升级前证书与版本。
 
 ### Production-release blockers
 
@@ -213,13 +219,13 @@ Release and recovery gates are **fail-closed**: a skipped scan, missing evidence
 
 | Layer             | Technology                                               |
 | ----------------- | -------------------------------------------------------- |
-| Backend           | Java 17, Spring Boot 3.5.16, Spring MVC, Spring WebSocket |
+| Backend           | Java 17, Spring Boot 4.0.8, Spring MVC, Spring WebSocket |
 | Security          | Spring Security, OAuth2 Resource Server, JWT, Keycloak   |
 | Persistence       | PostgreSQL 16, Spring Data JPA / Hibernate, Flyway; V27 requires pgvector 0.8.6 even when AI is off |
-| Optional AI       | Spring AI 1.1.8, server-side OpenAI-compatible Chat adapter; disabled by default |
+| Optional AI       | Spring AI 2.0.1, server-side OpenAI-compatible Chat adapter; disabled by default |
 | Edge Agent        | Java 17, outbound WebSocket, profile-based drivers       |
 | Web               | Node.js 22, Vite, ES Modules                             |
-| Testing           | JUnit 5, Testcontainers, Playwright                      |
+| Testing           | JUnit Jupiter, Testcontainers, Playwright                |
 | Mobile            | Capacitor 8, Android API 24–36                           |
 | Reverse proxy     | Caddy                                                    |
 | Observability     | Spring Actuator, Micrometer, Prometheus, Alertmanager    |
@@ -303,9 +309,11 @@ npm run android:debug
 
 The resulting `client/android/app/build/outputs/apk/debug/app-debug.apk` is a **debug-signed** test package. A release APK/AAB requires protected signing inputs and separate acceptance; do not replace an installed package with a different certificate without first planning data preservation.
 
+For the Glass Next App with device inventory and repair checks, run the same commands from `apps/client-glass-next` instead and connect the app to a backend that includes the device-status overview API.
+
 ### Docker integration and migration note
 
-Use the [deployment runbook](deploy/DEPLOYMENT.md) for secret provisioning, two-stage Keycloak bootstrap, TLS/WSS, least-privilege database roles, backup and recovery. `docker compose config` verifies syntax only; it does not prove that services can start or that Gate 2/3 passed. **Flyway V27 uses pgvector even with AI disabled**: an existing PostgreSQL volume must receive the documented extension preflight before starting the updated backend. Never edit an applied migration or run a destructive restore on a live volume.
+Use the [deployment runbook](deploy/DEPLOYMENT.md) for secrets, TLS/WSS, database roles, backup and recovery. `docker compose config` verifies syntax only. **Flyway V27 uses pgvector even with AI disabled**; existing volumes require the documented extension preflight. The PostgreSQL 16 Alpine musl image cannot directly reuse an incompatible glibc data volume: follow the [logical migration and new backup-chain runbook](docs/RELEASE-OPERATIONS-DEVELOPMENT-AND-RUNBOOK-2026-10-21.md), and preserve the source. Never edit an applied migration or run a destructive restore on a live volume.
 
 ### Strict verification
 
@@ -318,6 +326,16 @@ bash scripts/verify.sh --strict
 ```
 
 Targeted checks are `mvn verify` in `backend/` and `edge-agent/`, `npm run test && npm run build` in each Vite app, and `npm run test:e2e` in `client/`. CI additionally builds the Android Debug APK and runs source/security/SBOM gates. A successful Quick CI run is **not** the protected production-release gate.
+
+### Offline release governance simulation / 发布门禁离线模拟
+
+From the repository root with Node.js 22:
+
+```bash
+node scripts/testing/release-governance-simulation.mjs --output artifacts/release-governance-simulation/summary.json
+```
+
+The simulation uses synthetic repository settings and in-memory requests to exercise environment protection, branch rules, runner labels, signing metadata and rollback inputs. A simulated request remains pending and does not approve a release. See the [reviewed plan](docs/RELEASE-GOVERNANCE-SIMULATION-PLAN-2026-10-29.md), [acceptance report](docs/RELEASE-GOVERNANCE-SIMULATION-ACCEPTANCE-2026-10-29.md) and [synthetic test evidence](docs/evidence/release-governance-simulation-20261029.json).
 
 For Docker Runtime, Android, release-integrity, and recovery verification, see:
 
@@ -349,6 +367,8 @@ HIGH/CRITICAL findings remain release blockers unless fixed or covered by an exp
 
 - [Verification](docs/VERIFICATION.md)
 - [CI / Release](docs/CI-RELEASE-RUNBOOK.md)
+- [Release governance simulation and acceptance](docs/RELEASE-GOVERNANCE-SIMULATION-ACCEPTANCE-2026-10-29.md)
+- [Release operations and database migration runbook](docs/RELEASE-OPERATIONS-DEVELOPMENT-AND-RUNBOOK-2026-10-21.md)
 - [Deployment](deploy/DEPLOYMENT.md)
 - [Device Profiles](profiles/README.md)
 - [Edge Agent](edge-agent/README.md)
@@ -365,6 +385,7 @@ HIGH/CRITICAL findings remain release blockers unless fixed or covered by an exp
 | --- | --- |
 | 设备、站点、天气、边缘与三端界面 | 已有可运行实现，处于 R1 受控试点候选；新提交仍需同 SHA 的 CI/运行态复验 |
 | App 动效与可选 AI Chat | 代码及本地/模拟器专项测试已完成；真实手机、完整 HTTPS/OIDC、真实模型与成本/隐私验收未完成 |
+| 设备状态与只读修复验证 | 本地实现和自动化回归已完成；实体 BLE、现场恢复和生产 PostgreSQL 验收未完成 |
 | 知识库、Embedding 与向量检索 | 保留代码和迁移，默认关闭；供应商、维度、索引、恢复及发布验收未完成 |
 | 正式生产发布 | **未批准**；受保护发布、签名回滚、远端 PITR、RPO/RTO、容量和实体设备证据仍待补齐 |
 

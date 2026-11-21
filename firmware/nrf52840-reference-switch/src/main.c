@@ -15,6 +15,7 @@ LOG_MODULE_REGISTER(iot_reference_switch, LOG_LEVEL_INF);
 
 static const struct gpio_dt_spec relay = GPIO_DT_SPEC_GET_OR(DT_ALIAS(led0), gpios, {0});
 static bool power_state;
+static bool actuator_ready;
 
 static uint8_t crc8(const uint8_t *data, size_t length)
 {
@@ -65,10 +66,14 @@ static void nus_received(struct bt_conn *conn, const void *data, uint16_t length
         result = 2;
     } else if (frame[8] > 1U) {
         result = 3;
+    } else if (!actuator_ready || !device_is_ready(relay.port)) {
+        result = 4;
     } else {
-        power_state = frame[8] == 1U;
-        if (device_is_ready(relay.port) && gpio_pin_set_dt(&relay, power_state ? 1 : 0) != 0) {
+        bool requested_power = frame[8] == 1U;
+        if (gpio_pin_set_dt(&relay, requested_power ? 1 : 0) != 0) {
             result = 4;
+        } else {
+            power_state = requested_power;
         }
     }
 
@@ -91,7 +96,11 @@ int main(void)
         error = gpio_pin_configure_dt(&relay, GPIO_OUTPUT_INACTIVE);
         if (error) {
             LOG_ERR("LED/relay GPIO configuration failed: %d", error);
+        } else {
+            actuator_ready = true;
         }
+    } else {
+        LOG_ERR("LED/relay GPIO is unavailable; commands will fail closed");
     }
 
     error = bt_enable(NULL);

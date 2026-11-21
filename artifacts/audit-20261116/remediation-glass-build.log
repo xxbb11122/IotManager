@@ -1,0 +1,22 @@
+
+> iot-client-glass-next@1.1.4-glass.7 build
+> vite build && node src/dev/motion-preview/check-production.mjs
+
+vite v7.3.7 building client environment for production...
+transforming...
+✓ 1847 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/build-info.json                         0.15 kB │ gzip:   0.14 kB
+dist/index.html                              7.40 kB │ gzip:   2.37 kB
+dist/third-party-notices.txt                 8.60 kB │ gzip:   2.16 kB
+dist/assets/index-CLGbR8Kd.css              63.54 kB │ gzip:  11.81 kB
+dist/assets/web-DKnkZlMq.js                  0.38 kB │ gzip:   0.25 kB
+dist/assets/web-s6eNlVM9.js                  0.84 kB │ gzip:   0.40 kB
+dist/assets/web-C_6SUklg.js                  1.25 kB │ gzip:   0.58 kB
+dist/assets/web-CKX-L0uD.js                  2.37 kB │ gzip:   0.93 kB
+dist/assets/web-BPho4j3l.js                  8.62 kB │ gzip:   2.42 kB
+dist/assets/web-component.esm-CwMeUSDC.js   73.35 kB │ gzip:  24.83 kB
+dist/assets/index-BioJF1ao.js              336.02 kB │ gzip: 103.78 kB
+✓ built in 4.05s
+Production isolation verified: 14 output files; no preview entry, fixture host or preview runtime markers.

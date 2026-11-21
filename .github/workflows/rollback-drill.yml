@@ -24,7 +24,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  source-policy:
+    uses: ./.github/workflows/release-source-policy.yml
+
   n-to-n-minus-one:
+    needs: [source-policy]
     name: Immutable N to N-1 compatibility proof
     runs-on: [self-hosted, linux, iot-manager-recovery]
     environment: r1-rollback-drill

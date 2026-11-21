@@ -1,7 +1,7 @@
 package com.iot.manager.websocket;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.iot.manager.dto.ClaimLanDeviceRequest;
 import com.iot.manager.dto.DeviceCommandRequest;
 import com.iot.manager.dto.DeviceCommandView;

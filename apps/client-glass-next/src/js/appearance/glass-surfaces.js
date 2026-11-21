@@ -4,9 +4,13 @@ export function ensureGlassComponent() {
   return definition;
 }
 
-const panels = new Set(['glass-shell', 'surface', 'detail-layout', 'mode-grid', 'weather-overview', 'device-row', 'context-row', 'path-choice', 'candidate-row',
-  'ai-workspace', 'ai-message', 'ai-field', 'ai-history-item']);
-const controls = new Set(['glass-control', 'button', 'icon-button', 'mode-button', 'switch-button', 'segment']);
+// AI uses one CSS workspace surface. Its fields, messages and history rows
+// retain semantic backgrounds without stacking independent optical filters.
+const panels = new Set(['surface', 'detail-layout', 'mode-grid', 'weather-overview',
+  'device-row', 'context-row', 'path-choice', 'candidate-row']);
+const controls = new Set(['button', 'icon-button', 'mode-button', 'switch-button', 'segment']);
+const nonSurfaceHosts = new Set(['input', 'select', 'textarea', 'img', 'br', 'hr',
+  'area', 'base', 'col', 'embed', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
 const detailSections = new Set(['device-connection', 'device-state', 'device-controls',
   'device-command', 'device-activity', 'device-metadata']);
 
@@ -18,6 +22,8 @@ export function glassEffect(documentObject = document) {
 // Put the optical material below the real content. It participates in the
 // existing keyed patches, so data refreshes reuse the surface and its filter.
 export function addGlassSurface(node) {
+  if (nonSurfaceHosts.has(node.localName)
+    || [...node.children].some(child => child.dataset.region === 'glass-optics')) return node;
   const classes = [...node.classList];
   const panel = classes.some(name => panels.has(name));
   const control = classes.some(name => controls.has(name));

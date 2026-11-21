@@ -11,14 +11,16 @@ spring:
       chat:
         base-url: ${IOT_AI_CHAT_BASE_URL:https://api.deepseek.com}
         api-key: ${IOT_AI_CHAT_API_KEY:}
-        options:
-          model: ${IOT_AI_CHAT_MODEL:deepseek-flash}
-          max-tokens: ${IOT_AI_CHAT_MAX_TOKENS:1024}
+        model: ${IOT_AI_CHAT_MODEL:deepseek-flash}
+        max-tokens: ${IOT_AI_CHAT_MAX_TOKENS:1024}
+        max-retries: 0
+        timeout: 30s
       embedding:
         base-url: ${IOT_AI_EMBEDDING_BASE_URL:https://api.openai.com}
         api-key: ${IOT_AI_EMBEDDING_API_KEY:}
-        options:
-          model: ${IOT_AI_EMBEDDING_MODEL:text-embedding-3-small}
+        model: ${IOT_AI_EMBEDDING_MODEL:text-embedding-3-small}
+        max-retries: 0
+        timeout: 30s
   config:
     # Docker Compose mounts runtime credentials as files. Keeping this import
     # optional preserves explicit non-container startup diagnostics while the

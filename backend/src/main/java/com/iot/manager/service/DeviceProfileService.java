@@ -1,7 +1,7 @@
 package com.iot.manager.service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import com.iot.manager.dto.DeviceCommandRequest;
 import com.iot.manager.dto.DeviceProfileView;
 import com.iot.manager.entity.Device;
@@ -158,7 +158,7 @@ public class DeviceProfileService {
     private Map<String, Object> definition(DeviceProfile profile) {
         try {
             return objectMapper.readValue(profile.getDefinitionJson(), new TypeReference<LinkedHashMap<String, Object>>() { });
-        } catch (IOException exception) {
+        } catch (tools.jackson.core.JacksonException exception) {
             throw new IllegalStateException("Unable to read device profile " + profile.getProfileId(), exception);
         }
     }
@@ -166,7 +166,7 @@ public class DeviceProfileService {
     private Map<String, Object> readDefinition(Resource resource) {
         try {
             return objectMapper.readValue(resource.getInputStream(), new TypeReference<LinkedHashMap<String, Object>>() { });
-        } catch (IOException exception) {
+        } catch (IOException | tools.jackson.core.JacksonException exception) {
             throw new IllegalStateException("Unable to parse device profile " + resource.getFilename(), exception);
         }
     }
@@ -243,7 +243,7 @@ public class DeviceProfileService {
     private String writeJson(Map<String, Object> definition) {
         try {
             return objectMapper.writeValueAsString(definition);
-        } catch (IOException exception) {
+        } catch (tools.jackson.core.JacksonException exception) {
             throw new IllegalStateException("Unable to serialize device profile", exception);
         }
     }

@@ -33,6 +33,18 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
+    public void onPause() {
+        if (startupCoordinator != null) startupCoordinator.onVisibilityChanged(false);
+        super.onPause();
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        if (startupCoordinator != null) startupCoordinator.onVisibilityChanged(true);
+    }
+
+    @Override
     public void onDestroy() {
         if (startupCoordinator != null) startupCoordinator.destroy();
         super.onDestroy();

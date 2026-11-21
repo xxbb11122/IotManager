@@ -34,23 +34,32 @@ public class AiReplyGenerator {
     }
 
     public Generated generate(AiConversationStore.Claim claim, Runnable beforeProvider) {
+        return generate(claim, beforeProvider, null);
+    }
+
+    public Generated generate(AiConversationStore.Claim claim, Runnable beforeProvider, String diagnosisEvidence) {
         var request = claim.request();
         String question = request.question();
         List<AiConversationStore.Usage> usages = new ArrayList<>();
-        if (!properties.isKnowledgeEnabled() && matches(question, "知识库", "站点文档", "本站文档", "设备手册", "我上传的", "site document", "knowledge base"))
+        if (diagnosisEvidence == null && !properties.isKnowledgeEnabled() && matches(question, "知识库", "站点文档", "本站文档", "设备手册", "我上传的", "site document", "knowledge base"))
             return local(claim, "站点知识库暂未启用，无法查询站点文档。", usages);
-        boolean deviceQuestion = matches(question, "设备", "状态", "在线", "device", "status", "online");
+        boolean deviceQuestion = diagnosisEvidence == null && matches(question, "设备", "状态", "在线", "device", "status", "online");
         List<String> devices = deviceQuestion ? repository.deviceStatus(request.siteId(), question) : List.of();
         if (devices.size() > 1) return local(claim, "找到多个匹配设备，请提供设备的唯一编号。", usages);
         List<AiRepository.Hit> hits = List.of();
         if (properties.isKnowledgeEnabled()) {
             beforeProvider.run();
-            var vector = models.embed(question);
+            // Model/status values are not search terms. Only use the scoped issue, declared field and Profile.
+            String query = diagnosisEvidence == null ? question : question + "\n" + diagnosisEvidence.lines()
+                    .filter(line -> line.startsWith("repair issue:") || line.startsWith("profile:") || line.startsWith("field:"))
+                    .map(line -> line.split(",", 2)[0])
+                    .collect(java.util.stream.Collectors.joining("\n"));
+            var vector = models.embed(query);
             usages.add(new AiConversationStore.Usage("EMBED", models.embeddingModelName(), vector.inputTokens(), null));
             hits = repository.search(request.siteId(), models.embeddingModelName(), vector.vector(), 5)
                     .stream().filter(hit -> hit.similarity() >= properties.getMinSimilarity()).toList();
         }
-        if (hits.isEmpty() && devices.isEmpty() && (properties.isKnowledgeEnabled() || deviceQuestion))
+        if (diagnosisEvidence == null && hits.isEmpty() && devices.isEmpty() && (properties.isKnowledgeEnabled() || deviceQuestion))
             return local(claim, "未找到足够站点知识或设备状态来回答此问题。", usages);
         StringBuilder evidence = new StringBuilder();
         List<AiChatService.Citation> available = new ArrayList<>();
@@ -64,6 +73,9 @@ public class AiReplyGenerator {
         if (!devices.isEmpty()) {
             evidence.append("\nCurrent site device status (read-only):\n");
             devices.forEach(device -> evidence.append(device).append('\n'));
+        }
+        if (diagnosisEvidence != null) {
+            evidence.append("\nSelected device diagnosis facts, snapshot only:\n").append(diagnosisEvidence).append('\n');
         }
         StringBuilder user = new StringBuilder();
         if (claim.persona() != null) user.append("<administrator_style_preference>\n").append(claim.persona().instructions())
@@ -88,10 +100,18 @@ public class AiReplyGenerator {
         Collections.reverse(selected);
         selected.forEach(message -> user.append(message.role()).append(": ").append(message.content()).append('\n'));
         user.append("Question: ").append(question);
-        if (RULES.length()+user.length() > properties.getMaxInputChars())
+        String rules = diagnosisEvidence == null ? RULES : RULES + """
+                Explain this one device's repair plan: evidence, confirmed cause or one next check,
+                ordered user/maintainer steps, what new evidence to check, and rollback or escalation.
+                Do not claim that a repair has been made or verified. A phone observation is not platform telemetry.
+                Do not suggest bypassing credentials/certificate checks, repeating a control command,
+                automatically rebooting/flashing, or changing hardware on unsupported evidence.
+                Compare timestamps with the snapshot as-of time. Conversation history is not current evidence.
+                """;
+        if (rules.length()+user.length() > properties.getMaxInputChars())
             throw new AiException(HttpStatus.BAD_REQUEST, "INPUT_BUDGET_EXCEEDED", "AI input exceeds the configured context budget", 0);
         beforeProvider.run();
-        var generated = models.answer(RULES, user.toString());
+        var generated = models.answer(rules, user.toString());
         String answer = MARKER.matcher(generated.text()).replaceAll(match -> {
             if (match.group(1).length() > 3) return "";
             int source = Integer.parseInt(match.group(1));

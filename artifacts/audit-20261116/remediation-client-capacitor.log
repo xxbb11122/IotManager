@@ -1,0 +1,8 @@
+[info] Found 6 Capacitor plugins for android:
+       @capacitor-community/bluetooth-le@8.2.0
+       @capacitor/app@8.1.1
+       @capacitor/browser@8.0.4
+       @capacitor/geolocation@8.2.1
+       @capacitor/network@8.0.1
+       @capacitor/preferences@8.0.1
+[info] Listing plugins for web is not possible.

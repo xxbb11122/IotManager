@@ -3,20 +3,7 @@
   --safe-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
   --safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
   --safe-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
-  --glass-solid: #ffffff;
-  --glass-navigation: rgba(255, 255, 255, 0.90);
-  --glass-filter: blur(12px) saturate(115%);
-  --glass-line: rgba(21, 33, 39, 0.14);
-  --glass-shadow: 0 4px 16px rgba(21, 33, 39, 0.06);
   --radius-card: 18px;
-}
-
-/* 默认即可读；不支持滤镜的浏览器保持此背景。 */
-.app-header--glass,
-.bottom-nav--glass {
-  background: var(--glass-solid);
-  border-color: var(--glass-line);
-  box-shadow: var(--glass-shadow);
 }
 
 .app-header.app-header--glass {
@@ -28,7 +15,7 @@
     10px calc(12px + var(--safe-left));
   position: sticky;
   top: 0;
-  z-index: 20; /* 低于现有 toast 的 50；需再核对覆盖层。 */
+  z-index: 20; /* Toasts remain above sticky chrome. */
 }
 
 .header-main-row {
@@ -49,50 +36,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.app-header--glass .header-actions { margin-left: 0; flex-wrap: wrap; }
+.app-header--glass .header-actions { margin-left: 0; }
 .app-header--glass .header-actions .button { min-width: 48px; min-height: 48px; }
-.header-context-ribbon {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 8px;
-  min-width: 0;
-  color: var(--ink-muted);
-  font-size: 14px;
-  overflow-wrap: anywhere;
-}
-.app-header--glass .header-context-ribbon .header-status {
-  display: inline-flex;
-  background: var(--surface-muted);
-  /* 作为导航材质内部的平面覆盖，不再次加 backdrop-filter。 */
-}
-
-@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .app-header--glass,
-  .bottom-nav--glass {
-    background: var(--glass-navigation);
-    -webkit-backdrop-filter: var(--glass-filter);
-    backdrop-filter: var(--glass-filter);
-  }
-}
-
-/* reduced 控制动画；solid 独立控制材质。 */
-#app[data-material='solid'] .app-header--glass,
-#app[data-material='solid'] .bottom-nav--glass {
-  background: var(--glass-solid);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  box-shadow: none;
-}
-@media (prefers-contrast: more), (forced-colors: active) {
-  .app-header--glass,
-  .bottom-nav--glass {
-    background: Canvas;
-    color: CanvasText;
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-    box-shadow: none;
-  }
+/* Independent empty results need a surface; empty copy inside an existing
+   panel remains flat. This also provides an opaque no-filter fallback. */
+.empty-state--panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
 }
 
 .device-list--cards {

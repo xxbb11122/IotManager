@@ -1,5 +1,8 @@
-import { BleClient } from '@capacitor-community/bluetooth-le';
+import { BleClient, numberToUUID } from '@capacitor-community/bluetooth-le';
 import { defaultBleProfileRegistry } from './ble-profile-registry.js';
+
+const BATTERY_SERVICE = numberToUUID(0x180f);
+const BATTERY_LEVEL = numberToUUID(0x2a19);
 
 export class NativeBlePermissionError extends Error {
   constructor(cause) {
@@ -27,6 +30,9 @@ export class NativeBleAdapter {
     this.scanRevision = 0;
     this.connection = null;
     this.profile = null;
+    this.connectionSequence = 0;
+    this.connecting = false;
+    this.unreleasedDeviceId = null;
     this.confirmationTimeoutMs = confirmationTimeoutMs;
   }
 
@@ -95,19 +101,51 @@ export class NativeBleAdapter {
   async connect(candidate) {
     const deviceId = candidate?.deviceId;
     if (!deviceId) throw new TypeError('BLE connection requires deviceId');
-    await this.bleClient.connect(deviceId, () => this.handleDisconnect(deviceId));
-    const services = await this.bleClient.getServices(deviceId);
-    this.profile = this.registry.matchDiscoveredServices(services.map((service) => service.uuid));
-    this.connection = {
-      deviceId,
-      name: candidate.name ?? 'Unnamed BLE device',
-      transport: 'BLE_DIRECT',
-      status: 'CONNECTED',
-      profileId: this.profile?.id ?? null,
-      reportedState: {}
-    };
-    this.emit('connection_update', this.connection);
-    return this.connection;
+    if (this.connecting) throw new Error('BLE connection is already being changed');
+    this.connecting = true;
+    try {
+      // Do not replace a live GATT handle with a JS reference to another device.
+      if (this.unreleasedDeviceId) {
+        await this.bleClient.disconnect(this.unreleasedDeviceId);
+        this.unreleasedDeviceId = null;
+      }
+      if (this.connection?.status === 'CONNECTED') await this.disconnect();
+      const session = ++this.connectionSequence;
+      let closed = false;
+      let readableBattery = false;
+      try {
+        await this.bleClient.connect(deviceId, () => {
+          closed = true;
+          this.handleDisconnect(deviceId, session);
+        });
+        const services = await this.bleClient.getServices(deviceId);
+        if (closed) throw new Error('BLE device disconnected during service discovery');
+        this.profile = this.registry.matchDiscoveredServices(services.map((service) => service.uuid));
+        readableBattery = services.some((service) => service.uuid?.toLowerCase() === BATTERY_SERVICE
+          && service.characteristics?.some((entry) => entry.uuid?.toLowerCase() === BATTERY_LEVEL && entry.properties?.read === true));
+      } catch (error) {
+        if (!closed) {
+          try { await this.bleClient.disconnect(deviceId); }
+          catch { this.unreleasedDeviceId = deviceId; }
+        }
+        throw error;
+      }
+      this.connection = {
+        deviceId,
+        session,
+        name: candidate.name ?? 'Unnamed BLE device',
+        transport: 'BLE_DIRECT',
+        status: 'CONNECTED',
+        changedAt: Date.now(),
+        profileId: this.profile?.id ?? null,
+        readableBattery,
+        reportedState: {}
+      };
+      this.emit('connection_update', this.connection);
+      return this.connection;
+    } finally {
+      this.connecting = false;
+    }
   }
 
   getCapabilities() { return this.registry.getCapabilities(this.profile?.id ?? null); }
@@ -115,12 +153,30 @@ export class NativeBleAdapter {
   openBluetoothSettings() { return this.bleClient.openBluetoothSettings(); }
 
   async verifyConnection() {
-    if (this.connection?.status !== 'CONNECTED') return false;
-    if (typeof this.bleClient.getConnectedDevices !== 'function') return true;
+    const owned = this.connection;
+    if (owned?.status !== 'CONNECTED') return false;
+    if (typeof this.bleClient.getConnectedDevices !== 'function') return null;
     const connected = await this.bleClient.getConnectedDevices([]);
-    const present = connected.some((device) => device.deviceId === this.connection.deviceId);
-    if (!present) this.handleDisconnect(this.connection.deviceId);
+    if (this.connection?.session !== owned.session || this.connection.status !== 'CONNECTED') return null;
+    const present = connected.some((device) => device.deviceId === owned.deviceId);
+    if (!present) this.handleDisconnect(owned.deviceId, owned.session);
     return present;
+  }
+
+  assessmentConnection() { return this.connection; }
+
+  async readAssessmentField(field) {
+    const owned = this.connection;
+    // Never allow a model, a URI, or an untrusted Profile to choose a GATT characteristic.
+    if (field !== 'battery' || owned?.status !== 'CONNECTED' || !owned.readableBattery) return null;
+    const reading = await this.bleClient.read(owned.deviceId, BATTERY_SERVICE, BATTERY_LEVEL);
+    if (this.connection?.session !== owned.session || this.connection.status !== 'CONNECTED'
+      || reading?.byteLength !== 1) return null;
+    const battery = reading.getUint8(0);
+    if (battery > 100) return null;
+    const sample = { value: battery, observedAt: Date.now() };
+    this.connection = { ...this.connection, assessmentBattery: sample };
+    return sample;
   }
 
   subscribe(listener) {
@@ -129,14 +185,15 @@ export class NativeBleAdapter {
   }
 
   async disconnect() {
-    if (this.connection?.deviceId) await this.bleClient.disconnect(this.connection.deviceId);
-    this.handleDisconnect(this.connection?.deviceId);
+    const owned = this.connection;
+    if (owned?.deviceId) await this.bleClient.disconnect(owned.deviceId);
+    if (owned) this.handleDisconnect(owned.deviceId, owned.session);
   }
 
-  handleDisconnect(deviceId) {
+  handleDisconnect(deviceId, session = this.connection?.session) {
     if (!this.connection || this.connection.status === 'DISCONNECTED') return;
-    if (deviceId && deviceId !== this.connection.deviceId) return;
-    this.connection = { ...this.connection, deviceId, status: 'DISCONNECTED' };
+    if (this.connection.session !== session || (deviceId && deviceId !== this.connection.deviceId)) return;
+    this.connection = { ...this.connection, status: 'DISCONNECTED', changedAt: Date.now() };
     this.emit('connection_update', this.connection);
   }
 
@@ -147,6 +204,7 @@ export class NativeBleAdapter {
 
   async sendCommand(command) {
     if (this.connection?.status !== 'CONNECTED') throw new Error('BLE device is not connected');
+    const owned = this.connection;
     const operation = this.registry.encodeCommand(this.profile?.id ?? null, command);
     const bytes = new Uint8Array(operation.value);
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -154,30 +212,36 @@ export class NativeBleAdapter {
       ? await this.startNotificationConfirmation(command, operation.confirmation)
       : null;
     try {
-      await this.bleClient.write(this.connection.deviceId, operation.serviceUuid, operation.characteristicUuid, view);
+      if (this.connection?.session !== owned.session || this.connection.status !== 'CONNECTED')
+        throw new Error('The BLE connection changed before command delivery');
+      await this.bleClient.write(owned.deviceId, operation.serviceUuid, operation.characteristicUuid, view);
     } catch (error) {
       await notification?.cancel();
       throw error;
     }
 
     if (operation.confirmation.type === 'none') {
-      return { ...command, deviceId: this.connection.deviceId, status: 'UNCONFIRMED', reportedState: this.connection.reportedState ?? {} };
+      return { ...command, deviceId: owned.deviceId, status: 'UNCONFIRMED', reportedState: owned.reportedState ?? {} };
     }
     if (operation.confirmation.type === 'read') {
       const value = await this.bleClient.read(
-        this.connection.deviceId,
+        owned.deviceId,
         operation.confirmation.serviceUuid,
         operation.confirmation.characteristicUuid
       );
       const reportedState = operation.confirmation.decode(value);
-      this.connection = { ...this.connection, reportedState };
-      return { ...command, deviceId: this.connection.deviceId, status: 'ACKNOWLEDGED', reportedState };
+      if (this.connection?.session !== owned.session || this.connection.status !== 'CONNECTED')
+        return { ...command, deviceId: owned.deviceId, status: 'UNCONFIRMED' };
+      const reportedAt = Date.now();
+      this.connection = { ...this.connection, reportedState, reportedAt, reportedCommandId: command.commandId };
+      return { ...command, deviceId: owned.deviceId, status: 'ACKNOWLEDGED', reportedState, reportedAt };
     }
     return notification.result;
   }
 
   async startNotificationConfirmation(command, confirmation) {
     const deviceId = this.connection.deviceId;
+    const session = this.connection.session;
     let settled = false;
     let timer = null;
     let subscribed = false;
@@ -192,7 +256,7 @@ export class NativeBleAdapter {
     result.catch(() => {});
 
     const cleanup = async () => {
-      if (!subscribed) return;
+      if (!subscribed || (this.connection?.deviceId === deviceId && this.connection.session !== session)) return;
       try {
         await this.bleClient.stopNotifications(deviceId, confirmation.serviceUuid, confirmation.characteristicUuid);
       } catch {
@@ -209,10 +273,12 @@ export class NativeBleAdapter {
     };
     const onNotification = (value) => {
       try {
+        if (settled || this.connection?.session !== session || this.connection.status !== 'CONNECTED') return;
         const reportedState = confirmation.decode(value);
         if (reportedState == null) return;
-        this.connection = { ...this.connection, reportedState };
-        void finish({ ...command, deviceId, status: 'ACKNOWLEDGED', reportedState });
+        const reportedAt = Date.now();
+        this.connection = { ...this.connection, reportedState, reportedAt, reportedCommandId: command.commandId };
+        void finish({ ...command, deviceId, status: 'ACKNOWLEDGED', reportedState, reportedAt });
       } catch (error) {
         void finish(null, error);
       }
@@ -241,7 +307,7 @@ export class NativeBleAdapter {
         ...command,
         deviceId,
         status: 'UNCONFIRMED',
-        reportedState: this.connection?.reportedState ?? {},
+        reportedState: this.connection?.session === session ? this.connection.reportedState ?? {} : {},
         confirmationTimedOut: true
       });
     }, this.confirmationTimeoutMs);

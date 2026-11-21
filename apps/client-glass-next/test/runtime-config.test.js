@@ -16,6 +16,17 @@ function fakePreferences() {
   };
 }
 
+test('bootstrap endpoint read is side-effect free and discards persisted legacy tokens', async () => {
+  let writes = 0;
+  const repository = new RuntimeConfigRepository({ preferences: {
+    get: async () => ({ value: JSON.stringify({ id:'a', accessRoute:'SITE_API', apiBaseUrl:'https://a.invalid', wsUrl:'wss://a.invalid', accessToken:'legacy' }) }),
+    set: async () => { writes++; }
+  } });
+  assert.equal((await repository.load({ migrate:false })).accessToken, null);
+  assert.equal(writes, 0);
+  await repository.load(); assert.equal(writes, 1);
+});
+
 test('normalizes a site endpoint into immutable API and WebSocket URLs', () => {
   const profile = normalizeEndpointProfile({
     id: 'factory-a',

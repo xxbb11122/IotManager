@@ -1,7 +1,7 @@
 package com.iot.manager.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import com.iot.manager.dto.ClaimLanDeviceRequest;
 import com.iot.manager.dto.DeviceView;
 import com.iot.manager.dto.LanCandidateView;
@@ -16,6 +16,9 @@ import com.iot.manager.repository.OrganizationRepository;
 import com.iot.manager.repository.SiteRepository;
 import com.iot.manager.repository.SpaceRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -66,8 +69,13 @@ public class LanDiscoveryService {
     private final WebSocketService webSocketService;
     private final ObjectMapper objectMapper;
     private final SiteAccessService siteAccessService;
+    private final Environment environment;
+
+    @Value("${iot.discovery.demo-enabled:false}")
+    private boolean demoEnabled;
 
     public List<LanCandidateView> listCandidates(String siteCode) {
+        if (!demoAvailable()) return List.of();
         resolveSite(siteCode);
         return CATALOG.stream()
                 .filter(candidate -> candidate.siteCode().equals(siteCode))
@@ -78,8 +86,12 @@ public class LanDiscoveryService {
 
     @Transactional
     public DeviceView claim(String candidateId, ClaimLanDeviceRequest request) {
+        if (!demoAvailable()) throw new NoSuchElementException("LAN candidate not found");
         LanCandidate candidate = candidate(candidateId);
         Site site = resolveSite(request.siteCode());
+        if (!candidate.siteCode().equals(site.getCode())) {
+            throw new NoSuchElementException("LAN candidate not found for this site");
+        }
         Space space = resolveSpace(site, request.spacePath());
 
         if (!claimedCandidateIds.add(candidateId)) {
@@ -138,6 +150,12 @@ public class LanDiscoveryService {
             throw new NoSuchElementException("LAN candidate not found");
         }
         return candidate;
+    }
+
+    private boolean demoAvailable() {
+        return demoEnabled && !siteAccessService.isScopeEnforced()
+                && environment.acceptsProfiles(Profiles.of("dev", "test"))
+                && !environment.acceptsProfiles(Profiles.of("prod"));
     }
 
     private Site resolveSite(String siteCode) {
@@ -210,7 +228,7 @@ public class LanDiscoveryService {
     private String writeJson(Map<String, Object> value) {
         try {
             return objectMapper.writeValueAsString(value);
-        } catch (JsonProcessingException exception) {
+        } catch (JacksonException exception) {
             throw new IllegalStateException("Unable to serialize LAN discovery context", exception);
         }
     }

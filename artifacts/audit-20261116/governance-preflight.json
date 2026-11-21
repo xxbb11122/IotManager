@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-11-16T15:27:07.748Z",
+  "repository": "xxbb11122/IotManager",
+  "defaultBranch": "main",
+  "status": "FAIL",
+  "productionApproved": false,
+  "scope": "repository-governance-only",
+  "controls": [
+    {
+      "id": "default-branch-protection",
+      "status": "PASS",
+      "detail": "The default branch must have readable, effective protection."
+    },
+    {
+      "id": "required-quick-gate",
+      "status": "PASS",
+      "detail": "quick-gate must be required against the current base branch."
+    },
+    {
+      "id": "admin-and-history-protection",
+      "status": "PASS",
+      "detail": "Administrators cannot bypass protection; force pushes and branch deletion are blocked."
+    },
+    {
+      "id": "reviewed-default-branch",
+      "status": "PASS",
+      "detail": "At least one approval is required and stale approvals are dismissed."
+    },
+    {
+      "id": "environment:r1-recovery-drill",
+      "status": "FAIL",
+      "detail": "Protected branches only; independent reviewer required, with no administrator bypass."
+    },
+    {
+      "id": "environment:r1-rollback-drill",
+      "status": "UNKNOWN",
+      "detail": "Protected branches only; independent reviewer required, with no administrator bypass."
+    },
+    {
+      "id": "environment:android-release",
+      "status": "UNKNOWN",
+      "detail": "Protected branches only; independent reviewer required, with no administrator bypass."
+    },
+    {
+      "id": "recovery-runner",
+      "status": "FAIL",
+      "detail": "An online dedicated recovery runner with all required labels is required."
+    }
+  ]
+}

@@ -14,7 +14,7 @@ variable "PLATFORM" {
 }
 
 group "release" {
-  targets = ["backend", "caddy", "keycloak", "postgres", "prometheus", "alertmanager"]
+  targets = ["backend", "caddy", "keycloak", "postgres", "prometheus", "alertmanager", "logical-backup"]
 }
 
 target "release-attestations" {
@@ -71,5 +71,13 @@ target "alertmanager" {
   dockerfile = "deploy/monitoring/Dockerfile"
   target     = "alertmanager"
   tags       = ["${REGISTRY}/iot-manager-alertmanager:${TAG}"]
+  platforms  = ["${PLATFORM}"]
+}
+
+target "logical-backup" {
+  inherits   = ["release-attestations"]
+  context    = "deploy"
+  dockerfile = "backup/Dockerfile"
+  tags       = ["${REGISTRY}/iot-manager-logical-backup:${TAG}"]
   platforms  = ["${PLATFORM}"]
 }
